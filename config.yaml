@@ -1,0 +1,14 @@
+model:
+  hidden_dim: 128
+  num_layers: 2
+  learning_rate: 0.001
+  num_actions: 10
+
+training:
+  batch_size: 32
+  num_epochs: 50
+  save_model_path: "/models/trained_model.pth"
+
+logging:
+  level: "INFO"
+  log_file: "/logs/poker_ai.log"
