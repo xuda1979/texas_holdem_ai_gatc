@@ -1,101 +1,123 @@
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv2D, Flatten, Dense, Activation, add
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Flatten, Conv2D, BatchNormalization, Activation, Add
-from tensorflow.keras.optimizers import Adam
-from texas_holdem import TexasHoldem
+import numpy as np
+from texas_holdem import TexasHoldem  # Ensure this import is correct
 
 class CFRTrainer:
     def __init__(self, config):
         self.config = config
+        self.num_actions = config['num_actions']
+        self.input_shape = config['input_shape']
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=config['learning_rate'])
         self.model = self.build_model()
-        self.optimizer = Adam(learning_rate=config['learning_rate'])
-        self.regret_sum = {}  # Tracks regrets for each action
-        self.strategy_sum = {}  # Tracks cumulative strategies for average strategy computation
+        self.regrets = {}
+        self.strategy = {}
+        print("Model built successfully")  # Debug print statement
 
     def build_model(self):
-        input_shape = (7, 13, 4)  # Match this to the shape of the state data
-        input_layer = Input(shape=input_shape)
-
-        x = Conv2D(64, kernel_size=3, padding="same")(input_layer)
-        x = BatchNormalization()(x)
-        x = Activation("relu")(x)
-
-        for _ in range(self.config['num_res_blocks']):
-            x = self.residual_block(x)
-
+        print("Building model...")  # Debug print statement
+        inputs = Input(shape=self.input_shape)
+        x = Conv2D(64, (3, 3), padding='same', activation='relu')(inputs)
+        x = self.residual_block(x)
         x = Flatten()(x)
-        x = Dense(256, activation="relu")(x)
-        output_layer = Dense(self.config['num_actions'], activation="linear")(x)
-
-        model = Model(inputs=input_layer, outputs=output_layer)
+        outputs = Dense(self.num_actions, activation='softmax')(x)
+        model = Model(inputs=inputs, outputs=outputs)
+        model.compile(optimizer=self.optimizer, loss='mse')
+        print("Model built.")  # Debug print statement
         return model
 
-
     def residual_block(self, x):
+        print("Adding residual block...")  # Debug print statement
         shortcut = x
-        x = Conv2D(64, kernel_size=3, padding="same")(x)
-        x = BatchNormalization()(x)
-        x = Activation("relu")(x)
-        x = Conv2D(64, kernel_size=3, padding="same")(x)
-        x = BatchNormalization()(x)
-        x = Add()([x, shortcut])
-        x = Activation("relu")(x)
+        x = Conv2D(64, (3, 3), padding='same', activation='relu')(x)
+        x = Conv2D(64, (3, 3), padding='same')(x)
+        x = add([x, shortcut])
+        x = Activation('relu')(x)
+        print("Residual block added.")  # Debug print statement
         return x
 
     def train_step(self, states, regrets):
+        print("Starting train step...")  # Debug print statement
         with tf.GradientTape() as tape:
             predictions = self.model(states, training=True)
-            loss = tf.reduce_mean(tf.square(predictions - regrets))  # Mean Squared Error as loss function
-        
-        grads = tape.gradient(loss, self.model.trainable_variables)
-        self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
-        
-        return loss
+            loss = tf.keras.losses.mean_squared_error(regrets, predictions)
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        print("Train step completed.")  # Debug print statement
+        return loss.numpy().mean()
 
-    def cfr(self, game_state, player, iteration):
-        if game_state.is_terminal():
-            return game_state.get_payoff(player)
-
-        state_representation = self.encode_state(game_state, player)
-        strategy = self.get_strategy(state_representation)
-
-        util = {action: 0 for action in game_state.get_actions()}
-        node_utility = 0
-
-        for action in game_state.get_actions():
-            next_state = game_state.next_state(action)
-            util[action] = -self.cfr(next_state, 1 - player, iteration)
-            node_utility += strategy[action] * util[action]
-
-        for action in game_state.get_actions():
-            regret = util[action] - node_utility
-            self.regret_sum[action] = self.regret_sum.get(action, 0) + regret
-
-        return node_utility
+    def cfr(self, state, player, iteration):
+        # Implement the CFR algorithm here
+        pass
 
     def get_strategy(self, state_representation):
-        regret_sum = [self.regret_sum.get(action, 0) for action in range(self.config['num_actions'])]
-        strategy = [max(r, 0) for r in regret_sum]
-        normalizing_sum = sum(strategy)
-        if normalizing_sum > 0:
-            strategy = [s / normalizing_sum for s in strategy]
-        else:
-            strategy = [1.0 / len(strategy)] * len(strategy)
+        print("Getting strategy...")  # Debug print statement
+        predictions = self.model.predict(np.array([state_representation]))[0]
+        strategy = predictions / np.sum(predictions)  # Normalize to get probabilities
+        print("Strategy obtained.")  # Debug print statement
         return strategy
 
-    def encode_state(self, game_state, player):
-        # Encode the game state into a neural network input format
-        # This is a placeholder; actual implementation will depend on the game state representation
-        return game_state.get_encoded_state(player)
+    def encode_state(self, state):
+        # Implement state encoding here
+        pass
 
-    def train(self, iterations):
-        for iteration in range(iterations):
-            game = TexasHoldem(self.config['num_players'])
-            loss = self.train_step(game.get_initial_state(), self.regret_sum)
-            print(f"Iteration {iteration}, Loss: {loss.numpy()}")
+    def save_model(self, model_path):
+        self.model.save(model_path)
+        print("Model saved successfully")
 
-    def save_model(self, path):
-        self.model.save(path)
+    def load_model(self, model_path):
+        try:
+            print("Loading model...")  # Debug print statement
+            self.model = tf.keras.models.load_model(model_path)
+            print("Model loaded successfully")
+        except Exception as e:
+            print(f"Failed to load model: {e}")
 
-    def load_model(self, path):
-        self.model = tf.keras.models.load_model(path)
+    def simulate_games(self, num_games=100):
+        print("Starting game simulation...")  # Debug print statement
+        game = TexasHoldem(self.config['num_players'])
+        win_count = 0
+        total_profit = 0
+
+        for i in range(num_games):
+            print(f"Simulating game {i+1}/{num_games}...")  # Debug print statement
+            state = game.get_initial_state()
+            while not game.is_terminal(state):
+                player = game.get_current_player(state)
+                state_representation = self.encode_state(state)
+                strategy = self.get_strategy(state_representation)
+                action = np.random.choice(self.num_actions, p=strategy)
+                state = game.apply_action(state, action)
+
+            winner = game.get_winner(state)
+            profit = game.get_profit(state)
+            if winner == 0:  # Assuming player 0 is the trained model
+                win_count += 1
+                total_profit += profit
+
+        win_rate = win_count / num_games
+        average_profit = total_profit / num_games
+        print("Game simulation completed.")  # Debug print statement
+        return win_rate, average_profit
+
+# Example usage
+if __name__ == "__main__":
+    print("Starting script...")  # Debug print statement
+    config = {
+        'num_actions': 10,  # Example number of actions
+        'learning_rate': 0.001,
+        'input_shape': (8, 8, 3),  # Example input shape
+        'num_players': 2  # Example number of players
+    }
+    print("Config created:", config)  # Debug print statement
+    trainer = CFRTrainer(config)
+    print("Loading model...")  # Debug print statement
+    trainer.load_model('trained_model.h5')
+    print("Simulating games...")  # Debug print statement
+    win_rate, average_profit = trainer.simulate_games(num_games=100)
+    print(f"Win Rate: {win_rate * 100:.2f}%")
+    print(f"Average Profit: {average_profit:.2f}")

@@ -30,6 +30,11 @@ class TexasHoldem:
         self.betting_round = 0
         self.display_stage("Pre-Flop")
 
+
+
+
+
+
     def get_initial_state(self):
         state = np.zeros((self.num_players + 5, len(RANKS), len(SUITS)))  # Shape (7, 13, 4)
 
@@ -44,11 +49,12 @@ class TexasHoldem:
             suit = SUITS.index(card[1])
             state[self.num_players + j, rank, suit] = 1
 
-        # Example of flattening and reshaping to (10, 10, 1)
-        state = state.flatten()  # Flatten to a 1D array
-        state = np.pad(state, (0, 100 - state.size), 'constant')  # Pad to ensure it has 100 elements
-        state = state.reshape((10, 10, 1))  # Reshape to (10, 10, 1)
+        # Add batch dimension (1, 7, 13, 4)
+        state = np.expand_dims(state, axis=0)
+
         return state
+
+
 
 
     

@@ -1,17 +1,18 @@
 import unittest
 import numpy as np
+from tensorflow.keras.layers import Input
 from cfr_trainer import CFRTrainer
-from texas_holdem import TexasHoldemGame
+from texas_holdem import TexasHoldem  # Ensure this import is correct
 
 class TestCFRTrainer(unittest.TestCase):
 
     def setUp(self):
+        # Configuration for the CFRTrainer
         self.config = {
-            'input_shape': (10, 10, 1),  # Example shape, update as per your game state encoding
-            'num_actions': 10,
+            'num_actions': 10,  # Example number of actions
             'learning_rate': 0.001,
-            'num_res_blocks': 3,
-            'num_players': 2
+            'input_shape': (8, 8, 3),  # Example input shape
+            'num_players': 2  # Example number of players
         }
         self.trainer = CFRTrainer(self.config)
 

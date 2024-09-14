@@ -1,7 +1,7 @@
 import random
 from itertools import combinations
 
-class TexasHoldem:
+class TexasHoldemRules:
     def __init__(self, num_players=2):
         self.num_players = num_players
         self.deck = self._create_deck()
@@ -152,5 +152,5 @@ class TexasHoldem:
         self.dealer_button = (self.dealer_button + 1) % self.num_players
 
 if __name__ == "__main__":
-    game = TexasHoldem(num_players=4)
+    game = TexasHoldemRules(num_players=4)
     game.play_round()
