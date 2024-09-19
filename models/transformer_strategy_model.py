@@ -1,238 +1,180 @@
-# transformerAIStrategy.py
-
 import tensorflow as tf
 from tensorflow.keras import layers
-from playStrategy import PlayerStrategy
 import numpy as np
 
 class TransformerStrategyModel(tf.keras.Model):
-    def __init__(
-        self,
-        num_actions,
-        d_model=128,
-        num_heads=8,
-        num_layers=3,
-        dim_feedforward=512,
-        max_seq_length=1
-    ):
+    def __init__(self, num_actions, d_model=128, num_heads=8, num_layers=3, dim_feedforward=512, max_seq_length=1):
         super(TransformerStrategyModel, self).__init__()
         self.num_actions = num_actions
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.num_layers = num_layers
-        self.dim_feedforward = dim_feedforward
-        self.max_seq_length = max_seq_length  # Single game state
-
-        # Input projection
-        self.input_dense = layers.Dense(d_model, activation='relu')
-
-        # Positional Encoding (optional for single sequence input)
-        self.positional_encoding = self.add_weight(
-            shape=(1, max_seq_length, d_model),
-            initializer='zeros',
-            trainable=True
-        )
-
-        # Transformer Encoder Layers
-        self.transformer_layers = [
-            layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model)
-            for _ in range(num_layers)
-        ]
-        self.transformer_norms = [
-            layers.LayerNormalization(epsilon=1e-6) for _ in range(num_layers)
-        ]
-
-        # Feed-Forward Network
+        self.input_projection = layers.Dense(d_model, activation='relu')  # Input projection layer
+        self.positional_encoding = self.add_weight(shape=(1, max_seq_length, d_model), initializer='zeros', trainable=True)
+        self.transformer_layers = [layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model) for _ in range(num_layers)]
+        self.transformer_norms = [layers.LayerNormalization(epsilon=1e-6) for _ in range(num_layers)]
         self.feed_forward = layers.Dense(dim_feedforward, activation='relu')
+        self.output_projection = layers.Dense(d_model)  # Add this layer to project back to d_model size
         self.ffn_norm = layers.LayerNormalization(epsilon=1e-6)
-
-        # Output Layers
         self.action_output = layers.Dense(num_actions, activation='softmax', name='action_output')
         self.amount_output = layers.Dense(1, activation='linear', name='amount_output')
 
     def call(self, x):
-        """
-        x: Tensor of shape (batch_size, sequence_length, feature_dim)
-        """
-        x = self.input_dense(x)  # (batch_size, seq_length, d_model)
-        x += self.positional_encoding[:, :tf.shape(x)[1], :]  # Add positional encoding
+        # Project the smaller input into the expected d_model dimensionality
+        x = self.input_projection(x)  # Project to d_model size
+        x += self.positional_encoding[:, :tf.shape(x)[1], :]
+        for i in range(len(self.transformer_layers)):
+            x = self._transformer_layer(x, i)
+        return self.action_output(x), self.amount_output(x)
 
-        for i in range(self.num_layers):
-            # Multi-Head Attention
-            attn_output = self.transformer_layers[i](x, x)
-            attn_output = self.transformer_norms[i](x + attn_output)  # Residual connection and normalization
+    def _transformer_layer(self, x, i):
+        attn_output = self.transformer_layers[i](x, x)
+        attn_output = self.transformer_norms[i](x + attn_output)
+        ffn_output = self.feed_forward(attn_output)
+        ffn_output = self.output_projection(ffn_output)  # Project the feed-forward output back to d_model size
+        return self.ffn_norm(attn_output + ffn_output)
 
-            # Feed-Forward Network
-            ffn_output = self.feed_forward(attn_output)
-            ffn_output = self.ffn_norm(attn_output + ffn_output)  # Residual connection and normalization
 
-            x = ffn_output  # Update x for next layer
-
-        # Separate outputs
-        action_probs = self.action_output(x)  # (batch_size, seq_length, num_actions)
-        amount_pred = self.amount_output(x)    # (batch_size, seq_length, 1)
-
-        return action_probs, amount_pred
 
     def get_config(self):
-        config = super(TransformerStrategyModel, self).get_config()
-        config.update({
+        return {
             'num_actions': self.num_actions,
-            'd_model': self.d_model,
-            'num_heads': self.num_heads,
-            'num_layers': self.num_layers,
-            'dim_feedforward': self.dim_feedforward,
-            'max_seq_length': self.max_seq_length
-        })
-        return config
+        }
 
     @classmethod
     def from_config(cls, config):
         return cls(**config)
 
 
-class TransformerAIStrategy(PlayerStrategy):
-    def __init__(
-        self,
-        num_actions=6,  # Example: 0-Fold, 1-Check, 2-Call, 3-Bet, 4-Raise, 5-All-In
-        d_model=128,
-        num_heads=8,
-        num_layers=3,
-        dim_feedforward=512,
-        min_bet=10,
-        max_bet=100
-    ):
-        super().__init__()
+# AI Strategy Class that Uses the Transformer Model
+class TransformerAIStrategy:
+    def __init__(self, num_actions=6):
         self.num_actions = num_actions
-        self.min_bet = min_bet
-        self.max_bet = max_bet
-
-        self.model = TransformerStrategyModel(
-            num_actions=num_actions,
-            d_model=d_model,
-            num_heads=num_heads,
-            num_layers=num_layers,
-            dim_feedforward=dim_feedforward,
-            max_seq_length=1  # Single game state
-        )
-
-        # Optionally, load pretrained weights
-        # Example:
-        # self.model.load_weights('path_to_pretrained_weights.h5')
+        self.model = TransformerStrategyModel(num_actions=num_actions)
 
     @property
     def is_human(self):
-        return False
+        return False  # AI-controlled player
 
-    def choose_action(self, game, player_index):
-        # Extract game state features
-        features = self.extract_features(game, player_index)
-        features = np.expand_dims(features, axis=0)  # Shape: (1, feature_dim)
-        features = np.expand_dims(features, axis=1)  # Shape: (1, 1, feature_dim)
+    def choose_action(self, game_state, player_index):
+        """
+        Chooses an action based on the current game state.
+        
+        Parameters:
+        - game_state: A dictionary representing the current state of the game.
+        - player_index: Index of the player making the decision.
 
-        # Convert to Tensor
-        features_tensor = tf.convert_to_tensor(features, dtype=tf.float32)
+        Returns:
+        - action: The chosen action (fold, check, call, raise, all-in).
+        - amount: The amount to bet or raise, if applicable.
+        """
+        # Extract game features based on the current game state
+        features = self._get_game_features(game_state, player_index)
+        return self._process_action(features, game_state, player_index)
 
-        # Get action probabilities and amount prediction from the model
-        action_probs, amount_pred = self.model(features_tensor)
-        action_probs = action_probs.numpy()[0][0]  # Shape: (num_actions,)
-        amount_pred = amount_pred.numpy()[0][0]    # Scalar
+    def _card_to_numeric(self, card):
+        """
+        Converts a card string like 'Js' (Jack of Spades) into a numerical value.
+        Suits are mapped to numbers and ranks are mapped to numbers.
+        """
+        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        suit_map = {'h': 1, 'd': 2, 'c': 3, 's': 4}
 
-        # Select action based on probabilities
-        action = np.random.choice(self.num_actions, p=action_probs)
-        action_map = {
-            0: 'fold',
-            1: 'check',
-            2: 'call',
-            3: 'bet',
-            4: 'raise',
-            5: 'all-in'
-        }
-        selected_action = action_map.get(action, 'fold')  # Default to 'fold' if mapping fails
+        # Extract rank and suit from the card string
+        rank = card[0]
+        suit = card[1]
+        
+        # Convert the rank and suit to numerical values and return as a float
+        return rank_map[rank] + (suit_map[suit] / 10)  # Slightly adjust suit for uniqueness
 
-        # If action is 'bet' or 'raise', decide raise amount
-        if selected_action in ['bet', 'raise']:
-            # Normalize amount_pred to be within [min_bet, max_bet]
-            amount = int(np.clip(amount_pred, self.min_bet, self.max_bet))
-            # Ensure amount does not exceed player's available chips
-            available_chips = game.rules.player_chips[player_index]
-            current_bet = game.rules.current_bet
-            player_current_bet = game.rules.bets[player_index]
-            required_call = current_bet - player_current_bet
-            max_possible_raise = available_chips - required_call
-            if selected_action == 'raise':
-                # In a raise, the amount should be at least the min_raise
-                min_raise = game.get_min_raise_amount(player_index)
-                if amount < min_raise:
-                    amount = min_raise
-                amount = int(np.clip(amount, min_raise, max_possible_raise))
-            elif selected_action == 'bet':
-                # In a bet, the amount is the initial bet
-                amount = int(np.clip(amount, self.min_bet, max_possible_raise))
-            return selected_action, amount
+
+    def _get_game_features(self, game_state, player_index):
+        """
+        Extracts features from the game state for the model.
+        
+        Parameters:
+        - game_state: A TexasHoldem object with relevant game information.
+        - player_index: The index of the player for whom features are being extracted.
+        
+        Returns:
+        - A tensor representing the input features for the model.
+        """
+        # Accessing the player's hand and community cards from game_state.rules
+        player_hand = np.array([self._card_to_numeric(card) for card in game_state.rules.hands[player_index]])  # Player hand
+        community_cards = np.array([self._card_to_numeric(card) for card in game_state.rules.community_cards])  # Community cards
+        
+        # Concatenate player hand and community cards
+        features = np.concatenate((player_hand, community_cards), axis=None)
+        
+        # Return features as a tensor
+        return tf.convert_to_tensor(features, dtype=tf.float32)
+
+
+
+    def _process_action(self, features, game_state, player_index):
+        """
+        Processes the model output and validates the action within the game constraints.
+        
+        Parameters:
+        - features: The extracted features for the player and game state.
+        - game_state: The current state of the game.
+        - player_index: The index of the player making the decision.
+        
+        Returns:
+        - action: A validated and game-compliant action.
+        - amount: A validated amount for betting or raising.
+        """
+        # Pass the extracted features to the model and get the action and amount
+        features = tf.expand_dims(features, axis=0)  # Add batch dimension
+        action_probs, amount_pred = self.model(features)
+        action = tf.argmax(action_probs[0, 0], axis=-1).numpy()
+        amount = amount_pred[0, 0].numpy()
+        
+        # Validate and adjust the action to satisfy game rules
+        return self._validate_action(game_state, player_index, action, amount)
+
+
+
+    def _validate_action(self, game_state, player_index, action, amount):
+        """
+        Validates and adjusts the model's predicted action based on game rules.
+        
+        Parameters:
+        - game_state: The current state of the game (TexasHoldem object).
+        - player_index: The index of the player making the decision.
+        - action: The action predicted by the model (fold, check, call, raise, all-in).
+        - amount: The amount predicted by the model for betting or raising.
+        
+        Returns:
+        - action: A validated action (fold, check, call, raise, all-in).
+        - amount: A validated and adjusted amount.
+        """
+        # Calculate min and max bet based on game rules (adjust these as necessary)
+        min_raise = game_state.rules.current_bet  # Replace this with how the minimum raise is calculated
+        max_raise = game_state.rules.player_chips[player_index]  # Maximum raise is all the player's chips
+        amount_to_call = game_state.rules.current_bet - game_state.rules.bets[player_index]
+        player_chips = game_state.rules.player_chips[player_index]
+
+        # Ensure the action makes sense given the game state
+        if action == 0:  # Fold
+            return 'fold', None
+        elif action == 1:  # Check
+            # Player can only check if there's no amount to call
+            if amount_to_call > 0:
+                action = 2  # Change to call
+            return 'check' if amount_to_call == 0 else 'call', amount_to_call
+        elif action == 2:  # Call
+            if amount_to_call > player_chips:
+                action = 0  # If they can't call, they must fold
+                return 'fold', None
+            return 'call', amount_to_call
+        elif action in [3, 4]:  # Bet or Raise
+            # Ensure bet/raise amount is within valid limits
+            if amount < min_raise:
+                amount = min_raise
+            elif amount > max_raise:
+                amount = max_raise
+            if amount > player_chips:
+                amount = player_chips  # Cannot raise more than the player's chips
+            return 'raise', amount
+        elif action == 5:  # All-In
+            return 'all-in', player_chips
         else:
-            return selected_action, None
-
-    def extract_features(self, game, player_index):
-        """
-        Extract and encode the game state into a feature vector.
-        """
-        # Player's current chips
-        player_chips = game.rules.player_chips[player_index]
-
-        # Current bet in the game
-        current_bet = game.rules.current_bet
-
-        # Player's current bet
-        player_bet = game.rules.bets[player_index]
-
-        # Encode community cards
-        community_cards = game.rules.community_cards
-        num_community_cards = len(community_cards)
-        max_community_cards = 5
-        card_encoding = []
-        for card in community_cards:
-            rank = self.card_rank_to_int(card[0])
-            suit = self.card_suit_to_int(card[1])
-            card_encoding.extend([rank, suit])
-        while len(card_encoding) < max_community_cards * 2:
-            card_encoding.extend([0, 0])  # Padding
-
-        # Encode player's hole cards
-        hole_cards = game.rules.hands[player_index]
-        hole_card_encoding = []
-        for card in hole_cards:
-            rank = self.card_rank_to_int(card[0])
-            suit = self.card_suit_to_int(card[1])
-            hole_card_encoding.extend([rank, suit])
-        while len(hole_card_encoding) < 2 * 2:
-            hole_card_encoding.extend([0, 0])  # Padding for two cards
-
-        # Combine all features into a single vector
-        features = [
-            player_chips,
-            current_bet,
-            player_bet
-        ] + card_encoding + hole_card_encoding
-
-        # Normalize features if necessary (optional)
-        # Example: scale chips and bets by dividing by a constant
-        # Here, assuming starting_stack = 10000
-        features = [
-            player_chips / 10000,
-            current_bet / 10000,
-            player_bet / 10000
-        ] + card_encoding + hole_card_encoding
-
-        return np.array(features, dtype=np.float32)
-
-    def card_rank_to_int(self, rank):
-        rank_dict = {
-            '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
-            '8': 8, '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
-        }
-        return rank_dict.get(rank.upper(), 0)
-
-    def card_suit_to_int(self, suit):
-        suit_dict = {'h': 1, 'd': 2, 'c': 3, 's': 4}
-        return suit_dict.get(suit.lower(), 0)
+            raise ValueError(f"Unsupported action index: {action}")
