@@ -1,14 +1,24 @@
 model:
   hidden_dim: 128
+  d_raw_feature: 3 # This was added in a previous step
   num_layers: 2
   learning_rate: 0.001
   num_actions: 10
 
+game_engine:
+  num_players: 2
+  starting_stack: 1000
+  big_blind: 10
+  small_blind: 5
+
 training:
-  batch_size: 32
-  num_epochs: 50
-  save_model_path: "/models/trained_model.pth"
+  num_training_hands: 1000
+  save_model_every_n_hands: 100
+  batch_size: 32 # Kept existing, though less relevant for current training loop
+  num_epochs: 50 # Kept existing, though less relevant for current training loop
+  save_model_path: "models/cfr_model.pth" # Updated path
 
 logging:
   level: "INFO"
-  log_file: "/logs/poker_ai.log"
+  log_file: "logs/poker_ai.log" # Changed to relative path for consistency
+```
