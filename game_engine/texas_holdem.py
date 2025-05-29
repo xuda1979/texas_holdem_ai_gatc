@@ -42,6 +42,7 @@ class TexasHoldemRules:
                     self.hands[i].append(self.deck.pop(0))
 
     def post_blinds(self):
+        structured_blind_actions = []
         small_blind_player = (self.dealer_button + 1) % self.num_players
         big_blind_player = (self.dealer_button + 2) % self.num_players
 
@@ -51,6 +52,7 @@ class TexasHoldemRules:
         self.pot += self.small_blind
         self.betting_history.append(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
         print(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
+        structured_blind_actions.append((str(small_blind_player), ('bet', self.small_blind)))
 
         # Big Blind
         self.player_chips[big_blind_player] -= self.big_blind
@@ -58,10 +60,12 @@ class TexasHoldemRules:
         self.pot += self.big_blind
         self.betting_history.append(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
         print(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
+        structured_blind_actions.append((str(big_blind_player), ('bet', self.big_blind)))
 
         self.current_bet = self.big_blind
         self.previous_raise_amount = self.big_blind
         self.current_player = (big_blind_player + 1) % self.num_players
+        return structured_blind_actions
 
     def bet(self, player_index, amount):
         bet_difference = amount - self.bets[player_index]
@@ -204,14 +208,17 @@ class TexasHoldem:
         self.hand_count = 0
         self.historical_actions = []
         self.history_limit = 500  # Save history every 500 hands
+        self.current_hand_initial_actions = [] # For structured blind actions
 
         # Ensure data directory exists
         if not os.path.exists('data'):
             os.makedirs('data')
 
     def initialize_game(self):
+        self.current_hand_initial_actions = [] # Reset at the start of each hand
         self.rules.shuffle_deck()
-        self.rules.post_blinds()
+        structured_blinds = self.rules.post_blinds()
+        self.current_hand_initial_actions = structured_blinds
         self.deal_hands()
         self.hand_count += 1
         self.historical_actions.append({

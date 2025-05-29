@@ -5,7 +5,7 @@ from utils.state_representation import prepare_transformer_input
 from utils.action_mapping import get_action_from_index
 import torch
 import copy
-# Removed: from models.transformer_strategy_model import TransformerAIStrategy, TransformerStrategyModel
+import random # Added import
 from typing import List, Tuple, Dict, Any
 
 class DummyStrategy:
@@ -47,18 +47,29 @@ class SelfPlay:
         if action_str == 'bet':
             if game_current_bet != 0: return False
             if amount is None or amount <= 0: return False
-            if amount < engine_rules.big_blind: return False 
+            # If all-in, it's valid even if less than big blind (as long as it's > 0, checked above)
+            if amount < engine_rules.big_blind and amount != player_chips: 
+                return False 
             return player_chips >= amount
 
         if action_str == 'raise':
             if game_current_bet == 0: return False 
-            if amount is None or amount <= game_current_bet: return False
-            raise_amount_needed = amount - player_current_bet_in_round 
-            if player_chips < raise_amount_needed: return False
-            min_raise_increment = engine_rules.previous_raise_amount if engine_rules.previous_raise_amount > 0 else engine_rules.big_blind
+            if amount is None or amount <= game_current_bet: return False # Total bet amount must be greater
+            
+            raise_amount_committed = amount - player_current_bet_in_round # The actual chips player needs to add to the pot
+            if player_chips < raise_amount_committed: return False # Cannot afford the raise
+
+            # Check if the raise increment is valid
             actual_raise_increment = amount - game_current_bet
-            if actual_raise_increment < min_raise_increment: return False
-            return True
+            min_raise_increment = engine_rules.previous_raise_amount if engine_rules.previous_raise_amount > 0 else engine_rules.big_blind
+            
+            if actual_raise_increment < min_raise_increment:
+                # If the raise increment is too small, it's only valid if the player is going all-in
+                # and this all-in amount constitutes a raise (i.e. amount > game_current_bet, checked above)
+                if raise_amount_committed == player_chips: # Player is going all-in
+                    return True # All-in is a valid under-raise
+                return False # Increment too small and not an all-in
+            return True # Raise increment is valid
         
         return False
 
@@ -88,13 +99,90 @@ class SelfPlay:
         return ai_gs
 
     def _get_opponent_action(self, engine_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
-        amount_to_call = engine_rules_obj.current_bet - engine_rules_obj.bets[player_index]
         player_chips = engine_rules_obj.player_chips[player_index]
-        if amount_to_call == 0: return 'check', None
-        elif player_chips > amount_to_call: return 'call', amount_to_call
-        elif player_chips == amount_to_call and amount_to_call > 0 : return 'call', amount_to_call
-        elif player_chips < amount_to_call and player_chips > 0: return 'call', player_chips
-        else: return 'fold', None
+        player_current_bet_in_round = engine_rules_obj.bets[player_index]
+        game_current_bet = engine_rules_obj.current_bet
+        amount_to_call = game_current_bet - player_current_bet_in_round
+
+        chosen_action_str = 'fold' # Default safe action
+        chosen_amount_for_engine = None
+
+        if amount_to_call == 0: # Can check or bet
+            rand_val = random.random()
+            if rand_val < 0.7: # 70% chance to check
+                chosen_action_str, chosen_amount_for_engine = 'check', None
+            else: # 30% chance to bet
+                bet_total_amount = int(engine_rules_obj.pot * 0.5)
+                bet_total_amount = max(bet_total_amount, engine_rules_obj.big_blind)
+                bet_total_amount = min(bet_total_amount, player_chips) # Cap at player's stack
+
+                if self._is_action_valid(engine_rules_obj, player_index, 'bet', bet_total_amount):
+                    chosen_action_str, chosen_amount_for_engine = 'bet', bet_total_amount
+                else: # Bet is invalid (e.g. player_chips is 0, or calculated bet is 0 and invalid)
+                    chosen_action_str, chosen_amount_for_engine = 'check', None # Fallback to check
+        else: # Facing a bet/raise (amount_to_call > 0)
+            rand_val = random.random()
+            if rand_val < 0.1: # 10% chance to fold
+                chosen_action_str, chosen_amount_for_engine = 'fold', None
+            elif rand_val < 0.3: # 20% chance to attempt raise (cumulative 0.1 + 0.2 = 0.3)
+                # Try to raise: e.g., raise by 75% of current pot size, min increment is big blind
+                raise_increment = int(engine_rules_obj.pot * 0.75)
+                raise_increment = max(raise_increment, engine_rules_obj.big_blind)
+                raise_increment = min(raise_increment, player_chips - amount_to_call) # Cap increment if it makes player all-in
+
+                if raise_increment <=0 : # cannot make a positive raise increment (e.g. already all in to call)
+                    # Fallback to call if possible
+                    if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
+                         chosen_action_str, chosen_amount_for_engine = 'call', None # Engine calculates call amount
+                    else: # Cannot call
+                         chosen_action_str, chosen_amount_for_engine = 'fold', None
+                else:
+                    # Validate the proposed raise. `_is_action_valid` for 'raise' expects the *total* bet amount.
+                    proposed_total_bet_for_validation = game_current_bet + raise_increment
+                    if self._is_action_valid(engine_rules_obj, player_index, 'raise', proposed_total_bet_for_validation):
+                        chosen_action_str, chosen_amount_for_engine = 'raise', raise_increment
+                    else: # Raise is invalid or unaffordable, try to call
+                        if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
+                            chosen_action_str, chosen_amount_for_engine = 'call', None
+                        else: # Cannot call
+                            chosen_action_str, chosen_amount_for_engine = 'fold', None
+            else: # 70% chance to call
+                if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
+                    chosen_action_str, chosen_amount_for_engine = 'call', None
+                else: # Cannot call
+                    chosen_action_str, chosen_amount_for_engine = 'fold', None
+        
+        # Final safety net: if chosen action is somehow still invalid, default to fold or check.
+        # This logic should ideally be covered by the decision paths above.
+        # For 'call', _is_action_valid needs the total bet amount (game_current_bet)
+        # For 'bet', _is_action_valid needs the total bet amount
+        # For 'raise', _is_action_valid needs the total bet amount
+        # The `chosen_amount_for_engine` is what process_action expects (None for call, total for bet, increment for raise)
+        
+        # Re-construct the 'amount' argument for _is_action_valid based on action type
+        amount_for_validation = None
+        if chosen_action_str == 'bet':
+            amount_for_validation = chosen_amount_for_engine
+        elif chosen_action_str == 'raise':
+            # Must calculate total bet for validation if chosen_amount_for_engine is the increment
+            if chosen_amount_for_engine is not None:
+                 amount_for_validation = game_current_bet + chosen_amount_for_engine
+            else: # Should not happen if raise is chosen with None amount
+                 pass # Keep it None, will likely fail validation or be fold
+        elif chosen_action_str == 'call':
+            amount_for_validation = game_current_bet # Call is to match current game bet
+
+        if not self._is_action_valid(engine_rules_obj, player_index, chosen_action_str, amount_for_validation):
+            # print(f"Warning: Opponent action {chosen_action_str}, {chosen_amount_for_engine} (valid. amount: {amount_for_validation}) was chosen but is invalid. Fallback.")
+            if amount_to_call == 0: # Original situation was check/bet
+                chosen_action_str, chosen_amount_for_engine = 'check', None
+            # Check if player can call the original amount_to_call
+            elif self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
+                chosen_action_str, chosen_amount_for_engine = 'call', None
+            else: # Must fold
+                chosen_action_str, chosen_amount_for_engine = 'fold', None
+                
+        return chosen_action_str, chosen_amount_for_engine
 
     def _simulate_hand_outcome(self, temp_game_engine_state: TexasHoldemRules, ai_player_idx_for_payoff: int) -> float:
         sim_engine = TexasHoldem(**self.game_engine_base_config)
@@ -151,6 +239,15 @@ class SelfPlay:
         training_data_for_hand = [] 
         self.game_engine.initialize_game()
         main_ai_gs = AI_GameState()
+
+        # Incorporate initial blind actions into main_ai_gs.betting_history
+        initial_actions = self.game_engine.current_hand_initial_actions
+        if initial_actions: # Ensure it's not None or empty if that's possible
+            print(f"Recording initial blind actions: {initial_actions}")
+            for player_id_str, action_detail_tuple in initial_actions:
+                main_ai_gs.record_action(player_id_str, action_detail_tuple)
+        
+        # Now populate the rest of the game state. Betting history will be preserved and include blinds.
         main_ai_gs = self._populate_ai_gamestate(self.game_engine.rules, main_ai_gs)
         stages = ["pre-flop", "flop", "turn", "river"]
         for stage_name in stages:
@@ -287,7 +384,6 @@ class SelfPlay:
         if not training_data_for_hand:
             print("No training data (AI decision points) collected for this hand.")
         for state_tensor_data, _, _, cf_payoffs_data in training_data_for_hand:
-            # actual_action_idx and actual_payoff are not used by the new trainer.train
             print(f"Calling cfr_trainer.train with state_tensor shape: {state_tensor_data.shape}, cf_payoffs: {cf_payoffs_data.tolist()}")
             self.cfr_trainer.train(state_tensor_data, cf_payoffs_data)
         
@@ -308,13 +404,12 @@ if __name__ == '__main__':
         def __init__(self, num_actions=10):
             self.config = { 'model': { 'max_seq_len': 20, 'd_raw_feature': 3 } }
             self.model = MockModel(num_actions=num_actions)
-            self.num_actions = num_actions # For AICFRTrainer compatibility, though not directly used by this mock's train
+            self.num_actions = num_actions 
 
         def train(self, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
             print(f"MockCFRTrainer.train called:")
             print(f"  State Tensor Shape: {state_tensor.shape}")
             print(f"  Counterfactual Payoffs: {all_counterfactual_payoffs.tolist()}")
-            # In a real trainer, this is where loss calculation and backpropagation would occur.
 
     mock_cfr_trainer = MockCFRTrainer(num_actions=10) 
     
@@ -335,5 +430,4 @@ if __name__ == '__main__':
         print("No training data was collected.")
 
     print("\nSelfPlay with counterfactual logic and trainer integration test finished.")
-
 ```
