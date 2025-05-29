@@ -24,6 +24,7 @@ class TexasHoldemRules:
         self.previous_raise_amount = 0
         self.dealer_button = 0
         self.betting_history = []  # Stores actions per hand
+        self.actions_this_round = 0 # Counter for actions in the current betting round
 
     def _create_deck(self):
         suits = ['h', 'd', 'c', 's']  # h: hearts, d: diamonds, c: clubs, s: spades
@@ -99,6 +100,56 @@ class TexasHoldemRules:
         self.bets = [0] * self.num_players
         self.current_bet = 0
         self.previous_raise_amount = 0
+        # self.actions_this_round is initialized in __init__ and reset by reset_bets
+
+    def betting_round_is_over(self) -> bool:
+        """
+        Determines if the current betting round should end.
+        Uses self.actions_this_round internally.
+        """
+        num_still_in_hand = sum(1 for i in range(self.num_players) if self.active_players[i])
+        if num_still_in_hand < 2:
+            return True # Round ends if only one or zero players are left.
+
+        # Check if all active players who are not all-in have bets matching the current_bet
+        all_bets_settled = True
+        for i in range(self.num_players):
+            if self.active_players[i] and self.player_chips[i] > 0: # Active and not all-in
+                if self.bets[i] != self.current_bet:
+                    all_bets_settled = False
+                    break
+        
+        # Ensure everyone has had a chance to act on the current state of betting.
+        # This means at least num_still_in_hand actions have occurred since the last bet/raise
+        # or since the round started if no bets.
+        # A simple check: if actions_taken >= num_still_in_hand, and all bets are settled.
+        # A more robust check would track if action has closed (returned to last aggressor with no further aggression).
+        # Using self.actions_this_round is a good proxy.
+        
+        # Condition: If all bets are settled AND enough actions have been taken for everyone to respond.
+        # The "enough actions" part is tricky. A common rule is that betting ends when:
+        # 1. All players have had a chance to act.
+        # 2. All players who haven't folded have bet the same amount of money for the round,
+        #    OR are all-in.
+        # The `self.actions_this_round >= num_still_in_hand` combined with `all_bets_settled`
+        # covers this reasonably for now. If current_bet is 0, and everyone checks, it's settled.
+        # If there's a bet, and everyone calls or folds, it's settled.
+        if all_bets_settled and self.actions_this_round >= num_still_in_hand:
+            return True
+            
+        return False
+
+    def end_betting_round_cleanup(self):
+        """
+        Resets betting state for the start of a new round (street).
+        The pot itself is accumulated incrementally during bets.
+        Calls self.reset_bets() which also resets self.actions_this_round.
+        """
+        self.reset_bets() # Resets self.bets, self.current_bet, self.previous_raise_amount, and self.actions_this_round
+        # Setting the self.current_player to the correct starting player for the next round
+        # (e.g., first active player left of dealer) is typically handled by the game flow logic
+        # that initiates the next betting round. For example, after flop, SB (or first active after) starts.
+        # advance_turn() will be called by the game loop to find the actual first player.
 
     def deal_community_cards(self, round_stage):
         if round_stage == 'flop':

@@ -1,5 +1,6 @@
 model:
   hidden_dim: 128
+  d_raw_feature: 3
   num_layers: 2
   learning_rate: 0.001
   num_actions: 10
