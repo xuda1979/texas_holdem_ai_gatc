@@ -102,7 +102,7 @@ class TestCFR(unittest.TestCase):
         expected_regrets2 = torch.tensor([0.0, 0.0, 0.0])
         regrets2 = compute_regrets(action_counterfactual_values2, state_value2)
         self.assertTrue(torch.allclose(regrets2, expected_regrets2), "Regrets should be zero if all action values equal state value")
-        
+
         # Test case 3: Scalar state value, vector action values
         action_counterfactual_values3 = torch.tensor([1.0, -2.0, 3.0])
         state_value3 = 0.5
@@ -145,7 +145,7 @@ class TestCFR(unittest.TestCase):
         mock_game = MockGame({0: 0.6, 1: 0.3, 2: 0.0})
         cumulative_regret = torch.zeros(num_actions)
         cumulative_strategy = torch.zeros(num_actions)
-        
+
         final_regret, final_strategy = cfr_iteration(
             game=mock_game,
             cumulative_regret=cumulative_regret,
@@ -159,7 +159,7 @@ class TestCFR(unittest.TestCase):
 
         self.assertEqual(final_regret.shape, (num_actions,))
         self.assertEqual(final_strategy.shape, (num_actions,))
-        self.assertTrue(torch.allclose(final_regret, expected_final_regret, atol=1e-6), 
+        self.assertTrue(torch.allclose(final_regret, expected_final_regret, atol=1e-6),
                         f"Regrets mismatch. Expected {expected_final_regret}, Got {final_regret}")
         self.assertTrue(torch.allclose(final_strategy, expected_final_strategy, atol=1e-6),
                         f"Strategy mismatch. Expected {expected_final_strategy}, Got {final_strategy}")
@@ -168,7 +168,7 @@ class TestCFR(unittest.TestCase):
         num_actions = 2
         # Payoffs: action0=1.0, action1=0.0
         mock_game = MockGame({0: 1.0, 1: 0.0})
-        
+
         cumulative_regret = torch.zeros(num_actions)
         cumulative_strategy = torch.zeros(num_actions)
 
@@ -198,7 +198,7 @@ class TestCFR(unittest.TestCase):
 
         expected_final_regret = torch.tensor([0.5, -1.5])
         expected_final_strategy = torch.tensor([1.5, 0.5])
-        
+
         self.assertTrue(torch.allclose(final_regret, expected_final_regret, atol=1e-6),
                         f"Regrets mismatch. Expected {expected_final_regret}, Got {final_regret}")
         self.assertTrue(torch.allclose(final_strategy, expected_final_strategy, atol=1e-6),

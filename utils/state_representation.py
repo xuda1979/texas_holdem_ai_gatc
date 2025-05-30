@@ -100,7 +100,7 @@ def prepare_transformer_input(
     # players_list is not strictly needed if game_state.get_player() and game_state.player_order are robust
     max_seq_len: int,
     d_raw_feature: int
-) -> torch.Tensor:
+) -> "torch.Tensor": # Use string literal for type hint to avoid import error if torch is not fully functional
     """
     Prepares a game state for input to a Transformer model.
     """
@@ -222,9 +222,7 @@ if __name__ == '__main__':
         players=[p0, p1, p2], # List of player objects
         player_order=player_order_mock,
         community_cards=['Th', '9d', '8c'], # 3 community cards
-        pot=150, # Initial pot (e.g. blinds) + 50 from p1 + 100 from p2 = e.g. 10(SB)+20(BB) + 50+100 = 180. Let's say pot is sum of bets.
-                 # Let's assume pot before these actions was 30 (SB+BB). Total pot = 30 + 50(p1) + 100(p2) = 180.
-                 # The prompt has pot=500, current_bet=100. Let's use that.
+        # Initial pot value was 150, then overridden to 500 based on a comment. Using 500 directly.
         pot=500,
         current_bet=100, # Highest bet on table.
         betting_round="flop",
@@ -368,36 +366,3 @@ if __name__ == '__main__':
         _get_numeric_player_id("player_x", player_order_mock)
     except ValueError as e:
         print(f"Correctly caught error for 'player_x': {e}")
-
-```The file `utils/state_representation.py` has been created and updated.
-
-Key changes and features implemented:
-1.  **Mock Objects**: `MockPlayer` and `MockGameState` are defined for standalone testing. `MockGameState` now includes `player_order` and `players_map` for clarity.
-2.  **Constants**: `RANK_TO_NUM`, `SUIT_TO_NUM`, `ACTION_TO_ID`, `ROUND_TO_ID` are defined globally. Type indicators (`TYPE_ID_*`) and normalization constants (`NORM_AMOUNT`, `NORM_STACK_POT`) are also defined.
-3.  **`_encode_card(card_str)`**: Encodes card strings (e.g., 'Ah', 'Td') to a float (rank + suit/10). Handles case variations for card strings.
-4.  **`_get_numeric_player_id(player_id_str, all_player_ids_in_order)`**: Converts string player ID to its integer index based on the provided ordered list of all player IDs in the game. This ensures consistent numeric IDs.
-5.  **`prepare_transformer_input` Function**:
-    *   **Signature**: `(game_state, current_player_id, max_seq_len, d_raw_feature)`. The `players_list` argument was removed as player information can be sourced from `game_state`.
-    *   **`_create_feature` Helper**: A new internal helper `_create_feature(v1, v2, v3_or_type_id)` was defined to construct feature vectors of length `d_raw_feature`.
-        *   If `d_raw_feature == 3`, it returns `[v1, v2, v3_or_type_id]`.
-        *   If `d_raw_feature > 3`, it pads with zeros: `[v1, v2, v3_or_type_id, 0, ..., 0]`.
-        *   If `d_raw_feature < 3`, it truncates.
-    *   **Card Encoding**: Player's hand and community cards are encoded as `[encoded_value, 0.0, TYPE_ID_CARD]`. `TYPE_ID_CARD` is currently 0.0.
-    *   **Betting History Encoding**: Actions are encoded as `[numeric_player_id, numeric_action_id, normalized_amount]`. `numeric_player_id` is the index of the player. Amounts are normalized by `NORM_AMOUNT`.
-    *   **Other Game State Features**:
-        *   Pot: `[normalized_pot, 0.0, TYPE_ID_POT]`
-        *   Current Bet Faced: `[normalized_bet_faced, 0.0, TYPE_ID_CURRENT_BET]`. This is calculated as `max(0, game_state.current_bet - current_player_obj.current_bet_in_round)`.
-        *   Player Stack: `[normalized_stack, 0.0, TYPE_ID_PLAYER_STACK]`
-        *   Round: `[round_id_numeric, 0.0, TYPE_ID_ROUND]`
-        *   Normalization for pot and stack uses `NORM_STACK_POT`.
-    *   **Padding/Truncation**: The sequence of feature vectors is padded with `[0.0] * d_raw_feature` or truncated to `max_seq_len`.
-    *   **Tensor Conversion**: The final sequence is converted to a `torch.Tensor` of `dtype=torch.float32`.
-6.  **`if __name__ == '__main__':` Block**:
-    *   Includes comprehensive test cases for different game scenarios (flop, pre-flop with blinds).
-    *   Demonstrates usage with `d_raw_feature` set to 3 (as per prompt examples), and also tests with smaller (1) and larger (5) values for `d_raw_feature`.
-    *   Prints shapes and selected token values for verification against expected outputs.
-    *   Includes standalone tests for helper functions `_encode_card` and `_get_numeric_player_id`.
-
-The implementation aligns with the requirements, providing a structured way to convert game state information into a numerical tensor suitable for a Transformer model. The feature construction strategy (especially for `d_raw_feature=3`) follows the pattern examples given in the prompt.
-
-This subtask should be complete.

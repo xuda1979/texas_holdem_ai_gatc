@@ -50,7 +50,7 @@ class TestModelForwardPass(unittest.TestCase):
         # Assert output values are probabilities
         self.assertTrue(torch.all(output_probs >= 0) and torch.all(output_probs <= 1),
                         f"Output probabilities are not in [0, 1] range. Values: {output_probs.tolist()}")
-        
+
         sum_of_probs = torch.sum(output_probs, dim=1)
         expected_sum = torch.ones(input_params['batch_size'])
         self.assertTrue(torch.allclose(sum_of_probs, expected_sum, atol=1e-6),
@@ -80,7 +80,7 @@ class TestModelForwardPass(unittest.TestCase):
         }
         input_params = {'batch_size': 2, 'seq_len': 1}
         self._run_forward_pass_test(model_params, input_params, "Sequence Length One (batch=2, seq_len=1)")
-        
+
     def test_varied_model_params(self):
         model_params = {
             'input_feature_dim': 10, 'hidden_dim': 256, 'num_heads': 8,

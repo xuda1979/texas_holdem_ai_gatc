@@ -9,10 +9,10 @@ class TransformerAverageStrategy(nn.Module):
     """
     def __init__(self, input_feature_dim: int, hidden_dim: int, num_heads: int, num_layers: int, num_actions: int):
         super(TransformerAverageStrategy, self).__init__()
-        
+
         # Project input features to the hidden dimension expected by the transformer
         self.input_projection = nn.Linear(input_feature_dim, hidden_dim)
-        
+
         # Define the Transformer Encoder layer
         # batch_first=True means input/output tensors are (batch_size, seq_len, feature_dim)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -21,13 +21,13 @@ class TransformerAverageStrategy(nn.Module):
             dim_feedforward=hidden_dim * 4, # Standard practice: feedforward_dim is 4*hidden_dim
             batch_first=True  # Crucial for handling (batch, seq, feature) inputs
         )
-        
+
         # Stack multiple encoder layers
         self.transformer_encoder = nn.TransformerEncoder(
             encoder_layer=encoder_layer,
             num_layers=num_layers
         )
-        
+
         # Fully connected layer to map transformer output to action space
         self.fc = nn.Linear(hidden_dim, num_actions)
 
@@ -40,7 +40,7 @@ class TransformerAverageStrategy(nn.Module):
             Output tensor of shape (batch_size, num_actions) after softmax.
         """
         # x initial shape: (batch_size, seq_len, input_feature_dim)
-        
+
         # Project input features to hidden_dim
         x = self.input_projection(x)
         # x shape after projection: (batch_size, seq_len, hidden_dim)
@@ -49,7 +49,7 @@ class TransformerAverageStrategy(nn.Module):
         # Input to transformer_encoder: (batch_size, seq_len, hidden_dim)
         # Output from transformer_encoder: (batch_size, seq_len, hidden_dim)
         x = self.transformer_encoder(x)
-        
+
         # Select the output of the last token in the sequence for classification/action selection.
         # This is a common approach, assuming the last token's representation
         # captures the relevant information from the sequence.

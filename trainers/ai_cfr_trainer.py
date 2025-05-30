@@ -71,7 +71,7 @@ class AICFRTrainer:
         if d_raw_feature is None:
             self.logger.error("Missing 'd_raw_feature' in model config.")
             raise ValueError("Missing 'd_raw_feature' in model config.")
-            
+
         hidden_dim = model_cfg.get('hidden_dim', 128)
         num_heads = model_cfg.get('num_heads', 8) # Added default
         num_layers = model_cfg.get('num_layers', 2) # Added default
@@ -208,5 +208,6 @@ class AICFRTrainer:
             logging.warning("Cumulative strategy is all zeros. Returning uniform strategy.")
             return torch.ones(self.num_actions) / self.num_actions
         return self.cumulative_strategy / sum_cumulative_strategy
+
 
 ```

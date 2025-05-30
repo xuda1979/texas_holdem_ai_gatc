@@ -42,11 +42,12 @@ def compute_regrets(action_counterfactual_values, state_value):
     Compute the regrets for each action.
     Regret for an action = (Counterfactual value of taking that action) - (Value of the current state/infoset).
     
-    :param action_counterfactual_values: A tensor where element i is the counterfactual value 
+    :param action_counterfactual_values: A tensor where element i is the counterfactual value
                                          of taking action i from the current state/infoset.
-    :param state_value: The expected value of the current state/infoset, calculated based on 
+    :param state_value: The expected value of the current state/infoset, calculated based on
                         the current strategy.
     :return: Regret values for each action.
+    """
     return action_counterfactual_values - state_value
 
 # The 'regret_matching_plus' function has been removed as its logic was integrated
@@ -107,19 +108,19 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
             # for taking action_idx from the current game state, playing out to a terminal node.
             # The game state should be consistent for each call within this loop for the same infoset.
             action_counterfactual_values[action_idx] = game.simulate_action(action_idx)
-        
+
         # The value of the current state/infoset is the expected value of its action counterfactual values,
         # weighted by the probability of taking each action under the current strategy.
         # state_value = sum(current_strategy[a] * action_counterfactual_values[a] for a in actions)
         state_value = torch.sum(current_strategy * action_counterfactual_values)
-        
+
         # 3. Compute regrets for each action.
         # Regret for an action 'a' = action_counterfactual_values[a] - state_value.
         # The game.get_actual_action() call was removed as it's not used in standard immediate regret calculation
-        # for all actions in an information set. If sampling is used (e.g. Monte Carlo CFR), 
+        # for all actions in an information set. If sampling is used (e.g. Monte Carlo CFR),
         # then only one action's regret might be updated, but this function seems to update all.
         regrets = compute_regrets(action_counterfactual_values, state_value)
-        
+
         # 4. Update cumulative regrets and strategy for the next iteration (using Regret Matching Plus variant)
         # The 'regret_matching_plus' function updates cumulative_regret and recalculates strategy.
         # The returned 'current_strategy' from regret_matching_plus is the one for the *next* step,
@@ -127,7 +128,7 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
         # So, we pass the 'regrets' to update 'cumulative_regret', and then
         # 'calculate_strategy' inside 'regret_matching_plus' will give the strategy for the next round.
         # The strategy to be accumulated for averaging is the 'current_strategy' calculated at step 1.
-        
+
         # Update cumulative regrets
         cumulative_regret = update_regret(cumulative_regret, regrets) # cumulative_regret += regrets
         

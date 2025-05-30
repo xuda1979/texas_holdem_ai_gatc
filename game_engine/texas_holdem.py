@@ -8,7 +8,7 @@ from datetime import datetime
 
 
 class TexasHoldemRules:
-    def __init__(self, num_players=2, starting_stack=10000):
+    def __init__(self, num_players=2, starting_stack=10000, small_blind=10, big_blind=20):
         self.num_players = num_players
         self.starting_stack = starting_stack
         self.deck = self._create_deck()
@@ -18,8 +18,8 @@ class TexasHoldemRules:
         self.bets = [0] * num_players
         self.player_chips = [starting_stack] * num_players
         self.active_players = [True] * num_players
-        self.small_blind = 10
-        self.big_blind = 20
+        self.small_blind = small_blind
+        self.big_blind = big_blind
         self.current_bet = 0
         self.previous_raise_amount = 0
         self.dealer_button = 0
@@ -198,8 +198,8 @@ class TexasHoldemRules:
 
 
 class TexasHoldem:
-    def __init__(self, num_players, starting_stack, player_strategies):
-        self.rules = TexasHoldemRules(num_players, starting_stack)
+    def __init__(self, num_players, starting_stack, player_strategies, small_blind=10, big_blind=20):
+        self.rules = TexasHoldemRules(num_players, starting_stack, small_blind, big_blind)
         self.num_players = num_players
         self.starting_stack = starting_stack
         self.player_strategies = player_strategies  # List of strategy instances
@@ -216,11 +216,25 @@ class TexasHoldem:
 
     def initialize_game(self):
         self.current_hand_initial_actions = [] # Reset at the start of each hand
+        self.rules.community_cards = [] # Reset community cards for a new hand
+        self.rules.betting_history = [] # Reset betting history for a new hand
+        self.rules.pot = 0 # Pot should be reset before blinds
+        self.rules.bets = [0] * self.num_players # Bets should be reset
+        self.rules.current_bet = 0
+        self.rules.previous_raise_amount = 0
+        self.rules.actions_this_round = 0
+        self.rules.active_players = [True] * self.num_players # Ensure all players are active for the new hand
+        # Player chips are NOT reset here, they carry over from the previous hand.
+        # Dealer button is NOT rotated here, done by reset_for_next_hand.
+
         self.rules.shuffle_deck()
-        structured_blinds = self.rules.post_blinds()
+        structured_blinds = self.rules.post_blinds() # This will update pot, bets, player_chips for blinds
         self.current_hand_initial_actions = structured_blinds
         self.deal_hands()
         self.hand_count += 1
+        self.end_game_early = False # Reset end_game_early flag
+        self.winner = None          # Reset winner
+
         self.historical_actions.append({
             'hand_number': self.hand_count,
             'dealer': self.rules.dealer_button + 1,

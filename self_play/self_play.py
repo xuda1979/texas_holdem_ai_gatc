@@ -390,10 +390,11 @@ class SelfPlay:
         print("\nHand complete.")
         return training_data_for_hand
 
-
+# The following block is for example usage and direct testing of this script.
+# It is not part of the SelfPlay class itself.
 if __name__ == '__main__':
     class MockModel(torch.nn.Module):
-        def __init__(self, num_actions=10): 
+        def __init__(self, num_actions=10):
             super().__init__()
             self.num_actions = num_actions 
         def forward(self, x):
@@ -430,4 +431,3 @@ if __name__ == '__main__':
         print("No training data was collected.")
 
     print("\nSelfPlay with counterfactual logic and trainer integration test finished.")
-```

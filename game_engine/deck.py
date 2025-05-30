@@ -14,6 +14,8 @@ class Deck:
         random.shuffle(self.cards)
     
     def deal(self, num_cards):
+        if num_cards > len(self.cards):
+            raise ValueError(f"Cannot deal {num_cards} cards. Only {len(self.cards)} cards remaining in the deck.")
         dealt_cards = self.cards[:num_cards]
-        self.cards = self.cards[num_cards:]
+        self.cards = self.cards[num_cards:] # This slicing handles num_cards=0 correctly too
         return dealt_cards

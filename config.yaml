@@ -2,6 +2,7 @@ model:
   hidden_dim: 128
   d_raw_feature: 3 # This was added in a previous step
   num_layers: 2
+  num_heads: 8 # Default used in AICFRTrainer, making it explicit
   learning_rate: 0.001
   num_actions: 10
 
@@ -21,4 +22,4 @@ training:
 logging:
   level: "INFO"
   log_file: "logs/poker_ai.log" # Changed to relative path for consistency
-```
+# Ensuring no stray characters below this line or at the end of file.
