@@ -59,8 +59,12 @@ def main():
     print(f"Number of players: {num_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
-    # Note: AICFRTrainer also loads config.yaml internally for its model parameters.
-    # Ensure d_raw_feature is present in config.yaml for TransformerAverageStrategy if not using defaults.
+    # AICFRTrainer will receive the full 'config' object and extract its specific needs.
+    # Key parameters for AICFRTrainer include:
+    # - config['model']['d_raw_feature']
+    # - config['model']['hidden_dim'], ['num_heads'], ['num_layers'], ['num_actions'], ['learning_rate']
+    # - config['training']['save_model_path']
+    # - config['logging']['log_file'] (optional)
 
     # Initialization
     print("\n--- Initializing Components ---")
@@ -72,17 +76,29 @@ def main():
         # Note: player_strategies are handled by SelfPlay using DummyStrategy
     }
 
+    # Initialize AICFRTrainer
+    # The AICFRTrainer is responsible for the AI model, its training, and managing cumulative regrets/strategies.
+    # It now expects the entire configuration dictionary to be passed to its constructor.
     try:
-        cfr_trainer = AICFRTrainer() # Loads its own model config from 'config.yaml'
-        print("AICFRTrainer initialized.")
+        print(f"Attempting to initialize AICFRTrainer with loaded config...")
+        cfr_trainer = AICFRTrainer(trainer_config=config)
+        print("AICFRTrainer initialized successfully.")
+    except ValueError as ve: # Catch specific errors like missing 'd_raw_feature'
+        print(f"Configuration error initializing AICFRTrainer: {ve}")
+        print("Ensure 'config.yaml' contains all required fields under the 'model' section (e.g., 'd_raw_feature').")
+        return
     except Exception as e:
         print(f"Error initializing AICFRTrainer: {e}")
-        print("Please ensure 'config.yaml' is present and correctly formatted, especially the 'model' section.")
+        print("Please ensure 'config.yaml' is present and correctly formatted.")
         return # Exit if trainer fails to initialize
 
+    # Initialize SelfPlay environment
+    # SelfPlay orchestrates game simulations between AI (via cfr_trainer) and potentially other agents.
+    # It uses the game_engine_config to set up game rules like number of players, blinds, etc.
     try:
+        print(f"Attempting to initialize SelfPlay environment...")
         self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
-        print("SelfPlay environment initialized.")
+        print("SelfPlay environment initialized successfully.")
     except Exception as e:
         print(f"Error initializing SelfPlay environment: {e}")
         return # Exit if self-play fails

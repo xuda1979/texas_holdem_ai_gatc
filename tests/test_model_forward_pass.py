@@ -1,98 +1,116 @@
+import unittest
 import torch
 import sys
 import os
 
 # Adjust the Python path to include the root directory of the project
-# This allows importing modules from ai_models, utils etc.
-# Assuming 'tests' is a directory at the root of the project.
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from ai_models.transformer import TransformerAverageStrategy
 
-def test_transformer_forward_pass():
-    print("Running TransformerAverageStrategy Forward Pass Test...")
+class TestModelForwardPass(unittest.TestCase):
 
-    # Define model parameters (matching example values from config or typical use)
-    # These should ideally be sourced from a test config or match the main config.yaml
-    # For d_raw_feature, it's what prepare_transformer_input produces.
-    # For num_actions, it's what get_action_from_index maps to.
-    input_feature_dim = 3  # Example: from config.yaml model.d_raw_feature
-    hidden_dim = 128       # Example: from config.yaml model.hidden_dim
-    num_actions = 10       # Example: from config.yaml model.num_actions
-    
-    # Transformer specific parameters (can be varied for tests if needed)
-    num_heads = 4          # Example value, can be 8 as in AICFRTrainer
-    num_layers = 2         # Example value
+    def _run_forward_pass_test(self, model_params: dict, input_params: dict, test_description: str):
+        """
+        Helper function to run a forward pass test with given model and input parameters.
+        """
+        print(f"\nRunning test: {test_description}")
 
-    # Input tensor parameters
-    max_seq_len = 20       # Example: from AICFRTrainer Mock config or typical sequence length
-    batch_size = 4         # Test with a small batch
-
-    # Instantiate the model
-    try:
+        # Instantiate the model
         model = TransformerAverageStrategy(
-            input_feature_dim=input_feature_dim,
-            hidden_dim=hidden_dim,
-            num_heads=num_heads,
-            num_layers=num_layers,
-            num_actions=num_actions
+            input_feature_dim=model_params['input_feature_dim'],
+            hidden_dim=model_params['hidden_dim'],
+            num_heads=model_params['num_heads'],
+            num_layers=model_params['num_layers'],
+            num_actions=model_params['num_actions']
         )
-        model.eval() # Set to evaluation mode for testing (disables dropout if any)
-        print("Model instantiated successfully.")
-    except Exception as e:
-        print(f"Error instantiating model: {e}")
-        raise
+        model.eval() # Set to evaluation mode
+        print(f"  Model instantiated: {model_params}")
 
-    # Create a dummy input tensor
-    # Shape: (batch_size, max_seq_len, input_feature_dim)
-    try:
-        dummy_input = torch.rand(batch_size, max_seq_len, input_feature_dim)
-        print(f"Dummy input tensor created with shape: {dummy_input.shape}")
-    except Exception as e:
-        print(f"Error creating dummy input tensor: {e}")
-        raise
+        # Create a dummy input tensor
+        dummy_input = torch.rand(
+            input_params['batch_size'],
+            input_params['seq_len'],
+            model_params['input_feature_dim']
+        )
+        print(f"  Dummy input tensor created with shape: {dummy_input.shape}")
 
-    # Perform a forward pass
-    try:
-        with torch.no_grad(): # Disable gradient calculations for inference
+        # Perform a forward pass
+        with torch.no_grad(): # Disable gradient calculations
             output_probs = model(dummy_input)
-        print(f"Model forward pass successful. Output shape: {output_probs.shape}")
-    except Exception as e:
-        print(f"Error during model forward pass: {e}")
-        raise
+        print(f"  Model forward pass successful. Output shape: {output_probs.shape}")
 
-    # Assert the output shape is correct
-    expected_output_shape = (batch_size, num_actions)
-    assert output_probs.shape == expected_output_shape, \
-        f"Output shape mismatch. Expected {expected_output_shape}, got {output_probs.shape}"
-    print(f"Assertion for output shape PASSED. Expected {expected_output_shape}, got {output_probs.shape}")
+        # Assert the output shape is correct
+        expected_output_shape = (input_params['batch_size'], model_params['num_actions'])
+        self.assertEqual(output_probs.shape, expected_output_shape,
+                         f"Output shape mismatch. Expected {expected_output_shape}, got {output_probs.shape}")
 
-    # Assert output values are probabilities
-    # 1. All values should be between 0 and 1 (inclusive)
-    assert torch.all(output_probs >= 0) and torch.all(output_probs <= 1), \
-        f"Output probabilities are not in [0, 1] range. Values: {output_probs.tolist()}"
-    print("Assertion for output probabilities >= 0 and <= 1 PASSED.")
+        # Assert output values are probabilities
+        self.assertTrue(torch.all(output_probs >= 0) and torch.all(output_probs <= 1),
+                        f"Output probabilities are not in [0, 1] range. Values: {output_probs.tolist()}")
+        
+        sum_of_probs = torch.sum(output_probs, dim=1)
+        expected_sum = torch.ones(input_params['batch_size'])
+        self.assertTrue(torch.allclose(sum_of_probs, expected_sum, atol=1e-6),
+                        f"Output probabilities do not sum to 1 (within tolerance). Sums: {sum_of_probs.tolist()}")
+        print(f"  Assertions PASSED for {test_description}")
 
-    # 2. Each row (strategy for each item in batch) should sum to 1
-    sum_of_probs = torch.sum(output_probs, dim=1)
-    expected_sum = torch.ones(batch_size) # Expected sum for each item in batch is 1.0
-    assert torch.allclose(sum_of_probs, expected_sum, atol=1e-6), \
-        f"Output probabilities do not sum to 1 (within tolerance) for each batch item. Sums: {sum_of_probs.tolist()}"
-    print("Assertion for sum of probabilities per batch item == 1 PASSED.")
+    def test_standard_case(self):
+        model_params = {
+            'input_feature_dim': 3, 'hidden_dim': 128, 'num_heads': 4,
+            'num_layers': 2, 'num_actions': 10
+        }
+        input_params = {'batch_size': 4, 'seq_len': 20}
+        self._run_forward_pass_test(model_params, input_params, "Standard Case (batch=4, seq_len=20)")
 
-    print("TransformerAverageStrategy forward pass test completed successfully!")
+    def test_batch_size_one(self):
+        model_params = {
+            'input_feature_dim': 3, 'hidden_dim': 64, 'num_heads': 2,
+            'num_layers': 1, 'num_actions': 5
+        }
+        input_params = {'batch_size': 1, 'seq_len': 10}
+        self._run_forward_pass_test(model_params, input_params, "Batch Size One (batch=1, seq_len=10)")
+
+    def test_seq_len_one(self):
+        model_params = {
+            'input_feature_dim': 5, 'hidden_dim': 32, 'num_heads': 2,
+            'num_layers': 1, 'num_actions': 3
+        }
+        input_params = {'batch_size': 2, 'seq_len': 1}
+        self._run_forward_pass_test(model_params, input_params, "Sequence Length One (batch=2, seq_len=1)")
+        
+    def test_varied_model_params(self):
+        model_params = {
+            'input_feature_dim': 10, 'hidden_dim': 256, 'num_heads': 8,
+            'num_layers': 4, 'num_actions': 20
+        }
+        input_params = {'batch_size': 2, 'seq_len': 5}
+        self._run_forward_pass_test(model_params, input_params, "Varied Model Parameters")
+
+    def test_minimal_params(self):
+        # Smallest reasonable dimensions
+        model_params = {
+            'input_feature_dim': 1, 'hidden_dim': 16, 'num_heads': 1, # Min heads = 1
+            'num_layers': 1, 'num_actions': 2
+        }
+        # TransformerEncoderLayer requires hidden_dim to be divisible by num_heads.
+        # For num_heads=1, any hidden_dim is fine.
+        input_params = {'batch_size': 1, 'seq_len': 1}
+        self._run_forward_pass_test(model_params, input_params, "Minimal Parameters (batch=1, seq_len=1, feature_dim=1, heads=1)")
+
 
 if __name__ == '__main__':
-    try:
-        test_transformer_forward_pass()
-        print("\nAll tests in test_model_forward_pass.py PASSED.")
-    except AssertionError as e:
-        print(f"\nTest FAILED: {e}")
-    except Exception as e:
-        print(f"\nAn unexpected error occurred during testing: {e}")
-        import traceback
-        traceback.print_exc()
-
-```
+    unittest.main()
+    # The old runner is replaced by unittest.main()
+    # try:
+    #     # test_transformer_forward_pass() # This was the old way
+    #     # Instead, rely on unittest discovery if run directly, or use `python -m unittest tests.test_model_forward_pass`
+    #     print("\nRun tests using 'python -m unittest tests.test_model_forward_pass'")
+    # except AssertionError as e:
+    #     print(f"\nTest FAILED: {e}")
+    # except Exception as e:
+    #     print(f"\nAn unexpected error occurred during testing: {e}")
+    #     import traceback
+    #     traceback.print_exc()
