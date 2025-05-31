@@ -21,4 +21,3 @@ training:
 logging:
   level: "INFO"
   log_file: "logs/poker_ai.log" # Changed to relative path for consistency
-```

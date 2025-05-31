@@ -145,4 +145,3 @@ class AICFRTrainer:
             return torch.ones(self.num_actions) / self.num_actions
         return self.cumulative_strategy / sum_cumulative_strategy
 
-```
