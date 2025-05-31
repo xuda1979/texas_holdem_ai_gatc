@@ -16,8 +16,20 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 - **models**: Stores trained AI models.
 - **config.yaml**: Centralized configuration file.
 
+
 ## Setup
 
 1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
+   ```
+
+2. **Run training**:
+   ```bash
+   python run_training.py
+   ```
+
+3. **Run tests**:
+   ```bash
+   pytest -q
+   ```

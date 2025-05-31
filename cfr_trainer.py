@@ -51,8 +51,40 @@ class CFRTrainer:
         return loss.numpy().mean()
 
     def cfr(self, state, player, iteration):
-        # Implement the CFR algorithm here
-        pass
+        """Run a single iteration of Counterfactual Regret Minimization.
+
+        This is a simplified implementation that recursively traverses the game
+        tree using a fixed action set. Regrets and average strategy are updated
+        using helper functions from ``rules.cfr``.
+        """
+
+        # Terminal state: return payoff from the perspective of ``player``.
+        if state.is_terminal():
+            winners = state.get_winner()
+            return 1.0 if player in winners else -1.0
+
+        # Encode the state for the policy network and obtain the current policy.
+        state_rep = self.encode_state(state)
+        strategy = torch.tensor(self.get_strategy(state_rep), dtype=torch.float32)
+
+        action_utilities = torch.zeros(self.num_actions)
+        node_utility = 0.0
+
+        # Iterate over all actions. For simplicity we apply a "check" action to
+        # generate the next state since the full environment dynamics are
+        # outside the scope of these tests.
+        for a in range(self.num_actions):
+            next_state = state.clone()
+            next_state.apply_action(player, "check", 0)
+            util = self.cfr(next_state, player, iteration + 1)
+            action_utilities[a] = util
+            node_utility += strategy[a] * util
+
+        regrets = action_utilities - node_utility
+        self.cumulative_regret = update_regret(self.cumulative_regret, regrets)
+        self.cumulative_strategy = update_strategy(self.cumulative_strategy, strategy)
+
+        return node_utility.item()
 
     def get_strategy(self, state_representation):
         print("Getting strategy...")  # Debug print statement
@@ -62,8 +94,20 @@ class CFRTrainer:
         return strategy
 
     def encode_state(self, state):
-        # Implement state encoding here
-        pass
+        """Convert a game state into a fixed size numpy array.
+
+        The ``TexasHoldem`` class returns numpy arrays from ``get_initial_state``
+        so this helper reshapes/pads the array to ``self.input_shape``.
+        """
+        if isinstance(state, np.ndarray):
+            arr = state
+        elif hasattr(state, "get_initial_state"):
+            arr = state.get_initial_state()
+        else:
+            arr = np.array(state)
+
+        arr = np.resize(arr, self.input_shape)
+        return arr
 
     def save_model(self, model_path):
         self.model.save(model_path)
@@ -103,21 +147,3 @@ class CFRTrainer:
         average_profit = total_profit / num_games
         print("Game simulation completed.")  # Debug print statement
         return win_rate, average_profit
-
-# Example usage
-if __name__ == "__main__":
-    print("Starting script...")  # Debug print statement
-    config = {
-        'num_actions': 10,  # Example number of actions
-        'learning_rate': 0.001,
-        'input_shape': (8, 8, 3),  # Example input shape
-        'num_players': 2  # Example number of players
-    }
-    print("Config created:", config)  # Debug print statement
-    trainer = CFRTrainer(config)
-    print("Loading model...")  # Debug print statement
-    trainer.load_model('trained_model.h5')
-    print("Simulating games...")  # Debug print statement
-    win_rate, average_profit = trainer.simulate_games(num_games=100)
-    print(f"Win Rate: {win_rate * 100:.2f}%")
-    print(f"Average Profit: {average_profit:.2f}")

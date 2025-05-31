@@ -430,4 +430,3 @@ if __name__ == '__main__':
         print("No training data was collected.")
 
     print("\nSelfPlay with counterfactual logic and trainer integration test finished.")
-```

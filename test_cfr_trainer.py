@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 from tensorflow.keras.layers import Input
 from cfr_trainer import CFRTrainer
-from texas_holdem import TexasHoldem  # Ensure this import is correct
+from game_engine.texas_holdem import TexasHoldem
 
 class TestCFRTrainer(unittest.TestCase):
 
@@ -26,7 +26,7 @@ class TestCFRTrainer(unittest.TestCase):
         self.assertGreater(loss, 0, "Loss should be greater than 0")
 
     def test_cfr(self):
-        game = TexasHoldemGame(self.config['num_players'])
+        game = TexasHoldem(self.config['num_players'])
         initial_state = game.get_initial_state()
         utility = self.trainer.cfr(initial_state, player=0, iteration=1)
         self.assertIsNotNone(utility, "Utility should be calculated")
@@ -38,3 +38,4 @@ class TestCFRTrainer(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
