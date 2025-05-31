@@ -21,3 +21,9 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 1. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
+   ```
+
+2. **Run training**:
+   ```bash
+   python run_training.py
+   ```

@@ -144,5 +144,3 @@ class AICFRTrainer:
             logging.warning("Cumulative strategy is all zeros. Returning uniform strategy.")
             return torch.ones(self.num_actions) / self.num_actions
         return self.cumulative_strategy / sum_cumulative_strategy
-
-```
