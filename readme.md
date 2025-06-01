@@ -9,7 +9,8 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 - **ai_models**: Contains the neural network models (Transformer).
 - **trainers**: Includes the AI trainers, self-play scripts, and performance profiling tools.
 - **play**: Handles the human vs. AI gameplay and GUI.
-- **rules**: Defines the Texas Hold'em rules and game logic.
+- **rules**: Defines the Texas Hold'em rules and game logic. If the optional
+  `treys` library is installed, hand evaluation uses it for accurate ranking.
 - **tests**: Unit tests for all major components.
 - **scripts**: Main scripts for running training and simulations.
 - **self_play_data**: Directory for storing self-play results.
