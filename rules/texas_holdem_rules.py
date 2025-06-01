@@ -1,5 +1,10 @@
 import random
 from itertools import combinations
+try:
+    from treys import Evaluator, Card
+except ImportError:  # Fall back to simple evaluation if treys isn't installed
+    Evaluator = None
+    Card = None
 
 class TexasHoldemRules:
     def __init__(self, num_players=2):
@@ -140,8 +145,50 @@ class TexasHoldemRules:
         return winner
 
     def evaluate_hand(self, cards):
-        # Simplified hand evaluation (to be replaced with full poker hand evaluation logic)
-        rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        """Evaluate the strength of a hand.
+
+        If the ``treys`` library is available, use it for a proper Texas
+        Hold'em hand evaluation. Otherwise fall back to a very simple
+        ranking based on card values.
+
+        Parameters
+        ----------
+        cards : list[tuple[str, str]]
+            List of ``(rank, suit)`` tuples. The first two items are assumed to
+            be the player's hole cards followed by community cards.
+
+        Returns
+        -------
+        int
+            A numeric strength where a lower value is a stronger hand when using
+            ``treys``. With the simplified evaluation a higher value means a
+            stronger hand.
+        """
+
+        if Evaluator is not None and Card is not None and len(cards) >= 2:
+            evaluator = Evaluator()
+            suit_map = {
+                'hearts': 'h',
+                'diamonds': 'd',
+                'clubs': 'c',
+                'spades': 's',
+            }
+
+            def to_treys(card_tuple: tuple[str, str]) -> str:
+                rank, suit = card_tuple
+                rank_map = {'10': 'T'}
+                rank = rank_map.get(rank, rank)
+                return f"{rank}{suit_map.get(suit, suit[0])}"
+
+            hole_cards = [Card.new(to_treys(c)) for c in cards[:2]]
+            board_cards = [Card.new(to_treys(c)) for c in cards[2:]]
+            return evaluator.evaluate(board_cards, hole_cards)
+
+        # Fallback simplified evaluation
+        rank_values = {
+            '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+            '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
+        }
         return sum(rank_values[rank] for rank, suit in cards)
 
     def award_pot(self, winner):
