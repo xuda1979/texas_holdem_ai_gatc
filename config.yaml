@@ -16,6 +16,7 @@ training:
   save_model_every_n_hands: 1
   batch_size: 32 # Kept existing, though less relevant for current training loop
   num_epochs: 50 # Kept existing, though less relevant for current training loop
+  training_duration_hours: 10
   save_model_path: "models/cfr_model.pth" # Updated path
 
 logging:

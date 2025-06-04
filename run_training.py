@@ -1,5 +1,6 @@
 import yaml
 import os # For path manipulation if needed, e.g. for robust config loading
+import time
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -48,6 +49,8 @@ def main():
     # Training Parameters
     num_training_hands = training_params.get('num_training_hands', 1000)
     save_model_every_n_hands = training_params.get('save_model_every_n_hands', 100)
+    training_duration_hours = training_params.get('training_duration_hours', 0)
+    training_duration_seconds = training_duration_hours * 3600
     
     # Game Engine Parameters for SelfPlay
     num_players = game_engine_config.get('num_players', 2)
@@ -56,7 +59,10 @@ def main():
     small_blind = game_engine_config.get('small_blind', 5)
 
     print("\n--- Configuration ---")
-    print(f"Total training hands: {num_training_hands}")
+    if training_duration_hours > 0:
+        print(f"Training for {training_duration_hours} hours.")
+    else:
+        print(f"Training for {num_training_hands} hands.")
     print(f"Save model every: {save_model_every_n_hands} hands")
     print(f"Number of players: {num_players}")
     print(f"Starting stack: {starting_stack}")
@@ -90,11 +96,17 @@ def main():
 
     # Training Loop
     print("\n--- Starting Training Loop ---")
+    start_time = time.time()
     stage_index = 0
     if curriculum_stages:
         game_config_for_selfplay.update(curriculum_stages[stage_index])
         self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
     for hand_num in range(1, num_training_hands + 1):
+        if training_duration_hours > 0:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > training_duration_seconds:
+                print(f"\n--- Training time limit of {training_duration_hours} hours reached. ---")
+                break
         print(f"\n--- Training Hand {hand_num}/{num_training_hands} ---")
         try:
             # The play_hand_for_training method now collects data and calls cfr_trainer.train internally
