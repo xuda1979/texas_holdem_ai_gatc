@@ -387,9 +387,14 @@ class TexasHoldem:
         return winner, player_best_hands
 
     def reset_for_next_hand(self):
-        # Reset all player chips to starting stack
-        self.rules.player_chips = [self.rules.starting_stack] * self.num_players
-        self.rules.active_players = [True] * self.num_players
+        """Prepare the game engine for the next hand.
+
+        Chip stacks are **not** reset so players keep their winnings and losses
+        like in a real game. Players with zero chips are marked as eliminated.
+        """
+
+        # Update active players based on remaining chips and rotate the dealer
+        self.rules.active_players = [chips > 0 for chips in self.rules.player_chips]
         self.rules.dealer_button = (self.rules.dealer_button + 1) % self.num_players
 
         # Reset game state

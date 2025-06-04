@@ -34,3 +34,13 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
    ```bash
    pytest -q
    ```
+
+## Features
+
+- Transformer-based neural networks for strategy and advantage estimation
+- Deep CFR and Single Network CFR trainers
+- CFR+ with pruning support
+- Opponent modeling with Transformers
+- Distributed self-play for faster data collection
+- Curriculum learning for staged training
+- Attention-based state representation with masks
