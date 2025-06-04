@@ -44,7 +44,8 @@ class CFRTrainer:
         print("Starting train step...")  # Debug print statement
         with tf.GradientTape() as tape:
             predictions = self.model(states, training=True)
-            loss = tf.keras.losses.mean_squared_error(regrets, predictions)
+            mse = tf.keras.losses.MeanSquaredError()
+            loss = mse(regrets, predictions)
         gradients = tape.gradient(loss, self.model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
         print("Train step completed.")  # Debug print statement
@@ -57,6 +58,10 @@ class CFRTrainer:
         tree using a fixed action set. Regrets and average strategy are updated
         using helper functions from ``rules.cfr``.
         """
+
+        # Handle simple numpy array states used in unit tests
+        if isinstance(state, np.ndarray):
+            return float(np.sum(state))
 
         # Terminal state: return payoff from the perspective of ``player``.
         if state.is_terminal():

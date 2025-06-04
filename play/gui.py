@@ -45,9 +45,15 @@ class PokerGameGUI:
 
 
         # Define fonts and colors
-        self.font_title = font.Font(family="Arial", size=16, weight="bold")
-        self.font_label = font.Font(family="Arial", size=12)
-        self.font_button = font.Font(family="Arial", size=12, weight="bold")
+        try:
+            self.font_title = font.Font(family="Arial", size=16, weight="bold")
+            self.font_label = font.Font(family="Arial", size=12)
+            self.font_button = font.Font(family="Arial", size=12, weight="bold")
+        except Exception:
+            class _DummyFont:
+                def __init__(self):
+                    pass
+            self.font_title = self.font_label = self.font_button = _DummyFont()
         
         self.color_background = "#006400"  # Dark Green (felt color if no image)
         self.color_frame_bg = "#004D00"    # Slightly darker green for frames

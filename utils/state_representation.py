@@ -99,8 +99,9 @@ def prepare_transformer_input(
     current_player_id: str,
     # players_list is not strictly needed if game_state.get_player() and game_state.player_order are robust
     max_seq_len: int,
-    d_raw_feature: int
-) -> torch.Tensor:
+    d_raw_feature: int,
+    return_mask: bool = False
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     """
     Prepares a game state for input to a Transformer model.
     """
@@ -185,187 +186,21 @@ def prepare_transformer_input(
 
     # 5. Padding and Tensor Conversion
     final_sequence: List[List[float]] = []
+    attention_mask: List[int] = []
     for i in range(max_seq_len):
         if i < len(raw_sequence):
             final_sequence.append(raw_sequence[i])
+            attention_mask.append(1)
         else:
-            final_sequence.append([0.0] * d_raw_feature) # Pad with zero vectors
-            
+            final_sequence.append([0.0] * d_raw_feature)
+            attention_mask.append(0)
+
     state_tensor = torch.tensor(final_sequence, dtype=torch.float32)
+    mask_tensor = torch.tensor(attention_mask, dtype=torch.float32)
 
     if state_tensor.shape != (max_seq_len, d_raw_feature):
-        # This error indicates a problem with padding or _create_feature logic
         raise ValueError(f"Final tensor shape is {state_tensor.shape}, expected ({max_seq_len}, {d_raw_feature}).")
 
+    if return_mask:
+        return state_tensor, mask_tensor
     return state_tensor
-
-
-if __name__ == '__main__':
-    D_RAW_FEATURE_EXAMPLE = 3 
-
-    # Mock players
-    p0 = MockPlayer(player_id="player_0", hand=['Ah', 'Ks'], stack=1000)
-    p1 = MockPlayer(player_id="player_1", hand=['Qc', 'Jd'], stack=800)
-    p2 = MockPlayer(player_id="player_2", hand=['7h', '2s'], stack=1200)
-    
-    # Define player order for consistency in numeric IDs
-    player_order_mock = [p0.player_id, p1.player_id, p2.player_id]
-    
-    # Mock GameState
-    # Player p0 is current player. p1 bet 50, p2 raised to 100.
-    # So, game_state.current_bet is 100.
-    # p0's current_bet_in_round is 0 (e.g. p0 is UTG or hasn't acted).
-    # p0 faces 100.
-    # p1's current_bet_in_round would be 50. If it was p1's turn, they'd face 100-50=50.
-    
-    game_state_mock_flop = MockGameState(
-        players=[p0, p1, p2], # List of player objects
-        player_order=player_order_mock,
-        community_cards=['Th', '9d', '8c'], # 3 community cards
-        pot=150, # Initial pot (e.g. blinds) + 50 from p1 + 100 from p2 = e.g. 10(SB)+20(BB) + 50+100 = 180. Let's say pot is sum of bets.
-                 # Let's assume pot before these actions was 30 (SB+BB). Total pot = 30 + 50(p1) + 100(p2) = 180.
-                 # The prompt has pot=500, current_bet=100. Let's use that.
-        pot=500,
-        current_bet=100, # Highest bet on table.
-        betting_round="flop",
-        betting_history=[
-            ("player_1", ("bet", 50)),    # p1 (id 1) bets 50. current_bet becomes 50.
-            ("player_2", ("raise", 100)), # p2 (id 2) raises to 100. (total bet is 100). current_bet becomes 100.
-        ]
-    )
-    # Update player contributions for calculating effective_bet_faced
-    p0.current_bet_in_round = 0 # Current player (p0) has 0 in pot this round. Faces 100.
-    p1.current_bet_in_round = 50 # p1 has put in 50.
-    p2.current_bet_in_round = 100 # p2 has put in 100.
-
-
-    current_player_id_mock = "player_0"
-    max_seq_len_mock = 20 
-
-    print(f"--- Test with d_raw_feature = {D_RAW_FEATURE_EXAMPLE} (Flop) ---")
-    try:
-        input_tensor = prepare_transformer_input(
-            game_state_mock_flop,
-            current_player_id_mock,
-            max_seq_len_mock,
-            D_RAW_FEATURE_EXAMPLE
-        )
-        print(f"Output tensor shape: {input_tensor.shape}")
-        print("Output tensor:")
-        print(input_tensor)
-        
-        # Expected sequence for player_0 (id 0):
-        # Hand: Ah (14.2), Ks (13.1)
-        # Comm: Th (10.2), 9d (9.3), 8c (8.4)
-        # History: (p1, bet, 50), (p2, raise, 100)
-        # Pot: 500, Current Bet faced: 100, Stack: 1000, Round: flop (1)
-        # Normalization: amounts/100, stacks_pots/100
-        #
-        # Tokens (d_raw_feature=3):
-        # 1. Card Ah: [14.2, 0.0, 0.0 (TYPE_ID_CARD)]
-        # 2. Card Ks: [13.1, 0.0, 0.0 (TYPE_ID_CARD)]
-        # 3. Comm Th: [10.2, 0.0, 0.0 (TYPE_ID_CARD)]
-        # 4. Comm 9d: [ 9.3, 0.0, 0.0 (TYPE_ID_CARD)]
-        # 5. Comm 8c: [ 8.4, 0.0, 0.0 (TYPE_ID_CARD)]
-        # 6. Hist p1 bet 50: [1.0 (p1_id), 3.0 (bet_id), 0.5 (50/100)]
-        # 7. Hist p2 raise 100: [2.0 (p2_id), 4.0 (raise_id), 1.0 (100/100)]
-        # 8. Pot: [5.0 (500/100), 0.0, 1.0 (TYPE_ID_POT)]
-        # 9. Bet Faced: [1.0 (100/100), 0.0, 2.0 (TYPE_ID_CURRENT_BET)] (p0 has 0 in pot, faces 100)
-        # 10. Stack: [10.0 (1000/100), 0.0, 3.0 (TYPE_ID_PLAYER_STACK)]
-        # 11. Round: [1.0 (flop_id), 0.0, 4.0 (TYPE_ID_ROUND)]
-        # Total 11 tokens. Rest are padding [0.0, 0.0, 0.0] up to max_seq_len=20.
-
-        print("\nVerifying selected token values (approximated for clarity):")
-        print(f"Token 0 (Player Card Ah): {input_tensor[0].tolist()}") # Expected: [14.2, 0.0, 0.0]
-        print(f"Token 5 (Hist p1 bet 50): {input_tensor[5].tolist()}") # Expected: [1.0, 3.0, 0.5]
-        print(f"Token 7 (Pot): {input_tensor[7].tolist()}")          # Expected: [5.0, 0.0, 1.0]
-        print(f"Token 8 (Bet Faced): {input_tensor[8].tolist()}")    # Expected: [1.0, 0.0, 2.0]
-        print(f"Token 10 (Round): {input_tensor[10].tolist()}")      # Expected: [1.0, 0.0, 4.0]
-        print(f"Token 11 (Padding): {input_tensor[11].tolist()}")    # Expected: [0.0, 0.0, 0.0]
-
-
-        # Test with d_raw_feature = 1
-        D_RAW_FEATURE_SMALL = 1
-        print(f"\n--- Test with d_raw_feature = {D_RAW_FEATURE_SMALL} ---")
-        input_tensor_small = prepare_transformer_input(
-            game_state_mock_flop, current_player_id_mock, max_seq_len_mock, D_RAW_FEATURE_SMALL
-        )
-        print(f"Output tensor shape: {input_tensor_small.shape}")
-        # print(input_tensor_small) # Will be very truncated
-
-        # Test with d_raw_feature = 5
-        D_RAW_FEATURE_LARGE = 5
-        print(f"\n--- Test with d_raw_feature = {D_RAW_FEATURE_LARGE} ---")
-        input_tensor_large = prepare_transformer_input(
-            game_state_mock_flop, current_player_id_mock, max_seq_len_mock, D_RAW_FEATURE_LARGE
-        )
-        print(f"Output tensor shape: {input_tensor_large.shape}")
-        print(f"Token 0 (Player Card Ah, d=5): {input_tensor_large[0].tolist()}") # Expected [14.2, 0.0, 0.0, 0.0, 0.0]
-        print(f"Token 7 (Pot, d=5): {input_tensor_large[7].tolist()}")          # Expected [5.0, 0.0, 1.0, 0.0, 0.0]
-
-
-        # Test pre-flop, empty community cards, no betting history (only blinds)
-        p0_preflop = MockPlayer(player_id="player_0", hand=['Ac', 'Ad'], stack=1000)
-        p1_preflop = MockPlayer(player_id="player_1", hand=['Kh', 'Kd'], stack=1000) # SB
-        p2_preflop = MockPlayer(player_id="player_2", hand=['Qh', 'Qd'], stack=1000) # BB
-        
-        player_order_preflop = [p0_preflop.player_id, p1_preflop.player_id, p2_preflop.player_id]
-        # Assume p0 is UTG, p1 SB, p2 BB. Action is on p0.
-        # SB posts 5, BB posts 10. Pot = 15. Current bet = 10.
-        p0_preflop.current_bet_in_round = 0
-        p1_preflop.current_bet_in_round = 5 # Small Blind
-        p1_preflop.stack -=5
-        p2_preflop.current_bet_in_round = 10 # Big Blind
-        p2_preflop.stack -=10
-
-        game_state_preflop = MockGameState(
-            players=[p0_preflop, p1_preflop, p2_preflop],
-            player_order=player_order_preflop,
-            community_cards=[],
-            pot=15, # SB + BB
-            current_bet=10, # BB is the current bet
-            betting_round="pre-flop",
-            betting_history=[ # History might include blind postings
-                ("player_1", ("bet", 5)), # SB, often "bet" or "blind"
-                ("player_2", ("bet", 10)),# BB
-            ]
-        )
-        current_player_preflop = "player_0"
-        print(f"\n--- Test Pre-flop, d_raw_feature = {D_RAW_FEATURE_EXAMPLE} ---")
-        input_tensor_preflop = prepare_transformer_input(
-            game_state_preflop, current_player_preflop, max_seq_len_mock, D_RAW_FEATURE_EXAMPLE
-        )
-        print(f"Output tensor shape: {input_tensor_preflop.shape}")
-        print(input_tensor_preflop[0:7]) # Print first few tokens
-        # Expected for player_0:
-        # Hand: Ac (14.4), Ad (14.3)
-        # Comm: None
-        # History: (p1, bet, 5), (p2, bet, 10)
-        # Pot: 15, Current Bet faced: 10, Stack: 1000, Round: pre-flop (0)
-        # Tokens:
-        # 1. Card Ac: [14.4, 0.0, 0.0]
-        # 2. Card Ad: [14.3, 0.0, 0.0]
-        # 3. Hist p1 bet 5: [1.0 (p1_id), 3.0 (bet_id), 0.05 (5/100)]
-        # 4. Hist p2 bet 10: [2.0 (p2_id), 3.0 (bet_id), 0.1 (10/100)]
-        # 5. Pot: [0.15 (15/100), 0.0, 1.0]
-        # 6. Bet Faced: [0.1 (10/100), 0.0, 2.0] (p0 has 0 in pot, faces 10)
-        # 7. Stack: [10.0 (1000/100), 0.0, 3.0]
-        # 8. Round: [0.0 (preflop_id), 0.0, 4.0]
-        # Total 8 tokens.
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        import traceback
-        traceback.print_exc()
-
-    print("\n--- Testing helper _encode_card ---")
-    print(f"Encoding 'As': {_encode_card('As')}") # Expected: 14.1
-    print(f"Encoding '2c': {_encode_card('2C')}") # Expected: 2.4 (handles mixed case)
-
-    print("\n--- Testing helper _get_numeric_player_id ---")
-    print(f"ID for 'player_1' in {player_order_mock}: {_get_numeric_player_id('player_1', player_order_mock)}") # Expected: 1
-    try:
-        _get_numeric_player_id("player_x", player_order_mock)
-    except ValueError as e:
-        print(f"Correctly caught error for 'player_x': {e}")
-

@@ -236,7 +236,7 @@ class SelfPlay:
         return payoff
 
     def play_hand_for_training(self):
-        training_data_for_hand = [] 
+        training_data_for_hand = []
         self.game_engine.initialize_game()
         main_ai_gs = AI_GameState()
 
@@ -389,6 +389,25 @@ class SelfPlay:
         
         print("\nHand complete.")
         return training_data_for_hand
+
+    def run_parallel_hands(self, num_hands: int, num_workers: int = 2):
+        """Run multiple hands in parallel processes and aggregate training data."""
+        import multiprocessing as mp
+
+        def worker(_: int, queue: mp.Queue):
+            data = self.play_hand_for_training()
+            queue.put(data)
+
+        queue: mp.Queue = mp.Queue()
+        processes = [mp.Process(target=worker, args=(i, queue)) for i in range(num_workers)]
+        for p in processes:
+            p.start()
+        results = []
+        for _ in range(num_workers):
+            results.append(queue.get())
+        for p in processes:
+            p.join()
+        return results
 
 
 if __name__ == '__main__':

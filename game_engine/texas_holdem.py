@@ -4,6 +4,9 @@ import random
 import json
 import os
 from treys import Evaluator, Card  # Ensure treys is installed: pip install treys
+
+SUITS = ['h', 'd', 'c', 's']
+RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 from datetime import datetime
 
 
@@ -198,10 +201,12 @@ class TexasHoldemRules:
 
 
 class TexasHoldem:
-    def __init__(self, num_players, starting_stack, player_strategies):
+    def __init__(self, num_players, starting_stack=1000, player_strategies=None):
         self.rules = TexasHoldemRules(num_players, starting_stack)
         self.num_players = num_players
         self.starting_stack = starting_stack
+        if player_strategies is None:
+            player_strategies = [None] * num_players
         self.player_strategies = player_strategies  # List of strategy instances
         self.end_game_early = False
         self.winner = None
@@ -496,6 +501,21 @@ class TexasHoldem:
                 print(f"Player {i + 1}'s hand: {hand_str}")
             else:
                 pass  # AI hands can be hidden or shown as desired
+
+    def get_initial_state(self):
+        """Return a simple tensor representation of the current game state."""
+        import numpy as np
+        state = np.zeros((self.num_players + 5, len(RANKS), len(SUITS)), dtype=int)
+        for i, hand in enumerate(self.rules.hands):
+            for card in hand:
+                rank = RANKS.index(card[0])
+                suit = SUITS.index(card[1])
+                state[i, rank, suit] = 1
+        for j, card in enumerate(self.rules.community_cards):
+            rank = RANKS.index(card[0])
+            suit = SUITS.index(card[1])
+            state[self.num_players + j, rank, suit] = 1
+        return np.expand_dims(state, axis=0)
 
     def print_community_cards(self, stage):
         community_str = self.format_hand_display(self.rules.community_cards)
