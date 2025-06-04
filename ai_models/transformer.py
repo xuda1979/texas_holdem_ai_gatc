@@ -13,7 +13,7 @@ class TransformerAverageStrategy(nn.Module):
         )
         self.fc = nn.Linear(hidden_dim, num_actions)
 
-    def forward(self, x):
+    def forward(self, x, src_mask=None):
         # x shape: (batch_size, seq_len, input_feature_dim)
         x = self.input_projection(x)
         # x shape after projection: (batch_size, seq_len, hidden_dim)
@@ -58,7 +58,7 @@ class TransformerAverageStrategy(nn.Module):
         # Transformer: needs (Seq, Batch, hidden_dim) if batch_first=False (default)
         
         x_permuted = x.permute(1, 0, 2) # (Seq, Batch, hidden_dim)
-        transformer_output = self.transformer(x_permuted, x_permuted) # (Seq, Batch, hidden_dim)
+        transformer_output = self.transformer(x_permuted, x_permuted, src_mask)  # (Seq, Batch, hidden_dim)
         x_restored = transformer_output.permute(1, 0, 2) # (Batch, Seq, hidden_dim)
         
         # Select the output of the last token in the sequence for classification

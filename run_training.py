@@ -5,6 +5,7 @@ import os # For path manipulation if needed, e.g. for robust config loading
 # and trainers, self_play, etc., are packages in that root.
 from trainers.ai_cfr_trainer import AICFRTrainer
 from self_play.self_play import SelfPlay
+from typing import List, Dict
 
 # Configuration Loading
 # Robustly locate config.yaml assuming it's in the project root
@@ -42,6 +43,7 @@ def main():
     
     game_engine_config = config.get('game_engine', {})
     training_params = config.get('training', {})
+    curriculum_stages: List[Dict] = config.get('curriculum', {}).get('stages', [])
 
     # Training Parameters
     num_training_hands = training_params.get('num_training_hands', 1000)
@@ -69,7 +71,6 @@ def main():
         'starting_stack': starting_stack,
         'big_blind': big_blind,
         'small_blind': small_blind
-        # Note: player_strategies are handled by SelfPlay using DummyStrategy
     }
 
     try:
@@ -89,11 +90,15 @@ def main():
 
     # Training Loop
     print("\n--- Starting Training Loop ---")
+    stage_index = 0
+    if curriculum_stages:
+        game_config_for_selfplay.update(curriculum_stages[stage_index])
+        self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
     for hand_num in range(1, num_training_hands + 1):
         print(f"\n--- Training Hand {hand_num}/{num_training_hands} ---")
         try:
             # The play_hand_for_training method now collects data and calls cfr_trainer.train internally
-            _ = self_play_env.play_hand_for_training() 
+            _ = self_play_env.play_hand_for_training()
             # The returned training_data could be used for other logging or analysis here if needed.
             print(f"Hand {hand_num} completed.")
         except Exception as e:
@@ -103,6 +108,11 @@ def main():
             import traceback
             traceback.print_exc()
 
+
+        if curriculum_stages and hand_num % (num_training_hands // len(curriculum_stages)) == 0:
+            stage_index = min(stage_index + 1, len(curriculum_stages) - 1)
+            game_config_for_selfplay.update(curriculum_stages[stage_index])
+            self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
 
         if hand_num % save_model_every_n_hands == 0:
             print(f"\n--- Saving model at hand {hand_num} ---")
