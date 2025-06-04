@@ -65,7 +65,8 @@ def regret_matching_plus(cumulative_regret, regrets, num_actions):
 
 def cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num_iterations, prune_threshold=0.0):
     """Run CFR+ iterations with optional pruning of low-regret actions."""
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        print(f"CFR+ Iteration: {i+1}/{num_iterations}")
         current_strategy = calculate_strategy(cumulative_regret, num_actions)
         action_values = torch.zeros(num_actions)
 
@@ -80,6 +81,9 @@ def cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, num_actions
             regrets = torch.where(mask, torch.zeros_like(regrets), regrets)
 
         current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
+        # Ensure current_strategy is on CPU before tolist() if it might be on GPU
+        # For now, assuming tolist() works or tensors are on CPU by default here.
+        print(f"  CFR+ Current strategy (first 5 actions): {current_strategy[:5].tolist()}")
         cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
 
         cumulative_regret = torch.clamp(cumulative_regret, min=0)
@@ -112,7 +116,8 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
     :param num_iterations: The number of CFR iterations to perform.
     :return: Updated cumulative regret and cumulative strategy tensors.
     """
-    for _ in range(num_iterations):
+    for i in range(num_iterations):
+        print(f"CFR Iteration: {i+1}/{num_iterations}")
         current_strategy = calculate_strategy(cumulative_regret, num_actions)
         action_values = torch.zeros(num_actions)
         
@@ -123,6 +128,9 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
         actual_action = game.get_actual_action()
         regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
         current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
+        # Ensure current_strategy is on CPU before tolist() if it might be on GPU
+        # For now, assuming tolist() works or tensors are on CPU by default here.
+        print(f"  Current strategy (first 5 actions): {current_strategy[:5].tolist()}")
         cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
 
     return cumulative_regret, cumulative_strategy
