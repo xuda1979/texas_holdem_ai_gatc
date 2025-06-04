@@ -21,3 +21,10 @@ training:
 logging:
   level: "INFO"
   log_file: "logs/poker_ai.log" # Changed to relative path for consistency
+
+curriculum:
+  stages:
+    - num_players: 2
+      starting_stack: 500
+    - num_players: 2
+      starting_stack: 1000

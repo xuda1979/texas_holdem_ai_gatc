@@ -56,7 +56,7 @@ def test_transformer_forward_pass():
 
     # Perform a forward pass
     try:
-        with torch.no_grad(): # Disable gradient calculations for inference
+        with torch.no_grad():
             output_probs = model(dummy_input)
         print(f"Model forward pass successful. Output shape: {output_probs.shape}")
     except Exception as e:

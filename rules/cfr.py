@@ -63,6 +63,29 @@ def regret_matching_plus(cumulative_regret, regrets, num_actions):
     strategy = calculate_strategy(cumulative_regret, num_actions)
     return strategy, cumulative_regret
 
+def cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num_iterations, prune_threshold=0.0):
+    """Run CFR+ iterations with optional pruning of low-regret actions."""
+    for _ in range(num_iterations):
+        current_strategy = calculate_strategy(cumulative_regret, num_actions)
+        action_values = torch.zeros(num_actions)
+
+        for action in range(num_actions):
+            action_values[action] = game.simulate_action(action)
+
+        actual_action = game.get_actual_action()
+        regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
+
+        if prune_threshold > 0.0:
+            mask = cumulative_regret < prune_threshold
+            regrets = torch.where(mask, torch.zeros_like(regrets), regrets)
+
+        current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
+        cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
+
+        cumulative_regret = torch.clamp(cumulative_regret, min=0)
+
+    return cumulative_regret, cumulative_strategy
+
 def compute_average_strategy(cumulative_strategy):
     """
     Compute the average strategy over all iterations.
