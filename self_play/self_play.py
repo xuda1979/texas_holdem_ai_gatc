@@ -23,10 +23,11 @@ class SelfPlay:
             'num_players': num_total_players,
             'starting_stack': game_engine_config.get('starting_stack', 0),
             'player_strategies': [DummyStrategy() for _ in range(num_total_players)],
-            'big_blind': game_engine_config.get('big_blind',10),
-            'small_blind': game_engine_config.get('small_blind',5)
         }
         self.game_engine = TexasHoldem(**self.game_engine_base_config)
+        # Apply blind settings after creation to avoid unexpected kwargs
+        self.game_engine.rules.big_blind = game_engine_config.get('big_blind', 10)
+        self.game_engine.rules.small_blind = game_engine_config.get('small_blind', 5)
 
     def _is_action_valid(self, engine_rules: TexasHoldemRules, player_idx: int, action_str: str, amount: int | None) -> bool:
         player_chips = engine_rules.player_chips[player_idx]
@@ -88,7 +89,7 @@ class SelfPlay:
         for i in range(engine_rules.num_players):
             player_id_str = str(i)
             stack_size = engine_rules.player_chips[i]
-            ai_player_obj = AI_Player(player_id=player_id_str, stack=stack_size) 
+            ai_player_obj = AI_Player(player_id=player_id_str, stack_size=stack_size)
             if i == self.ai_player_idx:
                 if engine_rules.hands and i < len(engine_rules.hands):
                      ai_player_obj.hand = list(engine_rules.hands[i])
@@ -236,7 +237,7 @@ class SelfPlay:
         return payoff
 
     def play_hand_for_training(self):
-        training_data_for_hand = [] 
+        training_data_for_hand = []
         self.game_engine.initialize_game()
         main_ai_gs = AI_GameState()
 
@@ -389,6 +390,25 @@ class SelfPlay:
         
         print("\nHand complete.")
         return training_data_for_hand
+
+    def run_parallel_hands(self, num_hands: int, num_workers: int = 2):
+        """Run multiple hands in parallel processes and aggregate training data."""
+        import multiprocessing as mp
+
+        def worker(_: int, queue: mp.Queue):
+            data = self.play_hand_for_training()
+            queue.put(data)
+
+        queue: mp.Queue = mp.Queue()
+        processes = [mp.Process(target=worker, args=(i, queue)) for i in range(num_workers)]
+        for p in processes:
+            p.start()
+        results = []
+        for _ in range(num_workers):
+            results.append(queue.get())
+        for p in processes:
+            p.join()
+        return results
 
 
 if __name__ == '__main__':

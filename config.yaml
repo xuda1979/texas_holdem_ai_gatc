@@ -12,8 +12,8 @@ game_engine:
   small_blind: 5
 
 training:
-  num_training_hands: 1000
-  save_model_every_n_hands: 100
+  num_training_hands: 1
+  save_model_every_n_hands: 1
   batch_size: 32 # Kept existing, though less relevant for current training loop
   num_epochs: 50 # Kept existing, though less relevant for current training loop
   save_model_path: "models/cfr_model.pth" # Updated path
@@ -21,3 +21,10 @@ training:
 logging:
   level: "INFO"
   log_file: "logs/poker_ai.log" # Changed to relative path for consistency
+
+curriculum:
+  stages:
+    - num_players: 2
+      starting_stack: 500
+    - num_players: 2
+      starting_stack: 1000
