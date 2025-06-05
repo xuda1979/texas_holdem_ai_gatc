@@ -109,10 +109,12 @@ def main():
             traceback.print_exc()
 
 
-        if curriculum_stages and hand_num % (num_training_hands // len(curriculum_stages)) == 0:
-            stage_index = min(stage_index + 1, len(curriculum_stages) - 1)
-            game_config_for_selfplay.update(curriculum_stages[stage_index])
-            self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
+        if curriculum_stages:
+            stage_interval = max(1, num_training_hands // len(curriculum_stages))
+            if hand_num % stage_interval == 0:
+                stage_index = min(stage_index + 1, len(curriculum_stages) - 1)
+                game_config_for_selfplay.update(curriculum_stages[stage_index])
+                self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
 
         if hand_num % save_model_every_n_hands == 0:
             print(f"\n--- Saving model at hand {hand_num} ---")
