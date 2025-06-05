@@ -1,18 +1,9 @@
 import yaml
 import os # For path manipulation if needed, e.g. for robust config loading
-
-# Assuming the script is run from the project root,
-# and trainers, self_play, etc., are packages in that root.
+import argparse # Added for command-line arguments
 from trainers.ai_cfr_trainer import AICFRTrainer
 from self_play.self_play import SelfPlay
 from typing import List, Dict
-
-# Configuration Loading
-# Robustly locate config.yaml assuming it's in the project root
-CONFIG_FILE_PATH = "config.yaml" 
-# If script is not in root, adjust path:
-# CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "config.yaml") # If config is with script
-# Or an absolute path, or environment variable. For now, assume it's in CWD.
 
 def load_configuration(config_path: str) -> dict:
     """Loads YAML configuration from the given path."""
@@ -34,15 +25,52 @@ def load_configuration(config_path: str) -> dict:
 def main():
     print("--- Starting Poker AI Training Session ---")
 
-    # Load configuration
-    config = load_configuration(CONFIG_FILE_PATH)
+    parser = argparse.ArgumentParser(description="Run Poker AI Training Session")
+    parser.add_argument('--config-file', type=str, default="config.yaml", help="Path to the YAML configuration file.")
+    parser.add_argument('--num-training-hands', type=int, help="Total number of hands to train.")
+    parser.add_argument('--save-model-every', type=int, help="Save the model every N hands.")
+    parser.add_argument('--learning-rate', type=float, help="Learning rate for the optimizer.")
+    parser.add_argument('--hidden-dim', type=int, help="Hidden dimension for the model.")
+    parser.add_argument('--num-layers', type=int, help="Number of layers in the Transformer model.")
+    parser.add_argument('--num-actions', type=int, help="Number of possible actions.")
+    parser.add_argument('--d-raw-feature', type=int, help="Dimension of raw features for state representation.")
+    args = parser.parse_args()
 
-    # Extract configurations with defaults
-    # model_config is implicitly used by AICFRTrainer via its own global config load.
-    # We don't directly use model_config here, but AICFRTrainer does.
-    
-    game_engine_config = config.get('game_engine', {})
+    # Load base configuration from YAML
+    config = load_configuration(args.config_file)
+
+    # Ensure 'training' and 'model' keys exist, defaulting to empty dicts if not
+    if 'training' not in config:
+        config['training'] = {}
+    if 'model' not in config:
+        config['model'] = {}
+    if 'game_engine' not in config:
+        config['game_engine'] = {}
+    if 'curriculum' not in config:
+        config['curriculum'] = {}
+    if 'stages' not in config['curriculum']:
+        config['curriculum']['stages'] = []
+
+
+    # Override with command-line arguments if provided
+    if args.num_training_hands is not None:
+        config['training']['num_training_hands'] = args.num_training_hands
+    if args.save_model_every is not None:
+        config['training']['save_model_every_n_hands'] = args.save_model_every
+    if args.learning_rate is not None:
+        config['model']['learning_rate'] = args.learning_rate
+    if args.hidden_dim is not None:
+        config['model']['hidden_dim'] = args.hidden_dim
+    if args.num_layers is not None:
+        config['model']['num_layers'] = args.num_layers
+    if args.num_actions is not None:
+        config['model']['num_actions'] = args.num_actions
+    if args.d_raw_feature is not None:
+        config['model']['d_raw_feature'] = args.d_raw_feature
+
+    # Extract configurations with defaults from the consolidated config
     training_params = config.get('training', {})
+    game_engine_config_params = config.get('game_engine', {})
     curriculum_stages: List[Dict] = config.get('curriculum', {}).get('stages', [])
 
     # Training Parameters
@@ -50,71 +78,103 @@ def main():
     save_model_every_n_hands = training_params.get('save_model_every_n_hands', 100)
     
     # Game Engine Parameters for SelfPlay
-    num_players = game_engine_config.get('num_players', 2)
-    starting_stack = game_engine_config.get('starting_stack', 1000)
-    big_blind = game_engine_config.get('big_blind', 10)
-    small_blind = game_engine_config.get('small_blind', 5)
+    num_players = game_engine_config_params.get('num_players', 2)
+    starting_stack = game_engine_config_params.get('starting_stack', 1000)
+    big_blind = game_engine_config_params.get('big_blind', 10)
+    small_blind = game_engine_config_params.get('small_blind', 5)
 
     print("\n--- Configuration ---")
+    print(f"Config file used: {args.config_file}")
     print(f"Total training hands: {num_training_hands}")
     print(f"Save model every: {save_model_every_n_hands} hands")
     print(f"Number of players: {num_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
-    # Note: AICFRTrainer also loads config.yaml internally for its model parameters.
-    # Ensure d_raw_feature is present in config.yaml for TransformerAverageStrategy if not using defaults.
+    # Model parameters will be passed to AICFRTrainer
+    print(f"Model Params (from config): Hidden Dim: {config.get('model', {}).get('hidden_dim')}, LR: {config.get('model', {}).get('learning_rate')}, etc.")
+
 
     # Initialization
     print("\n--- Initializing Components ---")
+    # game_config_for_selfplay is now directly derived from the main config's game_engine section
     game_config_for_selfplay = {
-        'num_players': num_players,
+        'num_players': num_players, # Already extracted, but can also use game_engine_config_params.get(...)
         'starting_stack': starting_stack,
         'big_blind': big_blind,
-        'small_blind': small_blind
+        'small_blind': small_blind,
+        # Include any other game engine specific params from config['game_engine']
+        **{k: v for k, v in game_engine_config_params.items() if k not in ['num_players', 'starting_stack', 'big_blind', 'small_blind']}
     }
 
     try:
-        cfr_trainer = AICFRTrainer() # Loads its own model config from 'config.yaml'
+        # Pass the consolidated config to AICFRTrainer
+        cfr_trainer = AICFRTrainer(config_data=config)
         print("AICFRTrainer initialized.")
     except Exception as e:
         print(f"Error initializing AICFRTrainer: {e}")
-        print("Please ensure 'config.yaml' is present and correctly formatted, especially the 'model' section.")
-        return # Exit if trainer fails to initialize
+        import traceback
+        traceback.print_exc()
+        print("Please ensure configuration (file and CLI args) is correct, especially for the 'model' section.")
+        return
 
     try:
         self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
         print("SelfPlay environment initialized.")
     except Exception as e:
         print(f"Error initializing SelfPlay environment: {e}")
-        return # Exit if self-play fails
+        import traceback
+        traceback.print_exc()
+        return
 
     # Training Loop
     print("\n--- Starting Training Loop ---")
-    stage_index = 0
+    current_stage_index = 0
     if curriculum_stages:
-        game_config_for_selfplay.update(curriculum_stages[stage_index])
-        self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
+        print(f"Applying initial curriculum stage: {curriculum_stages[current_stage_index]}")
+        current_stage_config = curriculum_stages[current_stage_index]
+        # Update game_config_for_selfplay with stage specific settings
+        # Create a new dict for the stage to avoid modifying the base game_config_for_selfplay if not intended
+        stage_game_config = game_config_for_selfplay.copy()
+        stage_game_config.update(current_stage_config)
+        self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=stage_game_config)
+        print(f"SelfPlay environment re-initialized with curriculum stage: {current_stage_config}")
+
+
     for hand_num in range(1, num_training_hands + 1):
         print(f"\n--- Training Hand {hand_num}/{num_training_hands} ---")
+
+        # Curriculum update logic
+        if curriculum_stages:
+            # Calculate which stage this hand_num falls into
+            # This is a simple way: divide total hands by number of stages to get interval
+            # More sophisticated logic could be hand_num > stage_config.get('end_hand_num')
+            hands_per_stage = num_training_hands // len(curriculum_stages)
+            if hands_per_stage == 0: hands_per_stage = 1 # Avoid division by zero if num_training_hands < len(curriculum_stages)
+
+            new_stage_index = (hand_num -1) // hands_per_stage # current stage index
+
+            if new_stage_index != current_stage_index and new_stage_index < len(curriculum_stages):
+                current_stage_index = new_stage_index
+                print(f"Transitioning to curriculum stage {current_stage_index}: {curriculum_stages[current_stage_index]}")
+                current_stage_config = curriculum_stages[current_stage_index]
+                stage_game_config = game_config_for_selfplay.copy() # Start with base game config
+                stage_game_config.update(current_stage_config) # Override with stage specifics
+                self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=stage_game_config)
+                print(f"SelfPlay environment re-initialized with new curriculum stage: {current_stage_config}")
+            elif hand_num == 1 and current_stage_index == 0 and not hasattr(self_play_env, '_curriculum_applied_initially'):
+                # This ensures the first stage is applied if not done above
+                # (The above logic might miss stage 0 if hands_per_stage makes new_stage_index > 0 on first few hands)
+                # Simpler: the initial setup of self_play_env before loop already handles stage 0.
+                pass # Initial stage already applied before loop if curriculum_stages is not empty
+
         try:
-            # The play_hand_for_training method now collects data and calls cfr_trainer.train internally
             _ = self_play_env.play_hand_for_training()
-            # The returned training_data could be used for other logging or analysis here if needed.
             print(f"Hand {hand_num} completed.")
         except Exception as e:
             print(f"Error during hand {hand_num}: {e}")
-            # Decide if training should continue or break on error
-            # For now, print error and continue to next hand
             import traceback
             traceback.print_exc()
-
-
-        if curriculum_stages:
-            stage_interval = max(1, num_training_hands // len(curriculum_stages))
-            if hand_num % stage_interval == 0:
-                stage_index = min(stage_index + 1, len(curriculum_stages) - 1)
-                game_config_for_selfplay.update(curriculum_stages[stage_index])
-                self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
+            # Decide if training should continue or break on error
 
         if hand_num % save_model_every_n_hands == 0:
             print(f"\n--- Saving model at hand {hand_num} ---")

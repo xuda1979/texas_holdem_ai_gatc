@@ -14,15 +14,19 @@ import torch.nn.functional as F
 # Load configuration - This might fail if config.yaml is not in the expected path during execution
 # For robustness, consider passing config path or dictionary.
 # For now, keeping as is, assuming it's found relative to where the script/module is run.
+# The AICFRTrainer class will now accept a config_data dictionary.
+# The module-level config loading below is for the global logging setup and might be addressed separately.
 try:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
 except FileNotFoundError:
-    print("Warning: config.yaml not found. Using default config values for AICFRTrainer.")
-    # Define a default config structure if file not found, to allow module loading
+    print("Warning: config.yaml not found. Using default config values for global settings.")
+    # Define a default config structure if file not found
     config = {
         'logging': {'log_file': 'aicfr_trainer.log'},
-        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001},
+        # Model and training configs are now primarily passed to the class,
+        # but can have module-level defaults if needed elsewhere.
+        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 3, 'num_heads': 8, 'num_layers': 2},
         'training': {'save_model_path': 'aicfr_model.pth'}
     }
 
@@ -35,26 +39,29 @@ if log_dir and not os.path.exists(log_dir):
 logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
 
 class AICFRTrainer:
-    def __init__(self):
-        model_config = config.get('model', {}) # Get model sub-config, or empty dict
-        hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
-        output_dim = model_config.get('num_actions', 10) # Default if not found
-        learning_rate = model_config.get('learning_rate', 0.001) # Default if not found
-        
-        # Fetch d_raw_feature with a default value
-        # This value should match the d_raw_feature used in state_representation.py
-        d_raw_feature = model_config.get('d_raw_feature', 3) 
+    def __init__(self, config_data: dict):
+        model_config = config_data.get('model', {})
+        training_config = config_data.get('training', {})
+
+        hidden_dim = model_config.get('hidden_dim', 128)
+        output_dim = model_config.get('num_actions', 10)
+        learning_rate = model_config.get('learning_rate', 0.001)
+        d_raw_feature = model_config.get('d_raw_feature', 3)
+        num_heads = model_config.get('num_heads', 8) # Added from config
+        num_layers = model_config.get('num_layers', 2) # Added from config
+
+        self.save_model_path = training_config.get('save_model_path', 'aicfr_model_default.pth')
 
         self.model = TransformerAverageStrategy(
-            input_feature_dim=d_raw_feature, 
-            hidden_dim=hidden_dim, 
-            num_heads=8,  # Assuming num_heads and num_layers are fixed or could also be in config
-            num_layers=2, 
+            input_feature_dim=d_raw_feature,
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
             num_actions=output_dim
         )
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.num_actions = output_dim # Ensure this is consistent with model output
+        self.num_actions = output_dim
         
         # Initialize cumulative regret and strategy tensors
         # These should be persistent across training iterations for a given state-space node if traditional CFR.
@@ -122,20 +129,18 @@ class AICFRTrainer:
             raise
 
     def save_model(self):
-        # Ensure config path is correct or make it an argument
         try:
-            torch.save(self.model.state_dict(), config['training']['save_model_path'])
-            logging.info(f"Model saved to {config['training']['save_model_path']}")
+            torch.save(self.model.state_dict(), self.save_model_path)
+            logging.info(f"Model saved to {self.save_model_path}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 
 
     def load_model(self):
-        # Ensure config path is correct or make it an argument
         try:
-            self.model.load_state_dict(torch.load(config['training']['save_model_path']))
+            self.model.load_state_dict(torch.load(self.save_model_path))
             self.model.eval() # Set model to evaluation mode
-            logging.info(f"Model loaded from {config['training']['save_model_path']}")
+            logging.info(f"Model loaded from {self.save_model_path}")
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
