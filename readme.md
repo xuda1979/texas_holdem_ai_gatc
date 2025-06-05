@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project implements a Texas Hold'em AI using Counterfactual Regret Minimization (CFR) and neural networks, including Transformer models. The project is designed for Texas Hold'em and supports human vs. AI gameplay with a graphical user interface (GUI).
+This project implements a Texas Hold'em AI using Counterfactual Regret Minimization (CFR) and neural networks built with **PyTorch**. It includes Transformer-based strategies and supports human vs. AI gameplay through a graphical user interface (GUI).
 
 ## Project Structure
 
@@ -35,9 +35,20 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
    pytest -q
    ```
 
+4. **Play against the AI**:
+   ```bash
+   python play/gui.py
+   ```
+
+5. **Command-line play simulation**:
+   ```bash
+   python human_vs_ai.py
+   ```
+
 ## Features
 
 - Transformer-based neural networks for strategy and advantage estimation
+- PyTorch CNN model powering CFR training
 - Deep CFR and Single Network CFR trainers
 - CFR+ with pruning support
 - Opponent modeling with Transformers

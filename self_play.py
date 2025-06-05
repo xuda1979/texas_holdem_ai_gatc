@@ -6,7 +6,6 @@ import random
 import threading
 import signal
 from datetime import datetime
-import tensorflow as tf
 from models.transformer_strategy_model import TransformerAIStrategy, TransformerStrategyModel
 from game_engine.texas_holdem import TexasHoldem
 import config
