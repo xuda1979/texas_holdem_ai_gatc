@@ -1,13 +1,11 @@
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
-import tensorflow as tf
 import torch
-from tensorflow.keras.layers import Input, Conv2D, Flatten, Dense, Activation, add
-from tensorflow.keras.models import Model
-import builtins
+import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
+import builtins
 from texas_holdem import TexasHoldem  # Ensure this import is correct
+from rules.cfr import update_regret, update_strategy
 
 # Ensure ``round`` can handle mis-specified arguments in unit tests
 _orig_round = builtins.round
@@ -27,8 +25,8 @@ class CFRTrainer:
         self.config = config
         self.num_actions = config['num_actions']
         self.input_shape = config['input_shape']
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate=config['learning_rate'])
         self.model = self.build_model()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config['learning_rate'])
         self.cumulative_regret = torch.zeros(self.num_actions)
         self.cumulative_strategy = torch.zeros(self.num_actions)
         self.regrets = {}
@@ -37,36 +35,42 @@ class CFRTrainer:
 
     def build_model(self):
         print("Building model...")  # Debug print statement
-        inputs = Input(shape=self.input_shape)
-        x = Conv2D(64, (3, 3), padding='same', activation='relu')(inputs)
-        x = self.residual_block(x)
-        x = Flatten()(x)
-        outputs = Dense(self.num_actions, activation='softmax')(x)
-        model = Model(inputs=inputs, outputs=outputs)
-        model.compile(optimizer=self.optimizer, loss='mse')
+        c, h, w = self.input_shape[2], self.input_shape[0], self.input_shape[1]
+
+        class SimpleCNN(nn.Module):
+            def __init__(self, num_actions):
+                super().__init__()
+                self.conv1 = nn.Conv2d(c, 64, kernel_size=3, padding=1)
+                self.conv2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+                self.fc = nn.Linear(64 * h * w, num_actions)
+
+            def forward(self, x):
+                # input comes as NHWC, convert to NCHW
+                x = x.permute(0, 3, 1, 2).float()
+                residual = F.relu(self.conv1(x))
+                out = self.conv2(residual)
+                out = F.relu(out + residual)
+                out = out.reshape(out.size(0), -1)
+                out = self.fc(out)
+                return F.softmax(out, dim=1)
+
+        model = SimpleCNN(self.num_actions)
         print("Model built.")  # Debug print statement
         return model
 
-    def residual_block(self, x):
-        print("Adding residual block...")  # Debug print statement
-        shortcut = x
-        x = Conv2D(64, (3, 3), padding='same', activation='relu')(x)
-        x = Conv2D(64, (3, 3), padding='same')(x)
-        x = add([x, shortcut])
-        x = Activation('relu')(x)
-        print("Residual block added.")  # Debug print statement
-        return x
+    # residual_block is now handled inside build_model
 
     def train_step(self, states, regrets):
         print("Starting train step...")  # Debug print statement
-        with tf.GradientTape() as tape:
-            predictions = self.model(states, training=True)
-            mse = tf.keras.losses.MeanSquaredError()
-            loss = mse(regrets, predictions)
-        gradients = tape.gradient(loss, self.model.trainable_variables)
-        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        states_tensor = torch.tensor(states, dtype=torch.float32)
+        regrets_tensor = torch.tensor(regrets, dtype=torch.float32)
+        self.optimizer.zero_grad()
+        predictions = self.model(states_tensor)
+        loss = F.mse_loss(predictions, regrets_tensor)
+        loss.backward()
+        self.optimizer.step()
         print("Train step completed.")  # Debug print statement
-        return loss.numpy().mean()
+        return loss.item()
 
     def cfr(self, state, player, iteration):
         """Run a single iteration of Counterfactual Regret Minimization.
@@ -110,10 +114,11 @@ class CFRTrainer:
 
     def get_strategy(self, state_representation):
         print("Getting strategy...")  # Debug print statement
-        predictions = self.model.predict(np.array([state_representation]))[0]
-        strategy = predictions / np.sum(predictions)  # Normalize to get probabilities
+        with torch.no_grad():
+            state_tensor = torch.tensor([state_representation], dtype=torch.float32)
+            predictions = self.model(state_tensor)[0].numpy()
+        strategy = predictions / np.sum(predictions)
         print("Strategy obtained.")  # Debug print statement
-        # Convert to a plain Python list to avoid dtype issues in tests
         return strategy.tolist()
 
     def encode_state(self, state):
@@ -133,13 +138,15 @@ class CFRTrainer:
         return arr
 
     def save_model(self, model_path):
-        self.model.save(model_path)
+        torch.save(self.model.state_dict(), model_path)
         print("Model saved successfully")
 
     def load_model(self, model_path):
         try:
             print("Loading model...")  # Debug print statement
-            self.model = tf.keras.models.load_model(model_path)
+            state_dict = torch.load(model_path)
+            self.model.load_state_dict(state_dict)
+            self.model.eval()
             print("Model loaded successfully")
         except Exception as e:
             print(f"Failed to load model: {e}")

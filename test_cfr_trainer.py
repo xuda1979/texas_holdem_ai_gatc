@@ -1,6 +1,5 @@
 import unittest
 import numpy as np
-from tensorflow.keras.layers import Input
 from cfr_trainer import CFRTrainer
 from game_engine.texas_holdem import TexasHoldem
 
