@@ -1,6 +1,7 @@
 import yaml
 import os # For path manipulation if needed, e.g. for robust config loading
 import argparse # Added for command-line arguments
+import sys # Added for debug exit
 from trainers.ai_cfr_trainer import AICFRTrainer
 from self_play.self_play import SelfPlay
 from typing import List, Dict
@@ -36,6 +37,14 @@ def main():
     parser.add_argument('--d-raw-feature', type=int, help="Dimension of raw features for state representation.")
     args = parser.parse_args()
 
+    print(f"DEBUG: Parsed arguments: {args}") # Added debug print
+    # if args.num_training_hands == 12345:
+    #     print("DEBUG: Test for --num-training-hands 12345 successful. Exiting.")
+    #     sys.exit(0)
+    # if args.learning_rate == 0.12345:
+    #     print("DEBUG: Test for --learning-rate 0.12345 successful. Exiting.")
+    #     sys.exit(0)
+
     # Load base configuration from YAML
     config = load_configuration(args.config_file)
 
@@ -67,6 +76,18 @@ def main():
         config['model']['num_actions'] = args.num_actions
     if args.d_raw_feature is not None:
         config['model']['d_raw_feature'] = args.d_raw_feature
+
+    print("DEBUG: --- Final Configuration Values ---")
+    print(f"DEBUG: Using config file: {args.config_file}")
+    print(f"DEBUG: Final num_training_hands: {config.get('training', {}).get('num_training_hands')}")
+    print(f"DEBUG: Final save_model_every_n_hands: {config.get('training', {}).get('save_model_every_n_hands')}")
+    print(f"DEBUG: Final learning_rate: {config.get('model', {}).get('learning_rate')}")
+    print(f"DEBUG: Final hidden_dim: {config.get('model', {}).get('hidden_dim')}")
+    print(f"DEBUG: Final num_layers: {config.get('model', {}).get('num_layers')}")
+    print(f"DEBUG: Final num_actions: {config.get('model', {}).get('num_actions')}")
+    print(f"DEBUG: Final d_raw_feature: {config.get('model', {}).get('d_raw_feature')}")
+    print(f"DEBUG: Final save_model_path: {config.get('training', {}).get('save_model_path')}")
+    print("DEBUG: --- End of Final Configuration Values ---")
 
     # Extract configurations with defaults from the consolidated config
     training_params = config.get('training', {})
@@ -128,6 +149,7 @@ def main():
 
     # Training Loop
     print("\n--- Starting Training Loop ---")
+    print(f"DEBUG: Starting training loop with num_training_hands = {num_training_hands}") # Added debug print
     current_stage_index = 0
     if curriculum_stages:
         print(f"Applying initial curriculum stage: {curriculum_stages[current_stage_index]}")
