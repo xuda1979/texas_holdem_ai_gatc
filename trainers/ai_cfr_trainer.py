@@ -2,6 +2,7 @@ import torch
 import torch.optim as optim
 import logging
 import yaml
+import os
 from ai_models.transformer import TransformerAverageStrategy
 # Assuming rules.cfr is accessible from this path. Adjust if necessary.
 # e.g., if 'rules' is a top-level directory: from rules.cfr import ...
@@ -27,7 +28,11 @@ except FileNotFoundError:
 
 
 # Setup logging
-logging.basicConfig(filename=config['logging']['log_file'], level=logging.INFO, filemode='a')
+log_file_path = config['logging']['log_file']
+log_dir = os.path.dirname(log_file_path)
+if log_dir and not os.path.exists(log_dir):
+    os.makedirs(log_dir, exist_ok=True)
+logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
 
 class AICFRTrainer:
     def __init__(self):
