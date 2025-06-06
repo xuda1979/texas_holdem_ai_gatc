@@ -19,6 +19,15 @@ class SingleNetworkCFRTrainer:
         self.num_actions = num_actions
         self.cumulative_regret = torch.zeros(num_actions)
         self.cumulative_strategy = torch.zeros(num_actions)
+        # Expose simple config for use by SelfPlay
+        self.config = {
+            'model': {
+                'd_raw_feature': input_feature_dim,
+                'hidden_dim': hidden_dim,
+                'num_actions': num_actions,
+                'learning_rate': lr,
+            }
+        }
 
     def train_step(self, state: torch.Tensor, counterfactual_payoffs: torch.Tensor):
         strategy_pred = self.model(state.unsqueeze(0)).squeeze(0)

@@ -7,9 +7,26 @@ class GameState:
         self.current_bet = 0
         self.current_round = 'pre-flop'
         self.players = []
+        # Keep track of player ordering for feature encoding
+        self.player_order = []
+        # Some utilities expect `betting_round` attribute
+        self.betting_round = self.current_round
 
     def set_players(self, players):
         self.players = players
+        # Assume players is a list of objects with a player_id attribute
+        try:
+            self.player_order = [str(p.player_id) for p in players]
+        except AttributeError:
+            # Fallback if players are provided as IDs or lacking attribute
+            self.player_order = [str(p) for p in players]
+
+    def get_player(self, player_id):
+        """Return player object by id if available."""
+        for p in self.players:
+            if getattr(p, 'player_id', None) == player_id or str(p) == str(player_id):
+                return p
+        return None
 
     def set_player_hand(self, player_id, hand):
         self.player_hands[player_id] = hand

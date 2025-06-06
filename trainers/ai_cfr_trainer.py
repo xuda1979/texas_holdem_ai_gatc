@@ -36,7 +36,7 @@ logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
 
 class AICFRTrainer:
     def __init__(self):
-        model_config = config.get('model', {}) # Get model sub-config, or empty dict
+        model_config = config.get('model', {})  # Get model sub-config, or empty dict
         hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
         output_dim = model_config.get('num_actions', 10) # Default if not found
         learning_rate = model_config.get('learning_rate', 0.001) # Default if not found
@@ -54,7 +54,9 @@ class AICFRTrainer:
         )
         
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.num_actions = output_dim # Ensure this is consistent with model output
+        self.num_actions = output_dim  # Ensure this is consistent with model output
+        # Expose configuration so callers (e.g. self-play) can retrieve model params
+        self.config = config
         
         # Initialize cumulative regret and strategy tensors
         # These should be persistent across training iterations for a given state-space node if traditional CFR.

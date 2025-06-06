@@ -12,6 +12,8 @@ class TransformerAverageStrategy(nn.Module):
             num_decoder_layers=num_layers  # Or consider just using TransformerEncoder
         )
         self.fc = nn.Linear(hidden_dim, num_actions)
+        # Store number of actions for convenience
+        self.num_actions = num_actions
 
     def forward(self, x, src_mask=None):
         # x shape: (batch_size, seq_len, input_feature_dim)
