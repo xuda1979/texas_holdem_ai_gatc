@@ -1,3 +1,5 @@
+"""Utilities for running self-play training sessions."""
+
 from game_engine.texas_holdem import TexasHoldem, TexasHoldemRules
 from game_engine.game_state import GameState as AI_GameState # AI_GameState uses structured betting_history
 from game_engine.player import Player as AI_Player
@@ -13,6 +15,8 @@ class DummyStrategy:
         return 'fold', None
 
 class SelfPlay:
+    """Orchestrates a single poker game used for training."""
+
     def __init__(self, cfr_trainer, game_engine_config: Dict[str, Any], num_ai_players: int = 1):
         self.cfr_trainer = cfr_trainer 
         self.num_ai_players = num_ai_players
@@ -242,6 +246,8 @@ class SelfPlay:
         return payoff
 
     def play_hand_for_training(self):
+        """Play one hand and return training data tuples."""
+
         training_data_for_hand = []
         self.game_engine.initialize_game()
         main_ai_gs = AI_GameState()
