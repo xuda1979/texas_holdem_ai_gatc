@@ -2,7 +2,7 @@ import os
 import time
 import json
 from datetime import datetime
-from cfr_trainer import AICFRTrainer
+from trainers.ai_cfr_trainer import AICFRTrainer
 from rules.texas_holdem_rules import TexasHoldemRules
 
 MODEL_DIR = 'models'

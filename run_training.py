@@ -1,3 +1,5 @@
+"""Main command-line interface for training models via self-play."""
+
 import yaml
 import os # For path manipulation if needed, e.g. for robust config loading
 import argparse
@@ -60,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict):
+def initialize_trainer(algorithm: str, config: dict) -> AICFRTrainer:
     """Return a trainer instance based on selected algorithm."""
     if algorithm == "ai_cfr":
         return AICFRTrainer()

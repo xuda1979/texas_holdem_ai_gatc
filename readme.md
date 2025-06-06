@@ -54,7 +54,14 @@ During training each hand uses a random number of players (between 2 and 10).
 
 5. **Command-line play simulation**:
    ```bash
-   python human_vs_ai.py
+   python human_vs_ai.py --total-players 2 --num-humans 1 --starting-stack 1000
+   ```
+   The script falls back to interactive prompts if arguments are omitted.
+
+   After installation via `setup.py`, you can also use the entry points:
+   ```bash
+   play-poker --total-players 2 --num-humans 1
+   train-poker --num-hands 500
    ```
 
 ## Features

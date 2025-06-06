@@ -1,5 +1,5 @@
 import torch
-from ai_cfr_trainer import AICFRTrainer
+from trainers.ai_cfr_trainer import AICFRTrainer
 from texas_holdem_rules import TexasHoldem
 
 def simulate_self_play(trainer: AICFRTrainer, num_games: int):

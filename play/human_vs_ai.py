@@ -1,5 +1,5 @@
 from gui import PokerGameGUI
-from ai_cfr_trainer import AICFRTrainer
+from trainers.ai_cfr_trainer import AICFRTrainer
 
 def main():
     trainer = AICFRTrainer()
