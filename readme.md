@@ -30,6 +30,18 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
    python run_training.py
    ```
 
+### Training CLI Options
+
+`run_training.py` exposes several command-line flags. Use `-h` to see all options.
+
+Example:
+
+```bash
+python run_training.py --num-hands 500 --algorithm deep_cfr --save-model-every 50
+```
+
+During training each hand uses a random number of players (between 2 and 10).
+
 3. **Run tests**:
    ```bash
    pytest -q

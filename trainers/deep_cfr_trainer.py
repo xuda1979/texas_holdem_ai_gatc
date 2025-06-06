@@ -49,6 +49,15 @@ class DeepCFRTrainer:
         self.num_actions = num_actions
         self.cumulative_regret = torch.zeros(num_actions)
         self.cumulative_strategy = torch.zeros(num_actions)
+        # Minimal config dict for compatibility with SelfPlay expectations
+        self.config = {
+            'model': {
+                'd_raw_feature': input_feature_dim,
+                'hidden_dim': hidden_dim,
+                'num_actions': num_actions,
+                'learning_rate': learning_rate,
+            }
+        }
 
     def store_trajectory(self, state: torch.Tensor, action: int, regret: torch.Tensor):
         self.replay_buffer.push((state.detach(), action, regret.detach()))

@@ -84,12 +84,15 @@ class SelfPlay:
         elif num_community_cards == 3: ai_gs.current_round = 'flop'
         elif num_community_cards == 4: ai_gs.current_round = 'turn'
         elif num_community_cards == 5: ai_gs.current_round = 'river'
-        else: ai_gs.current_round = 'unknown' 
+        else: ai_gs.current_round = 'unknown'
+        ai_gs.betting_round = ai_gs.current_round
         ai_gs_players_list: List[AI_Player] = []
         for i in range(engine_rules.num_players):
             player_id_str = str(i)
             stack_size = engine_rules.player_chips[i]
             ai_player_obj = AI_Player(player_id=player_id_str, stack_size=stack_size)
+            # Some utilities expect attribute `stack` for stack size
+            ai_player_obj.stack = stack_size
             if i == self.ai_player_idx:
                 if engine_rules.hands and i < len(engine_rules.hands):
                      ai_player_obj.hand = list(engine_rules.hands[i])
@@ -97,6 +100,7 @@ class SelfPlay:
             ai_player_obj.current_bet_in_round = engine_rules.bets[i]
             ai_gs_players_list.append(ai_player_obj)
         ai_gs.players = ai_gs_players_list
+        ai_gs.player_order = [p.player_id for p in ai_gs_players_list]
         return ai_gs
 
     def _get_opponent_action(self, engine_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
@@ -224,6 +228,7 @@ class SelfPlay:
                     continue 
                 action_str, amount_val = self._get_opponent_action(sim_engine.rules, current_player_sub_sim)
                 sim_engine.process_action(current_player_sub_sim, action_str, amount_val)
+                sim_engine.rules.advance_turn()
                 sim_engine.rules.actions_this_round += 1
                 num_active_in_sim_rules = sum(1 for active_p in sim_engine.rules.active_players if active_p)
                 if num_active_in_sim_rules < 2: sim_engine.end_game_early = True
@@ -292,8 +297,12 @@ class SelfPlay:
                     model_config = self.cfr_trainer.config.get('model', {})
                     max_seq_len = model_config.get('max_seq_len', 20) 
                     d_raw_feature = model_config.get('d_raw_feature', 3)
-                    state_tensor = prepare_transformer_input(current_ai_view_gs, str(self.ai_player_idx), 
-                                                             current_ai_view_gs.players, max_seq_len, d_raw_feature)
+                    state_tensor = prepare_transformer_input(
+                        current_ai_view_gs,
+                        str(self.ai_player_idx),
+                        max_seq_len,
+                        d_raw_feature,
+                    )
                     strategy_probs_tensor = self.cfr_trainer.model(state_tensor.unsqueeze(0)).squeeze(0)
                     if not torch.all(strategy_probs_tensor >= 0):
                         print(f"Warning: strategy_probs_tensor has negative values: {strategy_probs_tensor}. Using uniform.")
@@ -360,12 +369,15 @@ class SelfPlay:
                     action_to_engine_str, amount_for_engine = action_tuple
                 
                 self.game_engine.process_action(current_player_engine_idx, action_to_engine_str, amount_for_engine)
+                self.game_engine.rules.advance_turn()
                 main_ai_gs.record_action(str(current_player_engine_idx), action_tuple)
-                self.game_engine.rules.actions_this_round += 1 
+                self.game_engine.rules.actions_this_round += 1
                 num_active_after_action = sum(1 for active_p in self.game_engine.rules.active_players if active_p)
-                if num_active_after_action < 2: self.game_engine.end_game_early = True
+                if num_active_after_action < 2:
+                    self.game_engine.end_game_early = True
                 main_ai_gs = self._populate_ai_gamestate(self.game_engine.rules, main_ai_gs)
-                if self.game_engine.rules.betting_round_is_over(): active_betting_round_main_loop = False
+                if self.game_engine.rules.betting_round_is_over():
+                    active_betting_round_main_loop = False
             
             print(f"Betting round for {stage_name} ended. Total actions in round: {self.game_engine.rules.actions_this_round}")
             if not self.game_engine.end_game_early: 
