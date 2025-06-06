@@ -1,5 +1,5 @@
 import cProfile
-from ai_cfr_trainer import AICFRTrainer
+from trainers.ai_cfr_trainer import AICFRTrainer
 
 def profile_training():
     profiler = cProfile.Profile()

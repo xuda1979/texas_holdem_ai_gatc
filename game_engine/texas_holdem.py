@@ -1,4 +1,4 @@
-# texas_holdem.py
+"""Simplified Texas Hold'em poker engine used for training."""
 
 import random
 import json
@@ -36,6 +36,10 @@ class TexasHoldemRules:
 
     def shuffle_deck(self):
         random.shuffle(self.deck)
+
+    def rotate_dealer(self):
+        """Move the dealer button to the next player."""
+        self.dealer_button = (self.dealer_button + 1) % self.num_players
 
     def deal(self):
         # Deal 2 cards to each active player
