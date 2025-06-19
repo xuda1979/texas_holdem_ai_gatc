@@ -1,30 +1,56 @@
-model:
-  hidden_dim: 128
-  d_raw_feature: 3 # This was added in a previous step
-  num_layers: 2
-  learning_rate: 0.001
-  num_actions: 10
+# Configuration for the poker AI training and game engine
 
 game_engine:
   num_players: 2
-  starting_stack: 1000
-  big_blind: 10
-  small_blind: 5
+  starting_stack: 10000 # Standard starting stack for players
+  small_blind: 10
+  big_blind: 20
 
+# Training parameters for the CFR algorithm
 training:
-  num_training_hands: 1000
-  save_model_every_n_hands: 1
-  batch_size: 32 # Kept existing, though less relevant for current training loop
-  num_epochs: 50 # Kept existing, though less relevant for current training loop
-  save_model_path: "models/cfr_model.pth" # Updated path
+  num_training_hands: 2000000 # Total number of hands to simulate for training
+  save_model_every_n_hands: 10000 # Interval for saving the trained model
+  save_model_every_minutes: 10 # Interval in minutes for saving the trained model
+  log_every_n_hands: 1000 # Interval for logging training progress
+  cfr_algorithm: "vanilla" # "vanilla" or "plus" (for CFR+)
+  save_model_path: "trained_models/cfr_model.pth" # Moved from model section for ai_cfr_trainer compatibility
+  # CFR+ specific parameters (if used)
+  # cfr_plus_alpha: 1.5 # Alpha parameter for CFR+ (controls regret weighting)
+  # cfr_plus_beta: 0.5  # Beta parameter for CFR+ (controls strategy weighting)
+  # cfr_plus_d: 2.0     # D parameter for CFR+ (controls exploration)
 
+# Model persistence
+model:
+  directory: "trained_models/"
+  filename_prefix: "cfr_model"
+  # Parameters for TransformerAverageStrategy (used by AICFRTrainer)
+  hidden_dim: 128
+  num_actions: 10 # Should match the game's action space
+  d_raw_feature: 3 # Should match state_representation.py output
+
+# Player strategies for evaluation or gameplay
+# Options: "cfr_trained", "random", "call_only", "raise_only", "human"
+# Ensure the number of strategies matches num_players in game_engine
+player_strategies:
+  - "cfr_trained" # Player 1 strategy
+  - "random"      # Player 2 strategy
+  # - "human"       # Example for a human player
+
+# Simulation parameters (if running simulations for evaluation)
+simulation:
+  num_simulation_hands: 1000 # Number of hands to simulate for evaluation
+  log_results_to_file: true
+  results_filename: "simulation_results.txt"
+
+# API Server configuration (if applicable)
+api_server:
+  host: "0.0.0.0"
+  port: 5001
+  debug_mode: true
+
+# Logging configuration
 logging:
-  level: "INFO"
-  log_file: "logs/poker_ai.log" # Changed to relative path for consistency
-
-curriculum:
-  stages:
-    - num_players: 2
-      starting_stack: 500
-    - num_players: 2
-      starting_stack: 1000
+  level: "INFO" # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  log_to_file: true
+  log_file: "poker_ai.log" # Changed from log_filename to log_file
