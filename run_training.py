@@ -4,6 +4,7 @@ import yaml
 import os # For path manipulation if needed, e.g. for robust config loading
 import argparse
 import random
+import time
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -47,6 +48,11 @@ def parse_args() -> argparse.Namespace:
         "--save-model-every",
         type=int,
         help="Save model every N hands"
+    )
+    parser.add_argument(
+        "--save-minutes",
+        type=int,
+        help="Save model every N minutes (overrides config)"
     )
     parser.add_argument(
         "--algorithm",
@@ -109,6 +115,10 @@ def main():
     save_model_every_n_hands = (
         args.save_model_every if args.save_model_every is not None else training_params.get('save_model_every_n_hands', 100)
     )
+    save_model_every_minutes = (
+        args.save_minutes if args.save_minutes is not None
+        else training_params.get('save_model_every_minutes', 10) # Default to 10 if not in config
+    )
     
     # Game Engine Parameters for SelfPlay
     num_players = game_engine_config.get('num_players', 2)
@@ -118,7 +128,8 @@ def main():
 
     print("\n--- Configuration ---")
     print(f"Total training hands: {num_training_hands}")
-    print(f"Save model every: {save_model_every_n_hands} hands")
+    print(f"Save model every: {save_model_every_n_hands} hands (if >0)")
+    print(f"Save model every: {save_model_every_minutes} minutes (if >0)")
     print(f"Number of players: {num_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
@@ -150,6 +161,8 @@ def main():
     if curriculum_stages:
         game_config_for_selfplay.update(curriculum_stages[stage_index])
 
+    last_save_time = time.time() # Initialize last save time
+
     for hand_num in range(1, num_training_hands + 1):
         num_players_this_round = random.randint(2, 10)
         game_config_for_selfplay['num_players'] = num_players_this_round
@@ -174,11 +187,24 @@ def main():
                 stage_index = min(stage_index + 1, len(curriculum_stages) - 1)
                 game_config_for_selfplay.update(curriculum_stages[stage_index])
 
-        if hand_num % save_model_every_n_hands == 0:
+        # Check conditions for saving model
+        current_time = time.time()
+        time_since_last_save_minutes = (current_time - last_save_time) / 60
+
+        # Ensure save_model_every_n_hands and save_model_every_minutes are positive to enable saving
+        hand_save_condition_met = (save_model_every_n_hands > 0 and hand_num % save_model_every_n_hands == 0)
+        time_save_condition_met = (save_model_every_minutes > 0 and time_since_last_save_minutes >= save_model_every_minutes)
+
+        if hand_save_condition_met or time_save_condition_met:
             print(f"\n--- Saving model at hand {hand_num} ---")
+            if hand_save_condition_met:
+                print(f"Reason: Hand count ({save_model_every_n_hands} hands interval reached)")
+            if time_save_condition_met:
+                print(f"Reason: Time interval ({save_model_every_minutes} minutes interval reached)")
             try:
                 cfr_trainer.save_model()
                 print("Model saved successfully.")
+                last_save_time = current_time # Update last_save_time only after successful save
             except Exception as e:
                 print(f"Error saving model at hand {hand_num}: {e}")
     

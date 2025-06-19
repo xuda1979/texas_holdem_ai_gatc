@@ -28,6 +28,8 @@ class TexasHoldemRules:
         self.dealer_button = 0
         self.betting_history = []  # Stores actions per hand
         self.actions_this_round = 0 # Counter for actions in the current betting round
+        self.last_raiser = None # Tracks the player index of the last raiser in a betting round
+        self.total_bets_this_hand = [0] * num_players # Tracks total bets per player for the current hand
 
     def _create_deck(self):
         suits = ['h', 'd', 'c', 's']  # h: hearts, d: diamonds, c: clubs, s: spades
@@ -91,7 +93,8 @@ class TexasHoldemRules:
             print(f"Player {player_index + 1} raises to {amount} chips.")
 
         self.pot += bet_difference
-        self.bets[player_index] = amount
+        self.total_bets_this_hand[player_index] += bet_difference # Accumulate total bet for the hand
+        self.bets[player_index] = amount # This is total bet for the current round
 
         if amount > self.current_bet:
             self.previous_raise_amount = amount - self.current_bet
@@ -111,56 +114,18 @@ class TexasHoldemRules:
         self.bets = [0] * self.num_players
         self.current_bet = 0
         self.previous_raise_amount = 0
-        # self.actions_this_round is initialized in __init__ and reset by reset_bets
+        self.actions_this_round = 0 # Reset actions_this_round here as well
 
-    def betting_round_is_over(self) -> bool:
-        """
-        Determines if the current betting round should end.
-        Uses self.actions_this_round internally.
-        """
-        num_still_in_hand = sum(1 for i in range(self.num_players) if self.active_players[i])
-        if num_still_in_hand < 2:
-            return True # Round ends if only one or zero players are left.
-
-        # Check if all active players who are not all-in have bets matching the current_bet
-        all_bets_settled = True
-        for i in range(self.num_players):
-            if self.active_players[i] and self.player_chips[i] > 0: # Active and not all-in
-                if self.bets[i] != self.current_bet:
-                    all_bets_settled = False
-                    break
-        
-        # Ensure everyone has had a chance to act on the current state of betting.
-        # This means at least num_still_in_hand actions have occurred since the last bet/raise
-        # or since the round started if no bets.
-        # A simple check: if actions_taken >= num_still_in_hand, and all bets are settled.
-        # A more robust check would track if action has closed (returned to last aggressor with no further aggression).
-        # Using self.actions_this_round is a good proxy.
-        
-        # Condition: If all bets are settled AND enough actions have been taken for everyone to respond.
-        # The "enough actions" part is tricky. A common rule is that betting ends when:
-        # 1. All players have had a chance to act.
-        # 2. All players who haven't folded have bet the same amount of money for the round,
-        #    OR are all-in.
-        # The `self.actions_this_round >= num_still_in_hand` combined with `all_bets_settled`
-        # covers this reasonably for now. If current_bet is 0, and everyone checks, it's settled.
-        # If there's a bet, and everyone calls or folds, it's settled.
-        if all_bets_settled and self.actions_this_round >= num_still_in_hand:
-            return True
-            
-        return False
+    # betting_round_is_over is removed, logic incorporated into TexasHoldem.betting_round
 
     def end_betting_round_cleanup(self):
         """
         Resets betting state for the start of a new round (street).
         The pot itself is accumulated incrementally during bets.
-        Calls self.reset_bets() which also resets self.actions_this_round.
+        Calls self.reset_bets().
         """
         self.reset_bets() # Resets self.bets, self.current_bet, self.previous_raise_amount, and self.actions_this_round
-        # Setting the self.current_player to the correct starting player for the next round
-        # (e.g., first active player left of dealer) is typically handled by the game flow logic
-        # that initiates the next betting round. For example, after flop, SB (or first active after) starts.
-        # advance_turn() will be called by the game loop to find the actual first player.
+        # self.current_player for the next round will be set by the TexasHoldem.betting_round method.
 
     def deal_community_cards(self, round_stage):
         if round_stage == 'flop':
@@ -247,111 +212,318 @@ class TexasHoldem:
         self.rules.deal_community_cards(stage)
 
     def process_action(self, player_index, action, raise_amount=None):
+        # This method now also handles updating self.rules.last_raiser if a bet/raise occurs.
+        # It also updates self.rules.previous_raise_amount correctly.
         try:
+            original_current_bet = self.rules.current_bet
+            is_aggressive_action = False
+
             if action == 'call':
                 amount_to_call = self.rules.current_bet - self.rules.bets[player_index]
-                if amount_to_call > self.rules.player_chips[player_index]:
-                    amount_to_call = self.rules.player_chips[player_index]  # All-in
+                if amount_to_call <= 0: # Cannot call if no bet or already called
+                    # This might happen if player tries to call when it's a check, or they are already matching current_bet
+                    # Consider this a check if current_bet is 0 and bets[player_index] is 0
+                    if self.rules.current_bet == 0 and self.rules.bets[player_index] == 0:
+                        action_description = f"Player {player_index + 1} checks."
+                        self.rules.betting_history.append(action_description)
+                        print(action_description)
+                    else: # Or if they are trying to call but already match the bet (e.g. after a previous partial all-in)
+                        action_description = f"Player {player_index + 1} effectively checks (already matching current bet or no bet to call)."
+                        self.rules.betting_history.append(action_description)
+                        print(action_description)
+                    # No change in bet needed if amount_to_call <=0
+                elif amount_to_call > self.rules.player_chips[player_index]: # All-in call
+                    amount_to_call = self.rules.player_chips[player_index]
                     action_description = f"Player {player_index + 1} calls all-in with {amount_to_call} chips."
                     self.rules.betting_history.append(action_description)
                     print(action_description)
-                else:
+                    new_bet = self.rules.bets[player_index] + amount_to_call
+                    self.rules.bet(player_index, new_bet) # bet method handles chip deduction and all-in state
+                else: # Regular call
                     action_description = f"Player {player_index + 1} calls {amount_to_call} chips."
                     self.rules.betting_history.append(action_description)
                     print(action_description)
-                new_bet = self.rules.bets[player_index] + amount_to_call
-                self.rules.bet(player_index, new_bet)
-            elif action in ['raise', 'bet']:
-                if raise_amount is None:
-                    print("Raise amount not provided. Defaulting to minimum raise.")
-                    raise_amount = self.get_min_raise_amount(player_index)
-                min_raise = self.get_min_raise_amount(player_index)
+                    new_bet = self.rules.bets[player_index] + amount_to_call
+                    self.rules.bet(player_index, new_bet)
+
+            elif action == 'bet' or action == 'raise':
+                # 'bet' is used when current_bet is 0. 'raise' is used when current_bet > 0.
+                is_raise_action = self.rules.current_bet > 0
+
                 amount_to_call = self.rules.current_bet - self.rules.bets[player_index]
-                total_required = amount_to_call + raise_amount
-                if raise_amount < min_raise:
-                    print(f"Raise amount must be at least {min_raise} chips. Adjusting to minimum raise.")
-                    action_description = f"Player {player_index + 1} attempted to raise {raise_amount} chips but minimum is {min_raise}. Adjusting raise."
+                if amount_to_call < 0: amount_to_call = 0 # Should not happen if logic is correct
+
+                # If raise_amount is None, it's an error from strategy or it's an opening bet.
+                # For an opening bet (current_bet is 0), raise_amount is the bet size.
+                # For a raise (current_bet > 0), raise_amount is the additional amount on top of current_bet.
+
+                if raise_amount is None: # Should be caught by strategy, but as a fallback:
+                    if is_raise_action: # Trying to raise but no amount
+                        raise ValueError("Raise amount must be specified for a raise.")
+                    else: # Trying to bet but no amount
+                        raise ValueError("Bet amount must be specified for a bet.")
+
+                min_bet_or_raise_value = self.get_min_raise_amount(player_index) # This now returns the *additional* amount for a raise, or BB for an opening bet.
+
+                actual_raise_or_bet_amount = raise_amount
+
+                if is_raise_action: # This is a RAISE
+                    if actual_raise_or_bet_amount < min_bet_or_raise_value:
+                        action_description = f"Player {player_index + 1} attempted to raise by {actual_raise_or_bet_amount}, less than min raise of {min_bet_or_raise_value}. Adjusting to min raise."
+                        print(action_description)
+                        self.rules.betting_history.append(action_description)
+                        actual_raise_or_bet_amount = min_bet_or_raise_value
+
+                    total_player_bet = self.rules.current_bet + actual_raise_or_bet_amount
+
+                else: # This is an opening BET
+                    if actual_raise_or_bet_amount < min_bet_or_raise_value: # min_bet_or_raise_value is BB here
+                        action_description = f"Player {player_index + 1} attempted to bet {actual_raise_or_bet_amount}, less than min bet of {min_bet_or_raise_value}. Adjusting to min bet."
+                        print(action_description)
+                        self.rules.betting_history.append(action_description)
+                        actual_raise_or_bet_amount = min_bet_or_raise_value
+                    total_player_bet = actual_raise_or_bet_amount
+
+
+                # Check if player has enough chips for the full intended bet/raise
+                if (total_player_bet - self.rules.bets[player_index]) > self.rules.player_chips[player_index]:
+                    # Player is going all-in with less than the full bet/raise amount
+                    all_in_amount = self.rules.player_chips[player_index] + self.rules.bets[player_index]
+                    action_description = f"Player {player_index + 1} goes all-in with {self.rules.player_chips[player_index]} chips (total bet {all_in_amount})."
                     self.rules.betting_history.append(action_description)
                     print(action_description)
-                    raise_amount = min_raise
-                    total_required = amount_to_call + raise_amount
-                if total_required > self.rules.player_chips[player_index]:
-                    # Player goes all-in
-                    total_required = self.rules.player_chips[player_index]
-                    action_description = f"Player {player_index + 1} does not have enough chips to raise {raise_amount} chips. Going all-in with {total_required} chips."
+                    total_player_bet = all_in_amount # This is their all-in bet amount
+                    # The actual_raise_or_bet_amount needs to be recalculated if they are all-in short
+                    if total_player_bet > self.rules.current_bet:
+                         actual_raise_or_bet_amount = total_player_bet - self.rules.current_bet
+                    else: # All-in is just a call or less
+                         actual_raise_or_bet_amount = 0 # Not a raise if all-in is less than or equal to current bet + min_raise
+
+                else: # Sufficient chips for the bet/raise
+                    if is_raise_action:
+                        action_description = f"Player {player_index + 1} raises by {actual_raise_or_bet_amount} to {total_player_bet} chips."
+                    else: # Opening bet
+                        action_description = f"Player {player_index + 1} bets {total_player_bet} chips."
                     self.rules.betting_history.append(action_description)
                     print(action_description)
-                new_bet = self.rules.bets[player_index] + total_required
-                self.rules.bet(player_index, new_bet)
+
+                # Call self.rules.bet with the player's total bet for this round
+                self.rules.bet(player_index, total_player_bet)
+
+                # Update game state if this was a new bet or raise that increased self.rules.current_bet
+                if self.rules.current_bet > original_current_bet : # true if total_player_bet was > current_bet
+                    self.rules.last_raiser = player_index # Correctly track who made the last aggressive action
+                    # previous_raise_amount should be the amount the bet *increased by*
+                    self.rules.previous_raise_amount = self.rules.current_bet - original_current_bet
+                    is_aggressive_action = True
+                elif total_player_bet == original_current_bet and original_current_bet > 0 : # Matched the current bet, but was it an "aggressive" all-in?
+                    # This case can happen if someone goes all-in for less than a full raise, but it's still a raise.
+                    # The self.rules.bet method updates current_bet only if total_player_bet > self.current_bet.
+                    # So, if total_player_bet IS the new current_bet, it means it was aggressive.
+                    # The logic in self.rules.bet handles setting self.current_bet.
+                    # We check if self.rules.current_bet changed.
+                    # No, this is simpler: if their new bet > original_current_bet, it's aggressive.
+                    # The self.rules.bet already updated self.current_bet and self.previous_raise_amount.
+                    # We just need to set self.rules.last_raiser.
+                    # This is already handled by the if self.rules.current_bet > original_current_bet check.
+                     pass
+
+
             elif action == 'fold':
                 self.rules.active_players[player_index] = False
                 action_description = f"Player {player_index + 1} folds."
                 self.rules.betting_history.append(action_description)
                 print(action_description)
-                active_players = [i for i in range(self.num_players) if self.rules.active_players[i]]
-                if len(active_players) == 1:
+                active_players_count = sum(1 for i in range(self.num_players) if self.rules.active_players[i])
+                if active_players_count == 1:
                     self.end_game_early = True
-                    self.winner = active_players[0]
+                    # Find the only remaining player
+                    for i in range(self.num_players):
+                        if self.rules.active_players[i]:
+                            self.winner = i
+                            break
             elif action == 'check':
-                action_description = f"Player {player_index + 1} checks."
-                self.rules.betting_history.append(action_description)
-                print(action_description)
-                if self.rules.current_bet != self.rules.bets[player_index]:
-                    print("Cannot check when there is a bet to call. Defaulting to call.")
-                    self.process_action(player_index, 'call')
-            else:
+                # Check is only allowed if current_bet is 0 or player's bet matches current_bet
+                if self.rules.current_bet == 0 or self.rules.bets[player_index] == self.rules.current_bet:
+                    action_description = f"Player {player_index + 1} checks."
+                    self.rules.betting_history.append(action_description)
+                    print(action_description)
+                else: # Bet to call, cannot check
+                    error_msg = f"Player {player_index + 1} tried to check, but there is a bet of {self.rules.current_bet - self.rules.bets[player_index]} to call. Defaulting to fold."
+                    self.rules.betting_history.append(error_msg)
+                    print(error_msg)
+                    self.process_action(player_index, 'fold') # Or 'call' if preferred default
+            else: # Invalid action string
                 action_description = f"Player {player_index + 1} made an invalid action '{action}' and is folding by default."
                 self.rules.betting_history.append(action_description)
                 print(action_description)
                 self.process_action(player_index, 'fold')
         except ValueError as ve:
-            print(f"Error processing action: {ve}. Adjusting action.")
-            self.rules.betting_history.append(f"Error processing action for Player {player_index + 1}: {ve}. Adjusting to call.")
-            print(f"Error processing action for Player {player_index + 1}: {ve}. Adjusting to call.")
-            # Decide on a fallback action, such as folding or calling
-            if action in ['raise', 'bet']:
-                # Default to calling if raise was invalid
-                self.process_action(player_index, 'call')
-            else:
-                # Default to folding for other invalid actions
-                self.process_action(player_index, 'fold')
+            error_log = f"Error processing action for Player {player_index + 1} ('{action}', {raise_amount}): {ve}. Defaulting to fold."
+            self.rules.betting_history.append(error_log)
+            print(error_log)
+            # Fallback action, typically fold.
+            if self.rules.active_players[player_index]: # Ensure not trying to fold an already folded player
+                 self.process_action(player_index, 'fold')
 
-    def betting_round(self):
-        if self.rules.current_bet == 0:
-            self.rules.reset_bets()
-        self.rules.current_player = (self.rules.dealer_button + 1) % self.num_players
-        first_player = True
+
+    def betting_round(self, is_preflop=False):
+        """
+        Manages a single betting round (pre-flop, flop, turn, or river).
+        Action continues until all players have acted and all bets are settled,
+        or until only one player remains.
+        """
+        self.rules.actions_this_round = 0  # Reset for the current betting round.
+        self.rules.last_raiser = None # Reset last raiser for the round
+
+        if not is_preflop:
+            # Post-flop: action starts with the first active player left of the dealer.
+            # Bets from previous street are consolidated into the pot; current round bets start at 0.
+            self.rules.current_bet = 0
+            self.rules.bets = [0] * self.num_players # Bets for this specific street.
+            self.rules.previous_raise_amount = 0 # Reset for the new street.
+
+            # Determine starting player for post-flop rounds
+            current_player_idx = (self.rules.dealer_button + 1) % self.num_players
+            while not (self.rules.active_players[current_player_idx] and self.rules.player_chips[current_player_idx] > 0):
+                current_player_idx = (current_player_idx + 1) % self.num_players
+                if current_player_idx == (self.rules.dealer_button + 1) % self.num_players: # Full circle
+                    break # Avoid infinite loop if all are all-in or out
+            self.rules.current_player = current_player_idx
+        else:
+            # Pre-flop: current_player is already set by post_blinds() to UTG.
+            # self.rules.current_bet is Big Blind. self.rules.bets has blinds posted.
+            # The player who "opened" the betting or made the last raise that others must respond to.
+            # Initially, this is the Big Blind player, as their blind is the current bet.
+            self.rules.last_raiser = (self.rules.dealer_button + 2) % self.num_players
+
+
+        acted_in_sequence = [False] * self.num_players
+        actions_taken_this_sequence = 0
+
+        # Determine how many players can actually make a decision (not folded, not all-in already matching current bet)
+        def count_players_able_to_act():
+            count = 0
+            for i in range(self.num_players):
+                if self.rules.active_players[i] and self.rules.player_chips[i] > 0:
+                    count += 1
+                # Also count players who are all-in but haven't yet "acted" on the current bet level
+                # (e.g. if someone raised after they went all-in for less)
+                elif self.rules.active_players[i] and self.rules.player_chips[i] == 0 and self.rules.bets[i] < self.rules.current_bet:
+                    count +=1
+            return count
+
+        num_players_to_act_in_sequence = count_players_able_to_act()
+
+
         while True:
-            all_bets_equal = all(
-                (self.rules.bets[i] == self.rules.current_bet or
-                 not self.rules.active_players[i] or
-                 self.rules.player_chips[i] == 0)
-                for i in range(self.num_players)
-            )
-            if all_bets_equal and not first_player:
-                break
-            first_player = False
+            num_active_players = sum(1 for i in range(self.num_players) if self.rules.active_players[i])
+            if num_active_players <= 1 and actions_taken_this_sequence > 0 : # Game might end if only one player left
+                if self.end_game_early: break # Fold led to one player
+                # If one active player, and all bets are settled (e.g. they made a bet everyone folded to)
+                is_settled = True
+                for i in range(self.num_players):
+                    if self.rules.active_players[i] and self.rules.player_chips[i] > 0 and self.rules.bets[i] != self.rules.current_bet:
+                        is_settled = False; break
+                if is_settled: break
+
 
             player_index = self.rules.current_player
-            if self.rules.active_players[player_index] and self.rules.player_chips[player_index] > 0:
-                strategy = self.player_strategies[player_index]
-                action, raise_amount = strategy.choose_action(self, player_index)
-                self.process_action(player_index, action, raise_amount)
-                if self.end_game_early:
-                    break
+
+            # Check if round should end:
+            # All active players (who are not all-in for less) have bet an equal amount,
+            # AND (everyone has acted OR action is back to the last aggressor who doesn't re-open).
+            if actions_taken_this_sequence >= num_players_to_act_in_sequence:
+                bets_are_settled = True
+                for i in range(self.num_players):
+                    if self.rules.active_players[i] and self.rules.player_chips[i] > 0: # If active and not all-in
+                        if self.rules.bets[i] != self.rules.current_bet:
+                            bets_are_settled = False
+                            break
+                if bets_are_settled:
+                    # Special pre-flop BB case: if no raise yet and action is on BB who hasn't acted on the BB.
+                    is_bb_preflop_check_option = is_preflop and \
+                                                 player_index == (self.rules.dealer_button + 2) % self.num_players and \
+                                                 self.rules.current_bet == self.rules.big_blind and \
+                                                 not acted_in_sequence[player_index]
+
+                    if not is_bb_preflop_check_option:
+                        break # Betting round is over
+
+
+            current_player_is_active = self.rules.active_players[player_index]
+            current_player_has_chips = self.rules.player_chips[player_index] > 0
+            # Player must act if active AND (has chips OR is all-in for less than current bet)
+            needs_to_act = current_player_is_active and \
+                           (current_player_has_chips or (self.rules.bets[player_index] < self.rules.current_bet and self.rules.player_chips[player_index] == 0))
+
+            if not needs_to_act or acted_in_sequence[player_index]:
+                self.rules.advance_turn()
+                # If we advanced past the player who was supposed to close the action, and they already acted, round might be over.
+                # This is caught by the main loop condition (actions_taken_this_sequence >= num_players_to_act_in_sequence and bets_are_settled)
+                continue
+
+            # Player acts
+            strategy = self.player_strategies[player_index]
+            action, raise_amount = strategy.choose_action(self, player_index)
+
+            original_current_bet_level = self.rules.current_bet
+
+            self.process_action(player_index, action, raise_amount)
+            acted_in_sequence[player_index] = True
+            actions_taken_this_sequence += 1
+            self.rules.actions_this_round +=1 # Overall actions in this round for history or other rules.
+
+            if self.end_game_early: # e.g., everyone else folded during process_action
+                break
+
+            # If action was a bet or raise that changed the current_bet level
+            if self.rules.current_bet > original_current_bet_level or \
+               (action in ['bet', 'raise'] and self.rules.last_raiser == player_index): # last_raiser is set in process_action
+                # Action has been re-opened. Reset sequence for other players.
+                actions_taken_this_sequence = 1 # The current player is the first to act in this new sequence.
+                acted_in_sequence = [False] * self.num_players
+                acted_in_sequence[player_index] = True # This player has acted.
+                num_players_to_act_in_sequence = count_players_able_to_act()
+                if self.rules.last_raiser == player_index: # if they raised/bet
+                     num_players_to_act_in_sequence = count_players_able_to_act() # All others need to act
+                # If player just called a raise, sequence does not reset.
+
             self.rules.advance_turn()
 
+        # After the loop, the betting round for this street is over.
+        # Consolidate bets into pot is done by self.rules.bet().
+        # Prepare for the *next* street or showdown by cleaning up bets for *this* street.
+        if not self.end_game_early : # Don't cleanup if game ended, winner takes pot as is.
+             self.rules.end_betting_round_cleanup()
+
+
     def get_min_raise_amount(self, player_index):
-        if self.rules.previous_raise_amount:
-            min_raise = self.rules.previous_raise_amount
-        else:
-            min_raise = self.rules.big_blind
-        return min_raise
+        """
+        Calculates the minimum valid raise amount for the current player.
+        WSOP Rule: A raise must be at least the size of the previous bet or raise.
+        If BB is 10, first player (UTG) bets 20 (a raise of 10 from BB).
+        Next raise must be at least 20 more (total 40 from their perspective, making current total bet 40).
+        self.rules.previous_raise_amount stores the *amount* of the last raise.
+        """
+        if self.rules.current_bet == 0: # No bet yet, so min bet is Big Blind
+            return self.rules.big_blind
+
+        # There is a current bet. A raise must be at least the amount of the last bet/raise.
+        # The "previous_raise_amount" is the actual delta of the last raise.
+        # So, if current bet is 50, and previous raise was 25 (e.g. someone bet 25, then raised to 50),
+        # the min raise is an additional 25, making total bet 75.
+        min_additional_raise = self.rules.previous_raise_amount if self.rules.previous_raise_amount > 0 else self.rules.big_blind
+        return min_additional_raise
+
 
     def get_max_raise_amount(self, player_index):
-        amount_to_call = self.rules.current_bet - self.rules.bets[player_index]
-        max_raise = self.rules.player_chips[player_index] - amount_to_call
-        return max_raise
+        # This is the total amount a player can raise TO, not the additional amount.
+        # Max raise is effectively all their chips.
+        # The 'raise_amount' in process_action is the additional amount.
+        # So max additional raise is player_chips.
+        return self.rules.player_chips[player_index]
+
 
     def perform_showdown(self):
         active_players = [i for i in range(self.num_players) if self.rules.active_players[i]]
@@ -412,37 +584,46 @@ class TexasHoldem:
         self.rules.current_bet = 0
         self.rules.previous_raise_amount = 0
         self.rules.betting_history = []
+        self.rules.total_bets_this_hand = [0] * self.num_players # Reset for next hand
         self.end_game_early = False
         self.winner = None
 
     def play_game(self):
         print(f"--- Hand {self.hand_count + 1} ---")
-        self.initialize_game()
+        self.initialize_game() # Deals hands, posts blinds, sets up pre-flop player
         self.show_player_hands()
-        self.display_player_chips()  # Display chips before pre-flop
+        self.display_player_chips()
 
         # Pre-flop betting round
         print("\n--- Pre-flop Betting Round ---")
-        self.betting_round()
+        self.betting_round(is_preflop=True)
         if self.end_game_early:
-            self.declare_winner()
+            self.declare_winner() # Pot distribution happens here
             self.save_history_if_needed()
+            self.reset_for_next_hand() # Reset even if game ends early
             return
 
+        # Flop, Turn, River stages
         stages = ['flop', 'turn', 'river']
         for stage in stages:
-            self.play_stage(stage)
+            if sum(1 for i in range(self.num_players) if self.rules.active_players[i]) <= 1:
+                 # No betting round if only one player (or fewer) is left before dealing community cards for this stage
+                 break
+            self.play_stage(stage) # Deals community cards for the stage
             self.print_community_cards(stage)
-            self.display_player_chips()  # Display chips before betting
+            self.display_player_chips()
             print(f"\n--- Betting Round after the {stage.capitalize()} ---")
-            self.betting_round()
+            self.betting_round(is_preflop=False)
             if self.end_game_early:
                 self.declare_winner()
                 self.save_history_if_needed()
+                self.reset_for_next_hand() # Reset even if game ends early
                 return
 
         # Showdown
         print("\n--- Showdown ---")
+        # Pot was already awarded if end_game_early was true.
+        # If not end_game_early, then proceed to showdown.
         for i in range(self.num_players):
             if self.rules.active_players[i]:
                 hand_str = self.format_hand_display(self.rules.hands[i])
@@ -460,12 +641,26 @@ class TexasHoldem:
         print(f"\n--- Hand Conclusion ---")
         print(f"All other players have folded.")
         print(f"The winner is Player {self.winner + 1}!")
-        print(f"Pot won: {self.rules.pot} chips.")
-        self.rules.player_chips[self.winner] += self.rules.pot
-        self.historical_actions[-1]['winner'] = f"Player {self.winner + 1}"
-        self.historical_actions[-1]['pot_won'] = self.rules.pot
+
+        winner_player_index = self.winner
+        eligible_pot_for_winner = 0
+        winner_total_bet = self.rules.total_bets_this_hand[winner_player_index]
+        for p_idx in range(self.num_players):
+            eligible_pot_for_winner += min(winner_total_bet, self.rules.total_bets_this_hand[p_idx])
+
+        actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
+
+        print(f"Pot won: {actual_winnings} chips.")
+        self.rules.player_chips[winner_player_index] += actual_winnings
+        self.historical_actions[-1]['winner'] = f"Player {winner_player_index + 1}"
+        self.historical_actions[-1]['pot_won'] = actual_winnings
+
+        # Note: If actual_winnings < self.rules.pot, the remainder of the pot is currently not distributed
+        # as full side pot logic is out of scope. This is a known limitation.
+
 
     def show_winner(self, winner, player_best_hands):
+        # This method is called after perform_showdown if not end_game_early
         evaluator = Evaluator()
         hand_rankings = {}
         for player_index in player_best_hands:
@@ -478,17 +673,47 @@ class TexasHoldem:
             for w in winner:
                 print(f"Player {w + 1} with a {hand_rankings[w]}")
             print(f"Pot split between players.")
-            split_pot = self.rules.pot // len(winner)
-            for w in winner:
-                self.rules.player_chips[w] += split_pot
-            self.historical_actions[-1]['winner'] = [f"Player {w + 1}" for w in winner]
-            self.historical_actions[-1]['pot_won'] = self.rules.pot
-        else:
-            print(f"\nThe winner is Player {winner + 1} with a {hand_rankings[winner]}!")
-            print(f"Pot won: {self.rules.pot} chips.")
-            self.rules.player_chips[winner] += self.rules.pot
-            self.historical_actions[-1]['winner'] = f"Player {winner + 1}"
-            self.historical_actions[-1]['pot_won'] = self.rules.pot
+            # Simplified tie logic for pot distribution with all-ins:
+            # Each winner gets their share of the pot they are eligible for.
+            # This is complex without full side pot logic.
+            # For now, we'll split the *total pot they are all eligible for together* equally.
+            # This isn't perfect for all complex all-in tie scenarios but is a step.
+
+            min_all_in_among_winners = float('inf')
+            for w_idx in winner:
+                min_all_in_among_winners = min(min_all_in_among_winners, self.rules.total_bets_this_hand[w_idx])
+
+            total_eligible_pot_for_tied_winners = 0
+            for p_idx in range(self.num_players):
+                total_eligible_pot_for_tied_winners += min(min_all_in_among_winners, self.rules.total_bets_this_hand[p_idx])
+
+            pot_to_split = min(self.rules.pot, total_eligible_pot_for_tied_winners)
+
+            split_amount = pot_to_split // len(winner)
+            for w_idx in winner:
+                self.rules.player_chips[w_idx] += split_amount
+
+            self.historical_actions[-1]['winner'] = [f"Player {w_idx + 1}" for w_idx in winner]
+            self.historical_actions[-1]['pot_won'] = pot_to_split # Total pot split among these winners
+            # Note: Remainder of self.rules.pot if pot_to_split < self.rules.pot is not handled.
+        else: # Single winner
+            winner_player_index = winner
+            eligible_pot_for_winner = 0
+            winner_total_bet = self.rules.total_bets_this_hand[winner_player_index]
+            for p_idx in range(self.num_players):
+                eligible_pot_for_winner += min(winner_total_bet, self.rules.total_bets_this_hand[p_idx])
+
+            actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
+
+            print(f"\nThe winner is Player {winner_player_index + 1} with a {hand_rankings[winner_player_index]}!")
+            print(f"Pot won: {actual_winnings} chips.")
+            self.rules.player_chips[winner_player_index] += actual_winnings
+            self.historical_actions[-1]['winner'] = f"Player {winner_player_index + 1}"
+            self.historical_actions[-1]['pot_won'] = actual_winnings
+            # Note: If actual_winnings < self.rules.pot, the remainder of the pot is not distributed.
+
+        self.reset_for_next_hand() # Reset state for the next hand after showdown and pot distribution
+
 
     def format_hand_display(self, hand):
         # Mapping from treys-compatible suits to display-friendly symbols
