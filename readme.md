@@ -74,3 +74,27 @@ During training each hand uses a random number of players (between 2 and 10).
 - Distributed self-play for faster data collection
 - Curriculum learning for staged training
 - Attention-based state representation with masks
+- Betting-tree abstraction utilities
+- Discounted CFR+ solver with regret discounting
+- Distributed self-play with multiprocessing
+- Simple exploitability evaluation tools
+
+## Using Distributed Self-Play
+
+Set `training.distributed_workers` in `config.yaml` to the number of worker
+processes. Then run training normally:
+
+```bash
+python run_training.py --num-hands 1000
+```
+
+## Evaluating Strategies
+
+The `evaluation` package offers a lightweight exploitability calculator. Example:
+
+```python
+from evaluation.exploitability import calculate_exploitability
+strategy = [0.5, 0.5]
+matrix = [[1, -1], [-1, 1]]
+print(calculate_exploitability(strategy, matrix))
+```

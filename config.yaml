@@ -13,6 +13,8 @@ training:
   save_model_every_minutes: 10 # Interval in minutes for saving the trained model
   log_every_n_hands: 1000 # Interval for logging training progress
   cfr_algorithm: "vanilla" # "vanilla" or "plus" (for CFR+)
+  cfr_discount_factor: 1.0 # Discount factor for discounted CFR+
+  distributed_workers: 1 # Number of workers for distributed self-play
   save_model_path: "trained_models/cfr_model.pth" # Moved from model section for ai_cfr_trainer compatibility
   # CFR+ specific parameters (if used)
   # cfr_plus_alpha: 1.5 # Alpha parameter for CFR+ (controls regret weighting)
@@ -42,11 +44,20 @@ simulation:
   log_results_to_file: true
   results_filename: "simulation_results.txt"
 
+# Abstraction configuration
+abstraction:
+  enabled: false
+  buckets: 5
+
 # API Server configuration (if applicable)
 api_server:
   host: "0.0.0.0"
   port: 5001
   debug_mode: true
+
+# Evaluation
+evaluation:
+  best_response_iterations: 100
 
 # Logging configuration
 logging:
