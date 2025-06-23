@@ -296,12 +296,11 @@ class SelfPlay:
 
                 if current_player_engine_idx == self.ai_player_idx:
                     current_ai_view_gs = self._populate_ai_gamestate(self.game_engine.rules, main_ai_gs)
-                    if not hasattr(self.cfr_trainer, 'config') or not hasattr(self.cfr_trainer, 'model') or \
-                       not hasattr(self.cfr_trainer.model, 'num_actions'): 
-                        raise AttributeError("cfr_trainer missing 'config', 'model', or model.num_actions attributes.")
-                    
-                    model_config = self.cfr_trainer.config.get('model', {})
-                    max_seq_len = model_config.get('max_seq_len', 20) 
+                    if not hasattr(self.cfr_trainer, 'model') or not hasattr(self.cfr_trainer.model, 'num_actions'):
+                        raise AttributeError("cfr_trainer missing 'model' or model.num_actions attributes.")
+
+                    model_config = getattr(self.cfr_trainer, 'config', {}).get('model', {}) if hasattr(self.cfr_trainer, 'config') else {}
+                    max_seq_len = model_config.get('max_seq_len', 20)
                     d_raw_feature = model_config.get('d_raw_feature', 3)
                     state_tensor = prepare_transformer_input(
                         current_ai_view_gs,
@@ -315,7 +314,11 @@ class SelfPlay:
                         strategy_probs_tensor = torch.ones_like(strategy_probs_tensor) / strategy_probs_tensor.numel() 
                     if not torch.isclose(torch.sum(strategy_probs_tensor), torch.tensor(1.0), atol=1e-6):
                          print(f"Warning: strategy_probs_tensor does not sum to 1: {torch.sum(strategy_probs_tensor)}. Normalizing.")
-                         strategy_probs_tensor = strategy_probs_tensor / torch.sum(strategy_probs_tensor)
+                         total = torch.sum(strategy_probs_tensor)
+                         if total <= 0:
+                             strategy_probs_tensor = torch.ones_like(strategy_probs_tensor) / strategy_probs_tensor.numel()
+                         else:
+                             strategy_probs_tensor = strategy_probs_tensor / total
 
                     counterfactual_payoffs = torch.zeros(self.cfr_trainer.model.num_actions)
                     for k_action_idx in range(self.cfr_trainer.model.num_actions):

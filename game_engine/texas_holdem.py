@@ -116,7 +116,15 @@ class TexasHoldemRules:
         self.previous_raise_amount = 0
         self.actions_this_round = 0 # Reset actions_this_round here as well
 
-    # betting_round_is_over is removed, logic incorporated into TexasHoldem.betting_round
+    def betting_round_is_over(self):
+        """Return True if all active players have matched the current bet."""
+        active_players = [i for i in range(self.num_players) if self.active_players[i] and self.player_chips[i] > 0]
+        if not active_players:
+            return True
+        all_settled = all(self.bets[i] == self.current_bet for i in active_players)
+        return all_settled and self.actions_this_round >= len(active_players)
+
+    # betting_round_is_over originally removed, but provided here for backward compatibility
 
     def end_betting_round_cleanup(self):
         """

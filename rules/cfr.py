@@ -128,3 +128,18 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
     return cumulative_regret, cumulative_strategy
 
 
+
+def discounted_cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num_iterations, discount=1.0):
+    """CFR+ iteration with a discount factor applied to historical regrets."""
+    for _ in range(num_iterations):
+        current_strategy = calculate_strategy(cumulative_regret, num_actions)
+        action_values = torch.zeros(num_actions)
+        for action in range(num_actions):
+            action_values[action] = game.simulate_action(action)
+        actual_action = game.get_actual_action()
+        regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
+        cumulative_regret.mul_(discount)
+        current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
+        cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
+        cumulative_regret = torch.clamp(cumulative_regret, min=0)
+    return cumulative_regret, cumulative_strategy
