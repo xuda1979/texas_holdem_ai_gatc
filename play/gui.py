@@ -365,62 +365,110 @@ class PokerGameGUI:
         self._handle_player_action('check')
 
     def _handle_game_progression(self):
-        """Handles AI turns and game stage progression."""
+        """Handles AI turns, game stage progression, and schedules next step."""
         rules = self.game_engine.rules
-        while True:
-            if self.game_engine.end_game_early:
+
+        if self.game_engine.end_game_early:
+            self._handle_hand_end()
+            return
+
+        if rules.betting_round_is_over():
+            print(f"Betting round over. Actions this round: {rules.actions_this_round}, Pot: {rules.pot}")
+            rules.end_betting_round_cleanup()  # Resets bets, current_bet, actions_this_round
+
+            current_stage_index = -1
+            if not rules.community_cards: current_stage_index = 0  # Pre-flop was done
+            elif len(rules.community_cards) == 3: current_stage_index = 1  # Flop was done
+            elif len(rules.community_cards) == 4: current_stage_index = 2  # Turn was done
+            elif len(rules.community_cards) == 5:  # River was done
+                self._handle_hand_end()  # Showdown
+                return
+
+            next_stages = ['flop', 'turn', 'river']
+            if current_stage_index < len(next_stages):
+                next_stage_name = next_stages[current_stage_index]
+                print(f"Dealing {next_stage_name}...")
+                self.game_engine.play_stage(next_stage_name)
+                
+                # Determine starting player for the new round (SB or first active player after button)
+                rules.current_player = (rules.dealer_button + 1) % rules.num_players
+                for _ in range(rules.num_players):
+                    if rules.active_players[rules.current_player] and rules.player_chips[rules.current_player] > 0:
+                        break
+                    rules.current_player = (rules.current_player + 1) % rules.num_players
+
+                rules.actions_this_round = 0 # Reset for new betting round
+                # Blinds are posted at initialize_game, not between rounds like flop/turn/river.
+                # Small/big blind players might need to act again if they just posted.
+                # The current_player logic above should handle finding the first to act.
+            else:  # Should go to showdown
                 self._handle_hand_end()
                 return
 
-            if rules.betting_round_is_over():
-                print(f"Betting round over. Actions this round: {rules.actions_this_round}, Pot: {rules.pot}")
-                rules.end_betting_round_cleanup() # Resets bets, current_bet, actions_this_round
-                
-                current_stage_index = -1
-                if not rules.community_cards: current_stage_index = 0 # Pre-flop was done
-                elif len(rules.community_cards) == 3: current_stage_index = 1 # Flop was done
-                elif len(rules.community_cards) == 4: current_stage_index = 2 # Turn was done
-                elif len(rules.community_cards) == 5: # River was done
-                    self._handle_hand_end() # Showdown
-                    return
+        self._sync_gui_with_engine_state()  # Update GUI before AI or human turn
 
-                next_stages = ['flop', 'turn', 'river']
-                if current_stage_index < len(next_stages):
-                    next_stage_name = next_stages[current_stage_index]
-                    print(f"Dealing {next_stage_name}...")
-                    self.game_engine.play_stage(next_stage_name)
-                    rules.current_player = (rules.dealer_button + 1) % rules.num_players # SB acts first post-flop
-                    # Skip inactive players
-                    for _ in range(rules.num_players):
-                        if rules.active_players[rules.current_player] and rules.player_chips[rules.current_player] > 0:
-                            break
-                        rules.current_player = (rules.current_player + 1) % rules.num_players
-                    rules.actions_this_round = 0 # Reset for new betting round
-                else: # Should go to showdown
-                    self._handle_hand_end()
-                    return
+        if rules.current_player == self.human_player_index:
+            # Check if human player is still active and has chips
+            if not rules.active_players[self.human_player_index] or rules.player_chips[self.human_player_index] == 0:
+                # Human is out or folded, treat as AI turn to advance game
+                print(f"Human player (P{self.human_player_index+1}) is out or folded. Advancing.")
+                rules.advance_turn() # This will find the next active player
+                self.root.after(50, self._handle_game_progression) # Schedule next progression
+                return
+
+            print(f"Human player's (P{self.human_player_index+1}) turn.")
+            self._update_action_buttons_state()
+            return  # Wait for human action, do not reschedule automatically
+
+        # AI's turn
+        # Ensure AI player is active and has chips
+        current_ai_player = rules.current_player
+        if not rules.active_players[current_ai_player] or rules.player_chips[current_ai_player] == 0:
+            print(f"AI player (P{current_ai_player+1}) is out or folded. Advancing.")
+            rules.advance_turn()
+            self.root.after(50, self._handle_game_progression)
+            return
+
+        if self.game_engine.player_strategies[current_ai_player]:
+            print(f"AI player's (P{current_ai_player+1}) turn.")
+            self._update_action_buttons_state()  # Disable human buttons during AI turn
+
+            ai_strategy = self.game_engine.player_strategies[current_ai_player]
+            action, amount = ai_strategy.choose_action(self.game_engine, current_ai_player)
+            print(f"AI (P{current_ai_player+1}) chose: {action}, amount: {amount}")
             
-            self._sync_gui_with_engine_state() # Update GUI before AI or human turn
-
-            if rules.current_player == self.human_player_index:
-                print(f"Human player's (P{self.human_player_index+1}) turn.")
-                self._update_action_buttons_state()
-                return # Wait for human action
-
-            # AI's turn
-            if self.game_engine.player_strategies[rules.current_player]:
-                print(f"AI player's (P{rules.current_player+1}) turn.")
-                self._update_action_buttons_state() # Disable buttons during AI turn
-                # self.root.update_idletasks() # Ensure GUI updates if AI is slow
-
-                ai_strategy = self.game_engine.player_strategies[rules.current_player]
-                action, amount = ai_strategy.choose_action(self.game_engine, rules.current_player)
-                print(f"AI (P{rules.current_player+1}) chose: {action}, amount: {amount}")
-                self.game_engine.process_action(rules.current_player, action, raise_amount=amount if action == 'bet' or action == 'raise' else None)
+            try:
+                self.game_engine.process_action(current_ai_player, action, raise_amount=amount if action == 'bet' or action == 'raise' else None)
                 rules.actions_this_round += 1
-                self._sync_gui_with_engine_state() # Update after AI action
-            else: # Should not happen if human player is handled
-                rules.advance_turn()
+            except ValueError as e:
+                print(f"Error processing AI (P{current_ai_player+1}) action {action} {amount}: {e}")
+                # If AI makes an invalid move, it should ideally be handled by the strategy or engine.
+                # For now, we might just advance turn to prevent getting stuck.
+                # A better solution would be for AI strategy to always return valid moves.
+                # Or for process_action to have a fallback (e.g. AI checks/folds if action is invalid)
+                print(f"AI (P{current_ai_player+1}) made an invalid move. Forcing check/fold or advancing.")
+                # Simplest: just advance. This could be problematic if AI always errors.
+                # A more robust AI would not error here.
+                # For now, let's assume AI action is valid or process_action handles errors gracefully (e.g. auto-fold)
+                # If process_action raises ValueError, the game might get stuck on this AI.
+                # A simple recovery: if AI action fails, try to make it check or fold.
+                try:
+                    if self.game_engine.rules.current_bet > self.game_engine.rules.bets[current_ai_player]: # Must call or fold
+                        self.game_engine.process_action(current_ai_player, 'fold')
+                    else: # Can check
+                        self.game_engine.process_action(current_ai_player, 'check')
+                    rules.actions_this_round += 1
+                except Exception as e_fallback:
+                    print(f"AI (P{current_ai_player+1}) fallback action failed: {e_fallback}. Advancing turn.")
+                    rules.advance_turn() # Last resort to prevent infinite loop on faulty AI
+
+            self._sync_gui_with_engine_state()  # Update after AI action
+            self.root.after(50, self._handle_game_progression) # Schedule next progression
+        else:
+            # This case should ideally not be reached if human player is handled and AI strategies are present
+            print(f"No strategy for current player {current_ai_player}, advancing turn.")
+            rules.advance_turn()
+            self.root.after(50, self._handle_game_progression) # Schedule next progression
 
 
     def _handle_hand_end(self):
