@@ -21,30 +21,24 @@ class PokerGameGUI:
         self.background_image = None
         background_image_path = "play/assets/poker_table_background.png"
         if os.path.exists(background_image_path):
-            try:
-                self.background_image = tk.PhotoImage(file=background_image_path)
+            try:                self.background_image = tk.PhotoImage(file=background_image_path)
             except tk.TclError as e:
                 print(f"Error loading background image: {e}")
         
         self.card_images = {}
         self._load_card_images()
         
-        # Game Engine Setup
+        # Game Engine Setup (will be initialized after player selection)
         self.human_player_index = 0
-        ai_strategy = PlaceholderAIStrategy()
-        # Human strategy is None as GUI handles human actions.
-        player_strategies = [None, ai_strategy] 
-        self.game_engine = TexasHoldem(num_players=2, starting_stack=1000, player_strategies=player_strategies)
+        self.game_engine = None  # Will be created after player selection
+        self.ai_count = 1  # Default, will be set by user choice
 
         # Initialize game state variables (will be updated by engine)
         self.player_hand = []
         self.community_cards = []
         self.pot = 0
-        self.player_money = self.game_engine.rules.player_chips[self.human_player_index]
-        self.ai_money = self.game_engine.rules.player_chips[1] if self.game_engine.num_players > 1 else 0
-
-
-        # Define fonts and colors
+        self.player_money = 1000  # Default starting amount
+        self.ai_money = 1000  # Default, will be updated        # Define fonts and colors
         try:
             self.font_title = font.Font(family="Arial", size=16, weight="bold")
             self.font_label = font.Font(family="Arial", size=12)
@@ -64,8 +58,8 @@ class PokerGameGUI:
         # GUI elements
         self.setup_gui()
         
-        # Start the game
-        self.start_game()
+        # Show player selection dialog before starting the game
+        self.show_player_selection()
         
         self.root.mainloop()
 
@@ -131,16 +125,22 @@ class PokerGameGUI:
         # Main container frame to put other frames on top of background label
         main_container = tk.Frame(self.root, bg=self.root.cget('bg')) # transparent if possible
         if self.background_image: # If background image exists, make frame transparent to it
-             main_container.configure(bg="") # This might not make it fully transparent depending on TK version / OS
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
+             main_container.configure(bg="") # This might not make it fully transparent depending on TK version / OS        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # AI Info Frame (Top)
         ai_frame = tk.Frame(main_container, bg=self.color_frame_bg, pady=10)
         ai_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
-        self.ai_money_label = tk.Label(ai_frame, text=f"AI Money: ${self.ai_money}", font=self.font_label, bg=self.color_frame_bg, fg=self.color_text)
-        self.ai_money_label.pack()
-        # Placeholder for AI hand/status if needed later
+        
+        # Create container for AI player displays
+        self.ai_players_frame = tk.Frame(ai_frame, bg=self.color_frame_bg)
+        self.ai_players_frame.pack()
+        
+        # AI money labels will be created dynamically based on number of AI players
+        self.ai_money_labels = []
+        
+        # Initialize AI display if game engine exists
+        if hasattr(self, 'game_engine') and self.game_engine:
+            self._setup_ai_display()
 
         # Community Cards & Pot Frame (Middle)
         community_pot_frame = tk.Frame(main_container, bg=self.color_frame_bg, pady=10)
@@ -195,15 +195,21 @@ class PokerGameGUI:
         self.fold_button.grid(row=0, column=2, sticky="ew", padx=5)
         
         self.check_button = tk.Button(action_buttons_frame, text="Check", command=self.player_check, **button_options)
-        # Place check button, maybe adjust grid columns or add a new row
-        self.check_button.grid(row=0, column=3, sticky="ew", padx=5) # Added check button
+        # Place check button, maybe adjust grid columns or add a new row        self.check_button.grid(row=0, column=3, sticky="ew", padx=5) # Added check button
 
-
+        # Button frame for next hand / quit options (initially empty)
+        self.button_frame = tk.Frame(main_container, bg=self.color_background)
+        self.button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+        
     def start_game(self):
+        if not self.game_engine:
+            print("Game engine not initialized. Please select number of players first.")
+            return
+            
         self.game_engine.initialize_game() # Deals new hand, posts blinds
         self._sync_gui_with_engine_state()
         self._handle_game_progression() # Check for AI turn or next stage
-
+    
     def _sync_gui_with_engine_state(self):
         """Updates GUI elements based on the current game engine state."""
         rules = self.game_engine.rules
@@ -211,10 +217,9 @@ class PokerGameGUI:
         self.community_cards = rules.community_cards
         self.pot = rules.pot
         self.player_money = rules.player_chips[self.human_player_index]
-        if self.game_engine.num_players > 1:
-            self.ai_money = rules.player_chips[1]
         
         self.update_display() # This will redraw cards, update money labels etc.
+        self._update_ai_display() # Update all AI player displays
         self._update_action_buttons_state()
 
     def _update_action_buttons_state(self):
@@ -236,7 +241,7 @@ class PokerGameGUI:
             # Bet button should be available if check is available (to open betting) or if raise is possible
             # Fold is always available on player's turn
             # For simplicity, this basic enable/disable is okay for now.
-
+    
     def update_display(self):
         # Clear previous card images from their specific frames
         for widget in self.player_hand_frame.winfo_children():
@@ -253,8 +258,8 @@ class PokerGameGUI:
                 img_label.pack(side=tk.LEFT, padx=2)
             else:
                 # Fallback to text
-                txt_label = tk.Label(self.player_hand_frame, text=card_str, relief=tk.RIDGE, padding=5, bg="lightgrey", fg="black", font=self.font_label)
-                txt_label.pack(side=tk.LEFT, padx=2)
+                txt_label = tk.Label(self.player_hand_frame, text=card_str, relief=tk.RIDGE, bg="lightgrey", fg="black", font=self.font_label)
+                txt_label.pack(side=tk.LEFT, padx=5, pady=2)
                 if image_key != "placeholder": # Avoid printing for "New Card" if it's handled as placeholder
                     print(f"Image not found for player card {card_str} (key: {image_key})")
 
@@ -269,13 +274,13 @@ class PokerGameGUI:
                  txt_label.pack(side=tk.LEFT, padx=2)
             else:
                 # Fallback to text
-                txt_label = tk.Label(self.community_cards_frame, text=card_str, relief=tk.RIDGE, padding=5, bg="lightgrey", fg="black", font=self.font_label)
+                txt_label = tk.Label(self.community_cards_frame, text=card_str, relief=tk.RIDGE, bg="lightgrey", fg="black", font=self.font_label)
                 txt_label.pack(side=tk.LEFT, padx=2)
                 print(f"Image not found for community card {card_str} (key: {image_key})")
 
         self.pot_label.config(text=f"Pot: ${self.pot}")
         self.player_money_label.config(text=f"Your Money: ${self.player_money}")
-        self.ai_money_label.config(text=f"AI Money: ${self.ai_money}")
+        # AI money is now handled by _update_ai_display() method
 
     def _handle_player_action(self, action_type, amount=0):
         if self.game_engine.rules.current_player != self.human_player_index:
@@ -313,7 +318,7 @@ class PokerGameGUI:
             
             # Let's assume bet_amount is the total bet the player wants to make for this round.
             # The engine's process_action for 'bet' takes 'raise_amount'.
-            # If current bet is X, and player's current bet is Y, and player wants total bet to be Z (bet_amount from entry):
+            # If current_bet is X, and player's current bet is Y, and player wants total bet to be Z (bet_amount from entry):
             # Amount to call = X - Y
             # Additional raise amount = Z - X (if Z > X)
             # So, raise_amount for process_action should be Z - X.
@@ -338,10 +343,6 @@ class PokerGameGUI:
             # Simpler: if action is 'bet', it's treated as 'raise' in the engine.
             # The engine's `process_action` for 'raise'/'bet' expects `raise_amount` to be the *additional* amount.
             # Let's make GUI's "Bet" button mean "raise by this amount" or "bet this amount if opening"
-            
-            # If current bet is 50, player has 10 in pot, entry is 100.
-            # Call is 40. Raise by 100 means total new bet is 10 (current) + 40 (call) + 100 (raise) = 150.
-            # This is complex. For now, `bet_amount` from entry is the `raise_amount` for `process_action`.
             
             self._handle_player_action('bet', bet_amount) # 'bet' implies raise or open bet
             self.bet_entry.delete(0, tk.END)
@@ -453,10 +454,229 @@ class PokerGameGUI:
         rules.pot = 0 
         self._sync_gui_with_engine_state() # Update money after pot distribution
         
-        # For now, we can just start a new game. Later, add a "New Hand" button.
-        # messagebox.showinfo("Next Hand", "Starting new hand.")
+        # Show a "Next Hand" button instead of automatically starting a new game
+        self._show_next_hand_option()
+    
+    def _show_next_hand_option(self):
+        """Show option to start next hand instead of automatically starting."""
+        # Clear action buttons
+        for widget in self.button_frame.winfo_children():
+            widget.destroy()
+            
+        # Add "Next Hand" button
+        next_hand_btn = tk.Button(
+            self.button_frame, 
+            text="Start Next Hand", 
+            command=self._start_next_hand,
+            font=("Arial", 12, "bold"),
+            bg="#4CAF50",
+            fg="white",
+            width=15
+        )
+        next_hand_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Add "Change Players" button
+        change_players_btn = tk.Button(
+            self.button_frame,
+            text="Change Players",
+            command=self.show_player_selection,
+            font=("Arial", 12, "bold"),
+            bg="#2196F3",
+            fg="white", 
+            width=15
+        )
+        change_players_btn.pack(side=tk.LEFT, padx=10)
+        
+        # Add "Quit Game" button
+        quit_btn = tk.Button(
+            self.button_frame,
+            text="Quit Game",
+            command=self.root.quit,
+            font=("Arial", 12, "bold"), 
+            bg="#f44336",
+            fg="white",
+            width=15
+        )
+        quit_btn.pack(side=tk.LEFT, padx=10)
+    
+    def _start_next_hand(self):
+        """Start the next hand when user clicks the button."""
         self.start_game()
 
+    def show_player_selection(self):
+        """Show dialog to select number of AI players"""
+        # Hide the main game interface temporarily
+        for widget in self.root.winfo_children():
+            widget.pack_forget()
+        
+        # Create player selection frame
+        selection_frame = tk.Frame(self.root, bg=self.color_background)
+        selection_frame.pack(expand=True, fill=tk.BOTH)
+        
+        # Title
+        title_label = tk.Label(
+            selection_frame, 
+            text="Texas Hold'em Poker Setup", 
+            font=("Arial", 24, "bold"),
+            bg=self.color_background, 
+            fg=self.color_text        )
+        title_label.pack(pady=50)
+        
+        # Instructions
+        instructions = tk.Label(
+            selection_frame,
+            text="Choose how many AI opponents you want to play against:",
+            font=("Arial", 14),
+            bg=self.color_background,
+            fg=self.color_text
+        )
+        instructions.pack(pady=20)
+        
+        # Player selection frame
+        input_frame = tk.Frame(selection_frame, bg=self.color_background)
+        input_frame.pack(pady=30)
+        
+        # Store selection frame reference for cleanup
+        self.selection_frame = selection_frame
+        
+        # AI count input frame
+        count_frame = tk.Frame(input_frame, bg=self.color_background)
+        count_frame.pack(pady=20)
+        
+        tk.Label(
+            count_frame,
+            text="Number of AI opponents:",
+            font=("Arial", 12),
+            bg=self.color_background,
+            fg=self.color_text
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # Spinbox for selecting number of AI players (1-8 for reasonable game size)
+        self.ai_count_var = tk.StringVar(value="1")
+        ai_spinbox = tk.Spinbox(
+            count_frame,
+            from_=1,
+            to=8,
+            textvariable=self.ai_count_var,
+            font=("Arial", 12),
+            width=5,
+            justify=tk.CENTER
+        )
+        ai_spinbox.pack(side=tk.LEFT, padx=10)
+        
+        # Start game button
+        start_button = tk.Button(
+            input_frame,
+            text="Start Game",
+            font=("Arial", 14, "bold"),
+            bg=self.color_button_bg,
+            fg=self.color_button_fg,            width=15,
+            height=2,
+            command=self.start_game_from_selection
+        )
+        start_button.pack(pady=20)
+    
+    def start_game_from_selection(self):
+        """Get AI count from spinbox and start game"""
+        try:
+            ai_count = int(self.ai_count_var.get())
+            if ai_count < 1 or ai_count > 8:
+                messagebox.showerror("Invalid Input", "Please select between 1 and 8 AI opponents.")
+                return
+            self.start_game_with_players(ai_count)
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter a valid number of AI opponents.")
+    
+    def start_game_with_players(self, ai_count):
+        """Initialize game with selected number of AI players"""
+        total_players = ai_count + 1  # AI players + 1 human player
+        
+        # Create AI strategies for each AI player
+        ai_strategy = PlaceholderAIStrategy()
+        player_strategies = [None]  # Human player (index 0) has no strategy
+        
+        # Add AI strategies for each AI player
+        for i in range(ai_count):
+            player_strategies.append(ai_strategy)
+        
+        # Create new game engine with selected number of players
+        self.game_engine = TexasHoldem(
+            num_players=total_players, 
+            starting_stack=1000, 
+            player_strategies=player_strategies
+        )
+        
+        # Update player info
+        self.human_player_index = 0
+        self.ai_count = ai_count
+        self.player_money = self.game_engine.rules.player_chips[self.human_player_index]
+          # Store AI money for display (we'll show total AI money or individual later)
+        self.ai_money = sum(self.game_engine.rules.player_chips[1:]) if ai_count > 0 else 0
+        
+        # Clean up selection interface
+        self.selection_frame.destroy()
+        
+        # Show the main game interface that was hidden
+        self.setup_game_gui()
+          # Start the actual game
+        self.start_game()
+    
+    def setup_game_gui(self):
+        """Setup the main game GUI after player selection"""
+        # The main game widgets were hidden with pack_forget() during player selection
+        # We need to make them visible again
+        
+        # Find and restore the main container widget
+        for widget in self.root.winfo_children():
+            # Look for the main container frame (not the selection frame)
+            if isinstance(widget, tk.Frame) and widget != getattr(self, 'selection_frame', None):
+                widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+                break
+        
+        # If main container wasn't found, recreate the GUI
+        if not any(isinstance(widget, tk.Frame) and widget.winfo_manager() == 'pack' 
+                  for widget in self.root.winfo_children()):
+            self.setup_gui()
+        
+        # Setup AI display now that game engine exists
+        self._setup_ai_display()
+        
+    def _setup_ai_display(self):
+        """Setup AI player display based on number of AI players"""
+        # Clear existing AI labels
+        for label in self.ai_money_labels:
+            label.destroy()
+        self.ai_money_labels = []
+        
+        if not self.game_engine:
+            return
+            
+        # Create labels for each AI player
+        for i in range(1, self.game_engine.num_players):  # Skip player 0 (human)
+            ai_player_num = i
+            ai_money = self.game_engine.rules.player_chips[i]
+            
+            label_text = f"AI Player {ai_player_num}: ${ai_money}"
+            ai_label = tk.Label(
+                self.ai_players_frame, 
+                text=label_text, 
+                font=self.font_label, 
+                bg=self.color_frame_bg, 
+                fg=self.color_text
+            )
+            ai_label.pack(side=tk.LEFT, padx=20)
+            self.ai_money_labels.append(ai_label)
+    
+    def _update_ai_display(self):
+        """Update AI player money display"""
+        if not self.game_engine or not self.ai_money_labels:
+            return
+            
+        for i, label in enumerate(self.ai_money_labels):
+            ai_index = i + 1  # AI players start at index 1
+            if ai_index < len(self.game_engine.rules.player_chips):
+                ai_money = self.game_engine.rules.player_chips[ai_index]
+                label.config(text=f"AI Player {ai_index}: ${ai_money}")
 
 if __name__ == "__main__":
     PokerGameGUI(None)

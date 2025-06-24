@@ -190,15 +190,28 @@ class TexasHoldem:
         self.hand_count = 0
         self.historical_actions = []
         self.history_limit = 500  # Save history every 500 hands
-        self.current_hand_initial_actions = [] # For structured blind actions
-
-        # Ensure data directory exists
+        self.current_hand_initial_actions = [] # For structured blind actions        # Ensure data directory exists
         if not os.path.exists('data'):
             os.makedirs('data')
 
     def initialize_game(self):
-        self.current_hand_initial_actions = [] # Reset at the start of each hand
+        # Reset game state for new hand
+        self.rules.hands = [[] for _ in range(self.num_players)]
+        self.rules.community_cards = []
+        self.rules.pot = 0
+        self.rules.bets = [0] * self.num_players
+        self.rules.current_bet = 0
+        self.rules.previous_raise_amount = 0
+        self.rules.betting_history = []
+        self.rules.actions_this_round = 0
+        self.rules.last_raiser = None
+        self.rules.total_bets_this_hand = [0] * self.num_players
+        
+        # Reset and shuffle deck
+        self.rules.deck = self.rules._create_deck()
         self.rules.shuffle_deck()
+        
+        self.current_hand_initial_actions = [] # Reset at the start of each hand
         structured_blinds = self.rules.post_blinds()
         self.current_hand_initial_actions = structured_blinds
         self.deal_hands()
@@ -540,11 +553,8 @@ class TexasHoldem:
 
         if len(active_players) == 1:
             # Only one player remains; they are the winner
-            return active_players[0], None  # No need to evaluate hands
-
-        # Evaluate hands
-        evaluator = Evaluator()
-        # Convert community cards to treys format
+            return active_players[0], None  # No need to evaluate hands        # Evaluate hands
+        evaluator = Evaluator()        # Convert community cards to treys format
         community_cards = [Card.new(card) for card in self.rules.community_cards]
 
         player_scores = {}
@@ -553,10 +563,18 @@ class TexasHoldem:
             player_hand = self.rules.hands[player_index]
             # Convert player's hole cards to treys format
             hole_cards = [Card.new(card) for card in player_hand]
-            score = evaluator.evaluate(community_cards, hole_cards)
-            best_hand = evaluator.get_rank_class(score)
-            player_scores[player_index] = score
-            player_best_hands[player_index] = best_hand
+            
+            try:
+                score = evaluator.evaluate(community_cards, hole_cards)
+                best_hand = evaluator.get_rank_class(score)
+                player_scores[player_index] = score
+                player_best_hands[player_index] = best_hand
+            except Exception as e:
+                print(f"ERROR: Failed to evaluate hand for player {player_index}: {e}")
+                print(f"Community cards: {len(community_cards)} cards")
+                print(f"Hole cards: {len(hole_cards)} cards")
+                print(f"Total cards: {len(community_cards) + len(hole_cards)}")
+                raise
 
         # Determine the winner(s)
         best_score = min(player_scores.values())

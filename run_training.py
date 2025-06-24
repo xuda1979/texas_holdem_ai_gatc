@@ -9,7 +9,7 @@ import time
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from trainers.ai_cfr_trainer import AICFRTrainer
-from self_play.self_play import SelfPlay
+from self_play.self_play import SelfPlay, load_transformer_model   # ← new
 from typing import List, Dict
 
 # Configuration Loading
@@ -134,9 +134,7 @@ def main():
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
     # Note: AICFRTrainer also loads config.yaml internally for its model parameters.
-    # Ensure d_raw_feature is present in config.yaml for TransformerAverageStrategy if not using defaults.
-
-    # Initialization
+    # Ensure d_raw_feature is present in config.yaml for TransformerAverageStrategy if not using defaults.    # Initialization
     print("\n--- Initializing Components ---")
     game_config_for_selfplay = {
         'num_players': num_players,
@@ -148,12 +146,33 @@ def main():
     try:
         cfr_trainer = initialize_trainer(args.algorithm, config)
         print(f"{args.algorithm} trainer initialized.")
+        
+        # Debug: Check if trainer has required attributes
+        print(f"Trainer has 'model' attribute: {hasattr(cfr_trainer, 'model')}")
+        if hasattr(cfr_trainer, 'model'):
+            print(f"Model type: {type(cfr_trainer.model)}")
+            print(f"Model has 'num_actions': {hasattr(cfr_trainer.model, 'num_actions')}")
+            if hasattr(cfr_trainer.model, 'num_actions'):
+                print(f"Number of actions: {cfr_trainer.model.num_actions}")
+        
     except Exception as e:
         print(f"Error initializing trainer: {e}")
-        print("Please ensure 'config.yaml' is present and correctly formatted, especially the 'model' section.")
-        return  # Exit if trainer fails to initialize
+        import traceback
+        traceback.print_exc()
+        return
 
+    # ⬇ New: load latest saved transformer strategy if your algo uses one
+    transformer_strategy = None
+    if args.algorithm in ("deep_cfr", "single_network"):
+        transformer_strategy = load_transformer_model()
+        print(f"Transformer strategy {'loaded' if transformer_strategy else 'initialized new'}.")
 
+        # attach it to your trainer however your API expects:
+        if hasattr(cfr_trainer, "set_strategy"):
+            cfr_trainer.set_strategy(transformer_strategy)
+        elif hasattr(cfr_trainer, "load_model"):
+            cfr_trainer.load_model(transformer_strategy)
+        # otherwise your trainer already built its own model
 
     # Training Loop
     print("\n--- Starting Training Loop ---")

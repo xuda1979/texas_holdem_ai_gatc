@@ -9,6 +9,11 @@ import torch
 import copy
 import random # Added import
 from typing import List, Tuple, Dict, Any
+import os
+import json
+from datetime import datetime
+import config
+from ai_models.transformer import TransformerAverageStrategy
 
 class DummyStrategy:
     def choose_action(self, game_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
@@ -296,12 +301,21 @@ class SelfPlay:
 
                 if current_player_engine_idx == self.ai_player_idx:
                     current_ai_view_gs = self._populate_ai_gamestate(self.game_engine.rules, main_ai_gs)
-                    if not hasattr(self.cfr_trainer, 'model') or not hasattr(self.cfr_trainer.model, 'num_actions'):
-                        raise AttributeError("cfr_trainer missing 'model' or model.num_actions attributes.")
-
-                    model_config = getattr(self.cfr_trainer, 'config', {}).get('model', {}) if hasattr(self.cfr_trainer, 'config') else {}
-                    max_seq_len = model_config.get('max_seq_len', 20)
-                    d_raw_feature = model_config.get('d_raw_feature', 3)
+                    
+                    # Check if trainer has required attributes, with fallback handling
+                    if not hasattr(self.cfr_trainer, 'model'):
+                        print("WARNING: cfr_trainer missing 'model' attribute. Using dummy action.")
+                        action_tuple = ('fold', None)
+                        action_to_engine_str, amount_for_engine = action_tuple
+                    elif not hasattr(self.cfr_trainer.model, 'num_actions'):
+                        print("WARNING: cfr_trainer.model missing 'num_actions' attribute. Using dummy action.")
+                        action_tuple = ('fold', None)
+                        action_to_engine_str, amount_for_engine = action_tuple
+                    else:
+                        # Normal AI logic continues here
+                        model_config = getattr(self.cfr_trainer, 'config', {}).get('model', {}) if hasattr(self.cfr_trainer, 'config') else {}
+                        max_seq_len = model_config.get('max_seq_len', 20)
+                        d_raw_feature = model_config.get('d_raw_feature', 3)
                     state_tensor = prepare_transformer_input(
                         current_ai_view_gs,
                         str(self.ai_player_idx),
@@ -431,6 +445,57 @@ class SelfPlay:
             p.join()
         return results
 
+
+def get_model_paths(model_name: str):
+    """
+    Get the file paths for the model weights and configuration
+    based on the model name.
+    """
+    model_dir = "models"
+    weights_path = os.path.join(model_dir, f"{model_name}_weights.pth")
+    config_path = os.path.join(model_dir, f"{model_name}_config.json")
+    return weights_path, config_path
+
+def model_exists(weights_path: str, config_path: str) -> bool:
+    """
+    Check if the model weights and configuration files exist.
+    """
+    return os.path.isfile(weights_path) and os.path.isfile(config_path)
+
+def load_existing_model(weights_path: str, config_path: str):
+    """
+    Load an existing model from the specified weights and config files.
+    """
+    with open(config_path, 'r') as f:
+        model_config = json.load(f)
+    model = TransformerAverageStrategy(**model_config)
+    model.load_state_dict(torch.load(weights_path))
+    return model
+
+def initialize_new_model():
+    """
+    Initialize a new transformer model for training.
+    """
+    model_config = {
+        'input_feature_dim': 10,  # Example input dimension
+        'hidden_dim': 64,
+        'num_heads': 2,
+        'num_layers': 2,
+        'num_actions': 4,  # Example output dimension (number of actions)
+    }
+    model = TransformerAverageStrategy(**model_config)
+    return model
+
+def load_transformer_model():
+    """
+    Load the latest saved transformer strategy (if it exists),
+    otherwise return a fresh one.
+    """
+    model_name = 'texas_holdem_transformer_ai'
+    weights_path, config_path = get_model_paths(model_name)
+    if model_exists(weights_path, config_path):
+        return load_existing_model(weights_path, config_path)
+    return initialize_new_model()
 
 if __name__ == '__main__':
     class MockModel(torch.nn.Module):

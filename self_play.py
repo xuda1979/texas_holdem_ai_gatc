@@ -5,8 +5,9 @@ import json
 import random
 import threading
 import signal
+import torch
 from datetime import datetime
-from models.transformer_strategy_model import TransformerAIStrategy, TransformerStrategyModel
+from ai_models.transformer import TransformerAverageStrategy
 from game_engine.texas_holdem import TexasHoldem
 import config
 
@@ -31,15 +32,21 @@ def model_exists(weights_path, config_path):
 def load_existing_model(weights_path, config_path):
     with open(config_path, 'r') as f:
         model_config = json.load(f)
-    model = TransformerStrategyModel.from_config(model_config)
-    model.build(input_shape=(None, 1, model_config['d_model']))
-    model.load_weights(weights_path)
+    model = TransformerAverageStrategy(**model_config)
+    model.load_state_dict(torch.load(weights_path))
     print(f'Model loaded from {weights_path}')
-    return TransformerAIStrategy(model=model)
+    return model
 
 def initialize_new_model():
     print('No existing model found. Initializing a new model.')
-    return TransformerAIStrategy()
+    model_config = {
+        'input_feature_dim': 10,
+        'hidden_dim': 64,
+        'num_heads': 2,
+        'num_layers': 2,
+        'num_actions': 4,
+    }
+    return TransformerAverageStrategy(**model_config)
 
 def save_transformer_model(transformer_strategy):
     models_dir = config.MODEL_DIR
