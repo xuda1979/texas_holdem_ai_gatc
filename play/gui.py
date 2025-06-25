@@ -8,11 +8,12 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from game_engine.texas_holdem import TexasHoldem, TexasHoldemRules # Assuming TexasHoldemRules might be useful for type hints or constants
-from play.strategies import PlaceholderAIStrategy, HumanStrategy
+from game_engine.texas_holdem import TexasHoldem, TexasHoldemRules
+from play.strategies import PlaceholderAIStrategy, HumanStrategy, TrainedAIStrategy # Import TrainedAIStrategy
 
 class PokerGameGUI:
-    def __init__(self, trainer=None): # trainer is optional now
+    def __init__(self, trainer=None):
+        self.trainer = trainer # Store the trainer instance
         self.root = tk.Tk()
         self.root.title("Texas Hold'em Poker")
         self.root.geometry("1000x700")
@@ -389,6 +390,7 @@ class PokerGameGUI:
                 next_stage_name = next_stages[current_stage_index]
                 print(f"Dealing {next_stage_name}...")
                 self.game_engine.play_stage(next_stage_name)
+
                 
                 # Determine starting player for the new round (SB or first active player after button)
                 rules.current_player = (rules.dealer_button + 1) % rules.num_players
@@ -638,19 +640,41 @@ class PokerGameGUI:
     def start_game_with_players(self, ai_count):
         """Initialize game with selected number of AI players"""
         total_players = ai_count + 1  # AI players + 1 human player
-        
-        # Create AI strategies for each AI player
-        ai_strategy = PlaceholderAIStrategy()
         player_strategies = [None]  # Human player (index 0) has no strategy
-        
-        # Add AI strategies for each AI player
-        for i in range(ai_count):
-            player_strategies.append(ai_strategy)
+        starting_stack_for_game = 1000 # Default, should be configurable or from game_engine defaults
+
+        if self.trainer:
+            try:
+                print("Attempting to load model from trainer...")
+                self.trainer.load_model() # Assumes this loads into self.trainer.model
+                ai_model = self.trainer.model
+                ai_model.eval() # Ensure evaluation mode
+                num_actions = self.trainer.num_actions
+                # Consider getting starting_stack from trainer config if available
+                # starting_stack_for_game = self.trainer.config.get('game_settings', {}).get('starting_stack', 1000)
+
+                print(f"Model loaded. Using TrainedAIStrategy with {num_actions} actions.")
+                # Pass starting_stack to TrainedAIStrategy for normalization purposes
+                ai_strategy_instance = TrainedAIStrategy(ai_model, num_actions, starting_stack_for_game)
+                for _ in range(ai_count):
+                    player_strategies.append(ai_strategy_instance)
+            except FileNotFoundError as e:
+                print(f"Trainer model file not found: {e}. Falling back to PlaceholderAIStrategy.")
+                for _ in range(ai_count):
+                    player_strategies.append(PlaceholderAIStrategy())
+            except Exception as e:
+                print(f"Error loading model or initializing TrainedAIStrategy: {e}. Falling back to PlaceholderAIStrategy.")
+                for _ in range(ai_count):
+                    player_strategies.append(PlaceholderAIStrategy())
+        else:
+            print("No trainer provided. Using PlaceholderAIStrategy.")
+            for _ in range(ai_count):
+                player_strategies.append(PlaceholderAIStrategy())
         
         # Create new game engine with selected number of players
         self.game_engine = TexasHoldem(
             num_players=total_players, 
-            starting_stack=1000, 
+            starting_stack=starting_stack_for_game, # Use the determined starting stack
             player_strategies=player_strategies
         )
         
