@@ -391,13 +391,14 @@ class PokerGameGUI:
                 print(f"Dealing {next_stage_name}...")
                 self.game_engine.play_stage(next_stage_name)
 
+                
                 # Determine starting player for the new round (SB or first active player after button)
                 rules.current_player = (rules.dealer_button + 1) % rules.num_players
                 for _ in range(rules.num_players):
                     if rules.active_players[rules.current_player] and rules.player_chips[rules.current_player] > 0:
                         break
                     rules.current_player = (rules.current_player + 1) % rules.num_players
-                
+
                 rules.actions_this_round = 0 # Reset for new betting round
                 # Blinds are posted at initialize_game, not between rounds like flop/turn/river.
                 # Small/big blind players might need to act again if they just posted.
