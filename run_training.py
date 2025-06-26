@@ -5,6 +5,7 @@ import os # For path manipulation if needed, e.g. for robust config loading
 import argparse
 import random
 import time
+import torch
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -65,13 +66,19 @@ def parse_args() -> argparse.Namespace:
         default=CONFIG_FILE_PATH,
         help="Path to configuration YAML file"
     )
+    parser.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default=None,
+        help="Computation device. Defaults to CUDA if available",
+    )
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict) -> AICFRTrainer:
+def initialize_trainer(algorithm: str, config: dict, device: str) -> AICFRTrainer:
     """Return a trainer instance based on selected algorithm."""
     if algorithm == "ai_cfr":
-        return AICFRTrainer()
+        return AICFRTrainer(device=device)
     elif algorithm == "deep_cfr":
         from trainers.deep_cfr_trainer import DeepCFRTrainer
         model_cfg = config.get("model", {})
@@ -79,7 +86,7 @@ def initialize_trainer(algorithm: str, config: dict) -> AICFRTrainer:
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
-        return DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr)
+        return DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
     elif algorithm == "single_network":
         from trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
         model_cfg = config.get("model", {})
@@ -87,7 +94,7 @@ def initialize_trainer(algorithm: str, config: dict) -> AICFRTrainer:
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
-        return SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr)
+        return SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr, device=device)
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
 
@@ -96,6 +103,7 @@ def main():
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
+    device = args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load configuration
     config = load_configuration(args.config)
@@ -133,6 +141,7 @@ def main():
     print(f"Number of players: {num_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
+    print(f"Using device: {device}")
     # Note: AICFRTrainer also loads config.yaml internally for its model parameters.
     # Ensure d_raw_feature is present in config.yaml for TransformerAverageStrategy if not using defaults.    # Initialization
     print("\n--- Initializing Components ---")
@@ -144,7 +153,7 @@ def main():
     }
 
     try:
-        cfr_trainer = initialize_trainer(args.algorithm, config)
+        cfr_trainer = initialize_trainer(args.algorithm, config, device)
         print(f"{args.algorithm} trainer initialized.")
         
         # Debug: Check if trainer has required attributes

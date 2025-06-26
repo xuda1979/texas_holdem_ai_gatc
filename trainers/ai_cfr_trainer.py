@@ -35,7 +35,8 @@ if log_dir and not os.path.exists(log_dir):
 logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
 
 class AICFRTrainer:
-    def __init__(self):
+    def __init__(self, device: str | None = None):
+        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         model_config = config.get('model', {})  # Get model sub-config, or empty dict
         hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
         output_dim = model_config.get('num_actions', 10) # Default if not found
@@ -46,18 +47,19 @@ class AICFRTrainer:
         d_raw_feature = model_config.get('d_raw_feature', 3) 
 
         self.model = TransformerAverageStrategy(
-            input_feature_dim=d_raw_feature, 
-            hidden_dim=hidden_dim, 
+            input_feature_dim=d_raw_feature,
+            hidden_dim=hidden_dim,
             num_heads=8,  # Assuming num_heads and num_layers are fixed or could also be in config
-            num_layers=2, 
+            num_layers=2,
             num_actions=output_dim
         )
-        
+        self.model.to(self.device)
+
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         self.num_actions = output_dim  # Ensure this is consistent with model output
         # Expose configuration so callers (e.g. self-play) can retrieve model params
         self.config = config
-        
+
         # Initialize cumulative regret and strategy tensors
         # These should be persistent across training iterations for a given state-space node if traditional CFR.
         # For deep CFR, these are often associated with the overall training process rather than per-state.
@@ -65,8 +67,8 @@ class AICFRTrainer:
         # This means they represent the regret/strategy for the "average" state encountered, or this trainer
         # is intended for a single info set (not typical for deep CFR).
         # Given the context, these likely track average regrets/strategies over the samples seen by the network.
-        self.cumulative_regret = torch.zeros(self.num_actions)
-        self.cumulative_strategy = torch.zeros(self.num_actions)
+        self.cumulative_regret = torch.zeros(self.num_actions, device=self.device)
+        self.cumulative_strategy = torch.zeros(self.num_actions, device=self.device)
 
 
     def train(self, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
@@ -79,14 +81,17 @@ class AICFRTrainer:
         try:
             # Ensure state_tensor is correctly shaped for the model (batch_size=1)
             if state_tensor.ndim == 2: # Should be [seq_len, feature_dim]
-                state_tensor_batched = state_tensor.unsqueeze(0) # Add batch dimension
+                state_tensor_batched = state_tensor.unsqueeze(0)
             elif state_tensor.ndim == 3 and state_tensor.shape[0] == 1: # Already batched
                 state_tensor_batched = state_tensor
             else:
                 raise ValueError(f"state_tensor has unexpected shape: {state_tensor.shape}")
 
+            state_tensor_batched = state_tensor_batched.to(self.device)
+            all_counterfactual_payoffs = all_counterfactual_payoffs.to(self.device)
+
             # a. Get model's current strategy prediction
-            strategy_pred = self.model(state_tensor_batched).squeeze(0) # Remove batch dim for calculations
+            strategy_pred = self.model(state_tensor_batched).squeeze(0)
 
             # b. Detach strategy_pred for regret calculation
             current_model_strategy_detached = strategy_pred.detach().clone()
@@ -135,8 +140,9 @@ class AICFRTrainer:
     def load_model(self):
         # Ensure config path is correct or make it an argument
         try:
-            self.model.load_state_dict(torch.load(config['training']['save_model_path']))
-            self.model.eval() # Set model to evaluation mode
+            self.model.load_state_dict(torch.load(config['training']['save_model_path'], map_location=self.device))
+            self.model.to(self.device)
+            self.model.eval()
             logging.info(f"Model loaded from {config['training']['save_model_path']}")
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)

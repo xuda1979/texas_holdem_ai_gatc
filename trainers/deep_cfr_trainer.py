@@ -27,7 +27,8 @@ class ReplayBuffer:
 class DeepCFRTrainer:
     """Minimal Deep CFR trainer using Transformer networks."""
     def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, learning_rate: float = 1e-3,
-                 buffer_capacity: int = 10000):
+                 buffer_capacity: int = 10000, device: str | None = None):
+        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self.advantage_net = TransformerAverageStrategy(
             input_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
@@ -42,13 +43,15 @@ class DeepCFRTrainer:
             num_layers=2,
             num_actions=num_actions,
         )
+        self.advantage_net.to(self.device)
+        self.strategy_net.to(self.device)
         self.adv_optimizer = optim.Adam(self.advantage_net.parameters(), lr=learning_rate)
         self.strat_optimizer = optim.Adam(self.strategy_net.parameters(), lr=learning_rate)
 
         self.replay_buffer = ReplayBuffer(buffer_capacity)
         self.num_actions = num_actions
-        self.cumulative_regret = torch.zeros(num_actions)
-        self.cumulative_strategy = torch.zeros(num_actions)
+        self.cumulative_regret = torch.zeros(num_actions, device=self.device)
+        self.cumulative_strategy = torch.zeros(num_actions, device=self.device)
         # Minimal config dict for compatibility with SelfPlay expectations
         self.config = {
             'model': {
@@ -66,9 +69,9 @@ class DeepCFRTrainer:
         if len(self.replay_buffer) < batch_size:
             return
         batch = self.replay_buffer.sample(batch_size)
-        states = torch.stack([b[0] for b in batch])
-        actions = torch.tensor([b[1] for b in batch])
-        regrets = torch.stack([b[2] for b in batch])
+        states = torch.stack([b[0] for b in batch]).to(self.device)
+        actions = torch.tensor([b[1] for b in batch], device=self.device)
+        regrets = torch.stack([b[2] for b in batch]).to(self.device)
 
         # Train advantage network to predict regrets
         adv_pred = self.advantage_net(states)
