@@ -15,6 +15,7 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 - **scripts**: Main scripts for running training and simulations.
 - **self_play_data**: Directory for storing self-play results.
 - **models**: Stores trained AI models.
+- **examples**: Demonstration scripts such as `action_mapping_demo.py`.
 - **config.yaml**: Centralized configuration file.
 
 
@@ -97,4 +98,13 @@ from evaluation.exploitability import calculate_exploitability
 strategy = [0.5, 0.5]
 matrix = [[1, -1], [-1, 1]]
 print(calculate_exploitability(strategy, matrix))
+```
+
+## Examples
+
+The `examples` folder contains small demonstration scripts. Run the following to
+see how action indices are mapped to game actions:
+
+```bash
+python examples/action_mapping_demo.py
 ```
