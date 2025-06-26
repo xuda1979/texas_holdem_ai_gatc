@@ -98,3 +98,9 @@ strategy = [0.5, 0.5]
 matrix = [[1, -1], [-1, 1]]
 print(calculate_exploitability(strategy, matrix))
 ```
+
+## Examples
+
+Demonstration scripts are provided in the `examples` directory. For instance,
+`examples/action_mapping_demo.py` showcases how to use the `get_action_from_index`
+helper to map action indices to in-game actions.

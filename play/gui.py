@@ -11,6 +11,7 @@ if project_root not in sys.path:
 
 from game_engine.texas_holdem import TexasHoldem
 from playStrategy import HumanStrategy, RandomAIStrategy
+from play.strategies import PlaceholderAIStrategy
 
 
 class GUIHumanStrategy(HumanStrategy):
@@ -53,7 +54,16 @@ class PokerGameGUI:
         # Card image cache
         self.card_images = {}
         self.card_back_image = None
-        self.load_card_images()
+        self._load_card_images()
+
+        # Create a simple game engine for the GUI
+        player_strategies = [None, PlaceholderAIStrategy()]
+        self.game_engine = TexasHoldem(
+            num_players=2,
+            starting_stack=1000,
+            player_strategies=player_strategies,
+        )
+        self.human_player_index = 0
         
         # Game state
         self.game = None
@@ -66,9 +76,82 @@ class PokerGameGUI:
         self.actions_frame = None
         self.status_label = None
         
+        # Delegate GUI setup and start to helper methods so tests can easily
+        # patch them.
+        self.setup_gui()
+        self.start_game()
+        # Start the Tk main loop immediately
+        self.root.mainloop()
+
+    def _get_card_image_key(self, card: str | None) -> str | None:
+        """Convert a card string to the image key used in the GUI."""
+        if not card:
+            return None
+
+        placeholder_cards = {"New Card", "Card"}
+        if card in placeholder_cards:
+            return "placeholder"
+
+        if len(card) < 2:
+            return None
+
+        rank = card[0]
+        suit = card[1]
+        suit_map = {
+            "♠": "s",
+            "♣": "c",
+            "♥": "h",
+            "♦": "d",
+            "s": "s",
+            "c": "c",
+            "h": "h",
+            "d": "d",
+        }
+
+        if suit not in suit_map:
+            return None
+
+        return f"{rank}{suit_map[suit]}"
+
+    def _handle_player_action(self, action: str, amount: int | None = None):
+        """Process an action for the human player."""
+        if self.game_engine.rules.current_player != self.human_player_index:
+            messagebox.showwarning("Not your turn", "It's not your turn to act.")
+            return
+
+        self.game_engine.process_action(self.human_player_index, action, raise_amount=amount)
+        self._sync_gui_with_engine_state()
+        self._handle_game_progression()
+
+    def _sync_gui_with_engine_state(self):
+        """Synchronize cached state values with the game engine."""
+        rules = self.game_engine.rules
+        self.player_hand = rules.hands[self.human_player_index]
+        self.community_cards = rules.community_cards
+        self.pot = rules.pot
+        self.player_money = rules.player_chips[self.human_player_index]
+        # Simple view assumes one opponent
+        self.ai_money = rules.player_chips[1 if self.human_player_index == 0 else 0]
+
+        self.update_display()
+        self._update_action_buttons_state()
+
+    # Placeholder helpers referenced in tests
+    def _handle_game_progression(self):
+        pass
+
+    def _update_action_buttons_state(self):
+        pass
+
+    def setup_gui(self):
+        """Hook for setting up the initial GUI layout."""
         self.setup_initial_gui()
+
+    def start_game(self):
+        """Hook for additional start behaviour."""
+        pass
         
-    def load_card_images(self):
+    def _load_card_images(self):
         """Load all card images from the card_images directory."""
         card_images_dir = os.path.join(os.path.dirname(__file__), "card_images")
         
