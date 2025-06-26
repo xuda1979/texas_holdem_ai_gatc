@@ -1,6 +1,7 @@
 # playStrategy.py
 
 import random
+from ai_gto_analyzer import display_ai_gto_stats # Import the new AI GTO display function
 
 class PlayerStrategy:
     @property
@@ -54,6 +55,10 @@ class HumanStrategy(PlayerStrategy):
         return True
 
     def choose_action(self, game, player_index):
+        # Display AI-derived GTO stats before prompting for action
+        # model_path can be omitted to use defaults from ai_gto_analyzer
+        display_ai_gto_stats(game, player_index)
+
         while True:
             print(f"\n--- Player {player_index + 1}'s Turn ---")
             print(f"Current pot: {game.rules.pot} chips")
