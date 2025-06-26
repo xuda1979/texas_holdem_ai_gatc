@@ -1,6 +1,7 @@
 # playStrategy.py
 
 import random
+from gto_analysis import display_gto_stats # Import the GTO display function
 
 class PlayerStrategy:
     @property
@@ -54,6 +55,9 @@ class HumanStrategy(PlayerStrategy):
         return True
 
     def choose_action(self, game, player_index):
+        # Display GTO stats before prompting for action
+        display_gto_stats(game, player_index)
+
         while True:
             print(f"\n--- Player {player_index + 1}'s Turn ---")
             print(f"Current pot: {game.rules.pot} chips")
