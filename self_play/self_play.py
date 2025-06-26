@@ -322,6 +322,8 @@ class SelfPlay:
                         max_seq_len,
                         d_raw_feature,
                     )
+                    device = getattr(self.cfr_trainer, 'device', 'cpu')
+                    state_tensor = state_tensor.to(device)
                     strategy_probs_tensor = self.cfr_trainer.model(state_tensor.unsqueeze(0)).squeeze(0)
                     if not torch.all(strategy_probs_tensor >= 0):
                         print(f"Warning: strategy_probs_tensor has negative values: {strategy_probs_tensor}. Using uniform.")
@@ -334,7 +336,10 @@ class SelfPlay:
                          else:
                              strategy_probs_tensor = strategy_probs_tensor / total
 
-                    counterfactual_payoffs = torch.zeros(self.cfr_trainer.model.num_actions)
+                    counterfactual_payoffs = torch.zeros(
+                        self.cfr_trainer.model.num_actions,
+                        device=device
+                    )
                     for k_action_idx in range(self.cfr_trainer.model.num_actions):
                         temp_engine_rules_for_k = copy.deepcopy(self.game_engine.rules)
                         temp_ai_gs_for_k = self._populate_ai_gamestate(temp_engine_rules_for_k, main_ai_gs)

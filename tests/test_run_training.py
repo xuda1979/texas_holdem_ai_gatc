@@ -30,6 +30,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.num_hands = num_hands_to_simulate
         args_mock.algorithm = "ai_cfr"
         args_mock.config = "dummy_config.yaml"
+        args_mock.device = None
 
         training_params_mock = {
             'save_model_every_minutes': save_interval_minutes,
@@ -69,6 +70,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.num_hands = 5
         args_mock.algorithm = "ai_cfr"
         args_mock.config = "dummy_config.yaml"
+        args_mock.device = None
 
         training_params_mock = {
             'save_model_every_minutes': 0,
@@ -108,6 +110,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.num_hands = 5
         args_mock.algorithm = "ai_cfr"
         args_mock.config = "dummy_config.yaml"
+        args_mock.device = None
 
         training_params_mock = {
             'save_model_every_minutes': args_mock.save_minutes,
@@ -154,6 +157,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.num_hands = num_hands_to_simulate
         args_mock.algorithm = "ai_cfr"
         args_mock.config = "dummy_config.yaml"
+        args_mock.device = None
 
         # Simulate config loaded WITHOUT 'save_model_every_minutes' explicitly
         training_params_mock = {

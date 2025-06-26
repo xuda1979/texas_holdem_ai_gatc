@@ -7,7 +7,9 @@ from rules.cfr import calculate_strategy, update_regret, update_strategy
 
 class SingleNetworkCFRTrainer:
     """CFR trainer that predicts regret and strategy with a single network."""
-    def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, lr: float = 1e-3):
+    def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, lr: float = 1e-3,
+                 device: str | None = None):
+        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = TransformerAverageStrategy(
             input_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
@@ -15,10 +17,11 @@ class SingleNetworkCFRTrainer:
             num_layers=2,
             num_actions=num_actions,
         )
+        self.model.to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.num_actions = num_actions
-        self.cumulative_regret = torch.zeros(num_actions)
-        self.cumulative_strategy = torch.zeros(num_actions)
+        self.cumulative_regret = torch.zeros(num_actions, device=self.device)
+        self.cumulative_strategy = torch.zeros(num_actions, device=self.device)
         # Expose simple config for use by SelfPlay
         self.config = {
             'model': {
@@ -30,6 +33,8 @@ class SingleNetworkCFRTrainer:
         }
 
     def train_step(self, state: torch.Tensor, counterfactual_payoffs: torch.Tensor):
+        state = state.to(self.device)
+        counterfactual_payoffs = counterfactual_payoffs.to(self.device)
         strategy_pred = self.model(state.unsqueeze(0)).squeeze(0)
         state_value = torch.sum(strategy_pred.detach() * counterfactual_payoffs)
         action_regrets = counterfactual_payoffs - state_value

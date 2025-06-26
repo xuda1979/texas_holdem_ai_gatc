@@ -77,6 +77,7 @@ During training each hand uses a random number of players (between 2 and 10).
 - Betting-tree abstraction utilities
 - Discounted CFR+ solver with regret discounting
 - Distributed self-play with multiprocessing
+- Optional GPU acceleration with automatic device selection
 - Simple exploitability evaluation tools
 
 ## Using Distributed Self-Play
