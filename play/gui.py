@@ -50,20 +50,10 @@ class PokerGameGUI:
         self.root = tk.Tk()
         self.root.title("Texas Hold'em Poker - Human vs AI")
         self.root.geometry("1400x900")
-        
-        # Card image cache
+          # Card image cache
         self.card_images = {}
         self.card_back_image = None
         self._load_card_images()
-
-        # Create a simple game engine for the GUI
-        player_strategies = [None, PlaceholderAIStrategy()]
-        self.game_engine = TexasHoldem(
-            num_players=2,
-            starting_stack=1000,
-            player_strategies=player_strategies,
-        )
-        self.human_player_index = 0
         
         # Game state
         self.game = None
@@ -115,24 +105,24 @@ class PokerGameGUI:
 
     def _handle_player_action(self, action: str, amount: int | None = None):
         """Process an action for the human player."""
-        if self.game_engine.rules.current_player != self.human_player_index:
-            messagebox.showwarning("Not your turn", "It's not your turn to act.")
+        if not self.game or not hasattr(self.game.rules, 'current_player'):
+            messagebox.showwarning("Game Error", "No active game found.")
             return
 
-        self.game_engine.process_action(self.human_player_index, action, raise_amount=amount)
-        self._sync_gui_with_engine_state()
-        self._handle_game_progression()
+        # For GUI, human is always player 0
+        if self.game.rules.current_player != 0:
+            messagebox.showwarning("Not your turn", "It's not your turn to act.")
+            return        # Process the action through the human strategy
+        if self.human_strategy:
+            self.human_strategy.set_action(action, amount)
 
     def _sync_gui_with_engine_state(self):
         """Synchronize cached state values with the game engine."""
-        rules = self.game_engine.rules
-        self.player_hand = rules.hands[self.human_player_index]
-        self.community_cards = rules.community_cards
-        self.pot = rules.pot
-        self.player_money = rules.player_chips[self.human_player_index]
-        # Simple view assumes one opponent
-        self.ai_money = rules.player_chips[1 if self.human_player_index == 0 else 0]
-
+        if not self.game:
+            return
+            
+        rules = self.game.rules
+        # Update display
         self.update_display()
         self._update_action_buttons_state()
 
