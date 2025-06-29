@@ -12,8 +12,8 @@ from typing import List, Tuple, Dict, Any
 import os
 import json
 from datetime import datetime
-import config
-from ai_models.transformer import TransformerAverageStrategy
+from poker_ai.config import config
+from poker_ai.ai.models.transformer import TransformerAverageStrategy
 
 class DummyStrategy:
     def choose_action(self, game_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:

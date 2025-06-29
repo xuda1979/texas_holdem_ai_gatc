@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Test script to verify card image functionality in the GUI."""
 
-import sys
 import os
+import sys
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 def test_card_image_loading():
     """Test that card images can be loaded."""

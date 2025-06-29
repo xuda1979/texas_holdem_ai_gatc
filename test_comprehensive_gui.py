@@ -3,14 +3,16 @@
 Test script to validate GUI imports and initialization without running the main loop.
 """
 
-import sys
 import os
+import sys
 from unittest.mock import patch, MagicMock
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 def test_gui_imports():
     """Test that all GUI imports work correctly."""

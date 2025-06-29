@@ -1,12 +1,13 @@
+import os
+import sys
 import unittest
 from unittest.mock import patch, MagicMock, call
-import sys
-import os
 
-# Add project root to sys.path to allow imports from game_engine and play
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 # Conditional import of PokerGameGUI for testing
 # This allows the test file to be parsed even if tkinter is not available in the environment
@@ -18,16 +19,16 @@ except Exception:
     sys.modules['tkinter.font'] = MagicMock()
     sys.modules['tkinter.messagebox'] = MagicMock()
 
-from play.gui import PokerGameGUI
-from play.strategies import PlaceholderAIStrategy # Used by PokerGameGUI
+from poker_ai.gui.gui import PokerGameGUI
+from poker_ai.gui.strategies import PlaceholderAIStrategy # Used by PokerGameGUI
 
 # Mock game_engine.texas_holdem before PokerGameGUI tries to import it at class level or __init__
 # This is a common pattern if the import itself needs to be mocked early.
 # However, PokerGameGUI imports it at module level.
-# So, we need to ensure that when play.gui is imported, it finds a mocked TexasHoldem.
+# So, we need to ensure that when poker_ai.gui.gui is imported, it finds a mocked TexasHoldem.
 # The best place for this is often at the top of the test file or in a setUpModule.
 
-# For simplicity in this environment, we will patch it where it's looked up by play.gui
+# For simplicity in this environment, we will patch it where it's looked up by poker_ai.gui.gui
 # This can be done per test method or per test class using decorators.
 
 # Placeholder for game_engine.texas_holdem.TexasHoldemRules if needed for type hints
@@ -36,11 +37,11 @@ MockTexasHoldemRules = MagicMock()
 
 class TestPokerGameGUI(unittest.TestCase):
 
-    @patch('play.gui.PokerGameGUI.start_game') # Patch start_game to prevent its execution
-    @patch('play.gui.PokerGameGUI.setup_gui') # Patch setup_gui to prevent its execution
-    @patch('play.gui.TexasHoldem', autospec=True) 
-    @patch('play.gui.PokerGameGUI._load_card_images') 
-    @patch('play.gui.tk') 
+    @patch('poker_ai.gui.gui.PokerGameGUI.start_game') # Patch start_game to prevent its execution
+    @patch('poker_ai.gui.gui.PokerGameGUI.setup_gui') # Patch setup_gui to prevent its execution
+    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True) 
+    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images') 
+    @patch('poker_ai.gui.gui.tk') 
     def test_gui_initialization(self, mock_tk, mock_load_images, MockTexasHoldem, mock_setup_gui, mock_start_game):
         """Test PokerGameGUI __init__ method."""
         print("\nRunning test_gui_initialization...")
@@ -73,9 +74,9 @@ class TestPokerGameGUI(unittest.TestCase):
         print("test_gui_initialization finished.")
 
 
-    @patch('play.gui.TexasHoldem', autospec=True)
-    @patch('play.gui.PokerGameGUI._load_card_images')
-    @patch('play.gui.tk')
+    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True)
+    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images')
+    @patch('poker_ai.gui.gui.tk')
     def test_get_card_image_key(self, mock_tk, mock_load_images, MockTexasHoldem):
         """Test the _get_card_image_key method."""
         print("\nRunning test_get_card_image_key...")
@@ -114,10 +115,10 @@ class TestPokerGameGUI(unittest.TestCase):
         print("test_get_card_image_key finished.")
 
 
-    @patch('play.gui.TexasHoldem', autospec=True)
-    @patch('play.gui.PokerGameGUI._load_card_images')
-    @patch('play.gui.tk') 
-    @patch('play.gui.messagebox') 
+    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True)
+    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images')
+    @patch('poker_ai.gui.gui.tk') 
+    @patch('poker_ai.gui.gui.messagebox') 
     def test_handle_player_actions(self, mock_messagebox, mock_tk, mock_load_images, MockTexasHoldem):
         """Test _handle_player_action for various actions."""
         print("\nRunning test_handle_player_actions...")
@@ -186,9 +187,9 @@ class TestPokerGameGUI(unittest.TestCase):
             if hasattr(gui.root, 'destroy'): gui.root.destroy()
         print("test_handle_player_actions finished.")
 
-    @patch('play.gui.TexasHoldem', autospec=True)
-    @patch('play.gui.PokerGameGUI._load_card_images')
-    @patch('play.gui.tk')
+    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True)
+    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images')
+    @patch('poker_ai.gui.gui.tk')
     def test_sync_gui_with_engine_state(self, mock_tk, mock_load_images, MockTexasHoldem):
         """Test the _sync_gui_with_engine_state method."""
         print("\nRunning test_sync_gui_with_engine_state...")

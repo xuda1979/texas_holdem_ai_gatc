@@ -10,8 +10,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from game_engine.texas_holdem import TexasHoldem
-from playStrategy import HumanStrategy, RandomAIStrategy
-from play.strategies import PlaceholderAIStrategy
+from poker_ai.gui.playStrategy import HumanStrategy, RandomAIStrategy
+from poker_ai.gui.strategies import PlaceholderAIStrategy
 
 
 class GUIHumanStrategy(HumanStrategy):
@@ -109,23 +109,41 @@ class PokerGameGUI:
 
     def _handle_player_action(self, action: str, amount: int | None = None):
         """Process an action for the human player."""
-        if not self.game or not hasattr(self.game.rules, 'current_player'):
+        engine = getattr(self, 'game_engine', None)
+        if not engine or not hasattr(engine, 'rules') or not hasattr(engine.rules, 'current_player'):
             messagebox.showwarning("Game Error", "No active game found.")
             return
 
         # For GUI, human is always player 0
-        if self.game.rules.current_player != 0:
+        if engine.rules.current_player != 0:
             messagebox.showwarning("Not your turn", "It's not your turn to act.")
-            return        # Process the action through the human strategy
+            return
+
+        # Process the action through the human strategy
         if self.human_strategy:
             self.human_strategy.set_action(action, amount)
 
+        if hasattr(engine, 'process_action'):
+            engine.process_action(0, action, raise_amount=amount)
+            self._sync_gui_with_engine_state()
+            self._handle_game_progression()
+
     def _sync_gui_with_engine_state(self):
         """Synchronize cached state values with the game engine."""
-        if not self.game:
+        engine = getattr(self, 'game_engine', None)
+        if not engine:
             return
-            
-        rules = self.game.rules
+        rules = engine.rules
+
+        # Cache relevant state for tests or GUI refreshes
+        self.player_hand = rules.hands[0] if hasattr(rules, 'hands') else []
+        self.community_cards = getattr(rules, 'community_cards', [])
+        self.pot = getattr(rules, 'pot', 0)
+        self.player_money = rules.player_chips[0] if hasattr(rules, 'player_chips') else 0
+        self.ai_money = (
+            rules.player_chips[1] if hasattr(rules, 'player_chips') and len(rules.player_chips) > 1 else 0
+        )
+
         # Update display
         self.update_display()
         self._update_action_buttons_state()

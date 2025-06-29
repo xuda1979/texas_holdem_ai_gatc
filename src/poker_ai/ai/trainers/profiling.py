@@ -1,5 +1,5 @@
 import cProfile
-from trainers.ai_cfr_trainer import AICFRTrainer
+from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
 def profile_training():
     profiler = cProfile.Profile()
