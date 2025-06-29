@@ -1,4 +1,5 @@
 import os
+import pickle
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -138,6 +139,7 @@ class CFRTrainer:
         return arr
 
     def save_model(self, model_path):
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         torch.save(self.model.state_dict(), model_path)
         print("Model saved successfully")
 
@@ -148,8 +150,13 @@ class CFRTrainer:
             self.model.load_state_dict(state_dict)
             self.model.eval()
             print("Model loaded successfully")
+            return True
+        except (pickle.UnpicklingError, SyntaxError, RuntimeError) as e:
+            print(f"Model file at {model_path} is invalid or corrupted: {e}")
+            return False
         except Exception as e:
             print(f"Failed to load model: {e}")
+            return False
 
     def simulate_games(self, num_games=100):
         print("Starting game simulation...")  # Debug print statement

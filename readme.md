@@ -61,8 +61,19 @@ During training each hand uses a random number of players (between 2 and 10).
    After installation via `setup.py`, you can also use the entry points:
    ```bash
    play-poker --total-players 2 --num-humans 1
-   train-poker --num-hands 500
-   ```
+  train-poker --num-hands 500
+  ```
+
+### Trained Model
+
+`human_vs_ai.py` and the GUI expect a model file at `trained_models/cfr_model.pth`.
+Run the training script to generate it:
+
+```bash
+python run_training.py
+```
+
+The directory `trained_models/` will be created automatically when saving.
 
 ## Features
 

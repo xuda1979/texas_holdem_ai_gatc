@@ -131,7 +131,9 @@ class AICFRTrainer:
     def save_model(self):
         # Ensure config path is correct or make it an argument
         try:
-            torch.save(self.model.state_dict(), config['training']['save_model_path'])
+            model_path = config['training']['save_model_path']
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            torch.save(self.model.state_dict(), model_path)
             logging.info(f"Model saved to {config['training']['save_model_path']}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)

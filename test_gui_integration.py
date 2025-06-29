@@ -5,6 +5,7 @@ Test script to verify GUI integration with game logic
 
 import sys
 import os
+from unittest.mock import patch, MagicMock
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,13 +17,17 @@ from game_engine.texas_holdem import TexasHoldem
 def test_gui_initialization():
     """Test that GUI can be initialized without errors"""
     try:
-        # Create GUI without showing (for testing)
-        gui = PokerGameGUI(None)
+        with patch('play.gui.tk') as mock_tk, \
+             patch('play.gui.PokerGameGUI._load_card_images'), \
+             patch('play.gui.PokerGameGUI.setup_gui'), \
+             patch('play.gui.PokerGameGUI.start_game'):
+            gui = PokerGameGUI()
+            mock_tk.Tk.assert_called_once()
         print("✓ GUI initialization successful")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ GUI initialization failed: {e}")
-        return False
+        assert False
 
 def test_strategy_imports():
     """Test that strategy imports work correctly"""
@@ -32,10 +37,10 @@ def test_strategy_imports():
         print("✓ Strategy imports successful")
         print(f"  - HumanStrategy: {type(human_strategy).__name__}")
         print(f"  - RandomAIStrategy: {type(ai_strategy).__name__}")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ Strategy imports failed: {e}")
-        return False
+        assert False
 
 def test_game_engine_creation():
     """Test that game engine can be created with strategies"""
@@ -59,30 +64,33 @@ def test_game_engine_creation():
         print(f"  - Players: {total_players}")
         print(f"  - Starting stack: {starting_stack}")
         print(f"  - Strategies: {[type(s).__name__ for s in player_strategies]}")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ Game engine creation failed: {e}")
-        return False
+        assert False
 
 def test_gui_game_setup():
     """Test GUI's game setup method"""
     try:
-        gui = PokerGameGUI(None)
-        
-        # Test the start_game_with_players method
-        ai_count = 2
-        starting_stack = 1500
-        
-        # This should create and initialize the game without errors
-        gui.start_game_with_players(ai_count, starting_stack)
-        
+        with patch('play.gui.tk') as mock_tk, \
+             patch('play.gui.PokerGameGUI._load_card_images'), \
+             patch('play.gui.PokerGameGUI.setup_gui'), \
+             patch('play.gui.PokerGameGUI.start_game'):
+            gui = PokerGameGUI()
+
+            ai_count = 2
+            starting_stack = 1500
+
+            gui.start_game_with_players(ai_count, starting_stack)
+            mock_tk.Tk.assert_called()
+
         print("✓ GUI game setup successful")
         print(f"  - AI count: {ai_count}")
         print(f"  - Starting stack: {starting_stack}")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ GUI game setup failed: {e}")
-        return False
+        assert False
 
 def main():
     """Run all tests"""
