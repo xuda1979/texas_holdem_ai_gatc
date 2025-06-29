@@ -9,7 +9,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # Mock tkinter before importing GUI
-if 'tkinter' not in sys.modules:
+try:
+    import tkinter  # noqa: F401
+except Exception:
     sys.modules['tkinter'] = MagicMock()
     sys.modules['tkinter.messagebox'] = MagicMock()
     sys.modules['tkinter.simpledialog'] = MagicMock()
@@ -34,6 +36,14 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         self.patcher_mainloop = patch.object(self.mock_tk.Tk.return_value, 'mainloop')
         self.mock_mainloop = self.patcher_mainloop.start()
 
+        # Patch image loading method
+        self.patcher_load_images = patch('play.gui.PokerGameGUI._load_card_images')
+        self.mock_load_images = self.patcher_load_images.start()
+
+        # Patch messagebox to avoid display errors
+        self.patcher_messagebox = patch('play.gui.messagebox')
+        self.mock_messagebox = self.patcher_messagebox.start()
+
         # Create an instance of the GUI
         with patch.object(PokerGameGUI, 'setup_initial_gui') as mock_setup:
             self.gui = PokerGameGUI()
@@ -44,6 +54,8 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         self.patcher_tk.stop()
         self.patcher_pil.stop()
         self.patcher_mainloop.stop()
+        self.patcher_load_images.stop()
+        self.patcher_messagebox.stop()
 
     def test_01_gui_initialization(self):
         """Test that the GUI initializes correctly."""
@@ -51,14 +63,16 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         self.mock_tk.Tk.assert_called_once()
         self.gui.root.title.assert_called_with("Texas Hold'em Poker - Human vs AI")
         self.gui.root.geometry.assert_called_with("1400x900")
-        self.assertTrue(self.gui.load_card_images.called)
+        self.assertTrue(self.mock_load_images.called)
         print("✓ GUI initialization successful.")
 
     def test_02_start_new_game(self):
         """Test the start_new_game functionality."""
         print("\nRunning test_02_start_new_game...")
-        self.gui.total_players_var = self.mock_tk.StringVar(value="3")
-        self.gui.starting_stack_var = self.mock_tk.StringVar(value="5000")
+        self.gui.total_players_var = MagicMock()
+        self.gui.total_players_var.get.return_value = "3"
+        self.gui.starting_stack_var = MagicMock()
+        self.gui.starting_stack_var.get.return_value = "5000"
 
         with patch('play.gui.TexasHoldem') as MockTexasHoldem, \
              patch.object(self.gui, 'setup_game_gui') as mock_setup_game_gui, \
@@ -69,11 +83,11 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
             # Verify game creation
             MockTexasHoldem.assert_called_once()
             args, kwargs = MockTexasHoldem.call_args
-            self.assertEqual(kwargs['num_players'], 3)
-            self.assertEqual(kwargs['starting_stack'], 5000)
-            self.assertEqual(len(kwargs['player_strategies']), 3)
-            self.assertIsInstance(kwargs['player_strategies'][0], GUIHumanStrategy)
-            self.assertIsInstance(kwargs['player_strategies'][1], RandomAIStrategy)
+            self.assertEqual(args[0], 3)
+            self.assertEqual(args[1], 5000)
+            self.assertEqual(len(args[2]), 3)
+            self.assertIsInstance(args[2][0], GUIHumanStrategy)
+            self.assertIsInstance(args[2][1], RandomAIStrategy)
             
             # Verify GUI and game loop start
             mock_setup_game_gui.assert_called_once()

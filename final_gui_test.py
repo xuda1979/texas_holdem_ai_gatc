@@ -27,10 +27,10 @@ def test_complete_workflow():
         'tkinter.messagebox': MagicMock(),
         'tkinter.simpledialog': MagicMock()
     }):
-        
-        from play.gui import PokerGameGUI, GUIHumanStrategy
-        from game_engine.texas_holdem import TexasHoldem
-        from playStrategy import RandomAIStrategy
+        with patch('play.gui.tk', mock_tk):
+            from play.gui import PokerGameGUI, GUIHumanStrategy
+            from game_engine.texas_holdem import TexasHoldem
+            from playStrategy import RandomAIStrategy
         
         print("✅ All imports successful")
         
@@ -84,13 +84,12 @@ def test_complete_workflow():
             with patch.object(gui, 'create_card_label', return_value=MagicMock()):
                 gui.update_display()
             print("✅ Display update method works")
-            
+
             # Test action handling
             gui._handle_player_action('call', 50)
             print("✅ Player action handling works")
-            
+
             print("\n🎉 Complete workflow test passed!")
-            return True
 
 def test_error_conditions():
     """Test error handling."""
@@ -104,8 +103,8 @@ def test_error_conditions():
         'tkinter.messagebox': MagicMock(),
         'tkinter.simpledialog': MagicMock()
     }):
-        
-        from play.gui import PokerGameGUI
+        with patch('play.gui.tk', mock_tk):
+            from play.gui import PokerGameGUI
         
         with patch.object(PokerGameGUI, 'setup_gui'), \
              patch.object(PokerGameGUI, 'start_game'), \
@@ -125,9 +124,8 @@ def test_error_conditions():
                 # Should return None or "placeholder", not crash
                 assert result in [None, "placeholder"], f"Invalid card {card} should return None or placeholder"
             print("✅ Handles invalid cards gracefully")
-            
+
             print("✅ Error condition handling works")
-            return True
 
 if __name__ == "__main__":
     try:

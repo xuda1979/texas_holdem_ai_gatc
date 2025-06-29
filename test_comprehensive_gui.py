@@ -5,6 +5,7 @@ Test script to validate GUI imports and initialization without running the main 
 
 import sys
 import os
+from unittest.mock import patch, MagicMock
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
@@ -31,13 +32,13 @@ def test_gui_imports():
         print("✓ GUI classes import successful")
         
         print("All imports successful!")
-        return True
+        assert True
         
     except Exception as e:
         print(f"✗ Import error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        assert False
 
 def test_game_logic():
     """Test basic game logic without GUI."""
@@ -55,13 +56,13 @@ def test_game_logic():
         print(f"✓ Game has {game.num_players} players")
         print(f"✓ Starting stack: ${game.rules.player_chips[0]}")
         
-        return True
+        assert True
         
     except Exception as e:
         print(f"✗ Game logic error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        assert False
 
 def test_card_images():
     """Test card image loading functionality."""
@@ -70,33 +71,35 @@ def test_card_images():
         
         import tkinter as tk
         from PIL import Image, ImageTk
-        
-        # Create a temporary root window
-        root = tk.Tk()
-        root.withdraw()  # Hide the window
-        
-        # Test image loading
-        card_images_dir = os.path.join("play", "card_images")
-        if os.path.exists(card_images_dir):
-            test_image_path = os.path.join(card_images_dir, "As.png")
-            if os.path.exists(test_image_path):
-                img = Image.open(test_image_path)
-                img = img.resize((100, 140), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
-                print("✓ Card image loading successful")
+
+        # Use a mocked root window to avoid display issues
+        with patch.object(tk, 'Tk', return_value=MagicMock()) as mock_tk:
+            root = tk.Tk()
+            root.withdraw.return_value = None
+
+            # Test image loading
+            card_images_dir = os.path.join("play", "card_images")
+            if os.path.exists(card_images_dir):
+                test_image_path = os.path.join(card_images_dir, "As.png")
+                if os.path.exists(test_image_path):
+                    img = Image.open(test_image_path)
+                    img = img.resize((100, 140), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(img)
+                    print("✓ Card image loading successful")
+                else:
+                    print("✗ Test card image not found")
             else:
-                print("✗ Test card image not found")
-        else:
-            print("⚠ Card images directory not found")
-            
-        root.destroy()
-        return True
+                print("⚠ Card images directory not found")
+
+            root.destroy()
+        
+        assert True
         
     except Exception as e:
         print(f"✗ Card image error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        assert False
 
 if __name__ == "__main__":
     print("=== Comprehensive GUI Testing ===")

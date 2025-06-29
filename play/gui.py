@@ -50,11 +50,15 @@ class PokerGameGUI:
         self.root = tk.Tk()
         self.root.title("Texas Hold'em Poker - Human vs AI")
         self.root.geometry("1400x900")
+
+        # Attributes expected by legacy tests
+        self.human_player_index = 0
+        self.game_engine = TexasHoldem
           # Card image cache
         self.card_images = {}
         self.card_back_image = None
         self._load_card_images()
-        
+
         # Game state
         self.game = None
         self.human_strategy = None
@@ -181,6 +185,10 @@ class PokerGameGUI:
         except Exception as e:
             print(f"Error loading card images: {e}")
             print("Falling back to text display.")
+
+    # Backwards compatibility for tests expecting load_card_images
+    def load_card_images(self):
+        self._load_card_images()
     
     def create_card_label(self, parent, card_name, show_back=False):
         """Create a label with a card image."""
@@ -309,6 +317,17 @@ class PokerGameGUI:
         
         # Start the game loop
         self.play_hand()
+
+    # Backwards compatibility for older tests
+    def start_game_with_players(self, ai_count: int, starting_stack: int):
+        """Legacy helper used by tests to start a game with a given number of AIs."""
+        total_players = ai_count + 1
+        player_strategies = [GUIHumanStrategy(self)]
+        for _ in range(ai_count):
+            player_strategies.append(RandomAIStrategy())
+        self.game = TexasHoldem(total_players, starting_stack, player_strategies)
+        self.setup_game_gui()
+        self.play_hand()
         
     def setup_game_gui(self):
         """Setup the main game interface."""
@@ -371,6 +390,10 @@ class PokerGameGUI:
     def update_display(self):
         """Update the GUI display with current game state."""
         if not self.game:
+            return
+
+        # Gracefully handle tests that bypass GUI setup
+        if not self.info_frame or not self.cards_frame or not self.player_frame:
             return
             
         # Clear frames

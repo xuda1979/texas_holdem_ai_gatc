@@ -14,18 +14,19 @@ DEFAULT_MODEL_FILENAME = "cfr_model.pth" # From config.yaml training.save_model_
 # This is to avoid reloading the model on every call if the analyzer is used multiple times.
 _loaded_cfr_trainer = None
 _trainer_config = None
+_full_config = None
 
 def load_cfr_model_and_config(model_path: str | None = None):
     """
     Loads the CFRTrainer model and its configuration.
     If a model is already loaded, it returns the cached one unless a different model_path is specified.
     """
-    global _loaded_cfr_trainer, _trainer_config
+    global _loaded_cfr_trainer, _trainer_config, _full_config
 
-    if _trainer_config is None:
+    if _trainer_config is None or _full_config is None:
         try:
             with open(MODEL_CONFIG_PATH, 'r') as f:
-                full_config = yaml.safe_load(f)
+                _full_config = yaml.safe_load(f)
             # Extract relevant parts for CFRTrainer.
             # CFRTrainer expects keys like 'num_actions', 'input_shape', 'learning_rate'.
             # The 'model' section in config.yaml has 'num_actions', 'hidden_dim', 'd_raw_feature'.
@@ -54,7 +55,7 @@ def load_cfr_model_and_config(model_path: str | None = None):
 
             # A simplified config for CFRTrainer based on what it uses:
             _trainer_config = {
-                'num_actions': full_config.get('model', {}).get('num_actions', 10),
+                'num_actions': _full_config.get('model', {}).get('num_actions', 10),
                 # input_shape: (height, width, channels/depth).
                 # game.get_initial_state() produces (depth, height, width)
                 # cfr_trainer.encode_state resizes this to self.input_shape
@@ -63,8 +64,8 @@ def load_cfr_model_and_config(model_path: str | None = None):
                 # Let's use placeholder values if not perfectly clear, assuming model was trained with some shape.
                 # For the purpose of loading, the exact values might only matter if they affect layer sizes
                 # that are not apparent from state_dict keys. Usually, num_actions is the most critical.
-                'input_shape': full_config.get('model', {}).get('input_shape', (13, 4, 7)), # (Ranks, Suits, Depth_placeholder)
-                'learning_rate': full_config.get('training', {}).get('learning_rate', 0.001) # Default if not in config
+                'input_shape': _full_config.get('model', {}).get('input_shape', (13, 4, 7)), # (Ranks, Suits, Depth_placeholder)
+                'learning_rate': _full_config.get('training', {}).get('learning_rate', 0.001) # Default if not in config
             }
         except Exception as e:
             print(f"Error loading or parsing {MODEL_CONFIG_PATH}: {e}")
@@ -72,11 +73,12 @@ def load_cfr_model_and_config(model_path: str | None = None):
 
     current_model_path = model_path
     if current_model_path is None:
-        model_dir = _trainer_config.get('model_directory', full_config.get('model', {}).get('directory', 'trained_models'))
-        filename = DEFAULT_MODEL_FILENAME # This comes from training.save_model_path
-        # Need to adjust how filename is derived. config.yaml has training.save_model_path
-        actual_model_save_path = full_config.get('training', {}).get('save_model_path', os.path.join('trained_models', DEFAULT_MODEL_FILENAME))
+        model_dir = _trainer_config.get('model_directory', _full_config.get('model', {}).get('directory', 'trained_models'))
+        filename = DEFAULT_MODEL_FILENAME  # This comes from training.save_model_path
+        actual_model_save_path = _full_config.get('training', {}).get('save_model_path', os.path.join('trained_models', DEFAULT_MODEL_FILENAME))
         current_model_path = actual_model_save_path
+
+    os.makedirs(os.path.dirname(current_model_path), exist_ok=True)
 
     if _loaded_cfr_trainer is not None and _loaded_cfr_trainer.model_path == current_model_path:
         return _loaded_cfr_trainer, _trainer_config
@@ -84,12 +86,16 @@ def load_cfr_model_and_config(model_path: str | None = None):
     try:
         trainer = CFRTrainer(config=_trainer_config)
         if os.path.exists(current_model_path):
-            trainer.load_model(current_model_path)
-            trainer.model.eval() # Set to evaluation mode
-            _loaded_cfr_trainer = trainer
-            _loaded_cfr_trainer.model_path = current_model_path # Store path for caching check
-            print(f"Successfully loaded AI model from: {current_model_path}")
-            return _loaded_cfr_trainer, _trainer_config
+            if trainer.load_model(current_model_path):
+                trainer.model.eval()  # Set to evaluation mode
+                _loaded_cfr_trainer = trainer
+                _loaded_cfr_trainer.model_path = current_model_path  # Store path for caching check
+                print(f"Successfully loaded AI model from: {current_model_path}")
+                return _loaded_cfr_trainer, _trainer_config
+            else:
+                print(f"Failed to load AI model from: {current_model_path}")
+                _loaded_cfr_trainer = None
+                return None, _trainer_config
         else:
             print(f"AI model file not found at: {current_model_path}. Cannot display AI GTO stats.")
             _loaded_cfr_trainer = None # Ensure cache is cleared if load fails

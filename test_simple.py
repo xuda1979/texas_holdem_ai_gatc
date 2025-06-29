@@ -20,11 +20,11 @@ def test_imports():
         
         from play.gui import PokerGameGUI
         print("✓ GUI import successful")
-        
-        return True
+
+        assert True
     except Exception as e:
         print(f"✗ Import failed: {e}")
-        return False
+        assert False
 
 def test_strategy_creation():
     """Test strategy object creation"""
@@ -35,10 +35,10 @@ def test_strategy_creation():
         ai = RandomAIStrategy()
         
         print(f"✓ Created {type(human).__name__} and {type(ai).__name__}")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ Strategy creation failed: {e}")
-        return False
+        assert False
 
 def test_game_creation():
     """Test creating a game with strategies"""
@@ -59,10 +59,10 @@ def test_game_creation():
         print("✓ Game creation successful")
         print(f"  - Players: {game.rules.num_players}")
         print(f"  - Starting stack: {game.rules.starting_stack}")
-        return True
+        assert True
     except Exception as e:
         print(f"✗ Game creation failed: {e}")
-        return False
+        assert False
 
 def main():
     """Run tests"""
