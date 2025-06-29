@@ -99,7 +99,7 @@ Set `training.distributed_workers` in `config.yaml` to the number of worker
 processes. Then run training normally:
 
 ```bash
-python run_training.py --num-hands 1000
+python -m poker_ai.cli.train --num-hands 1000
 ```
 
 ## Evaluating Strategies
