@@ -1,5 +1,14 @@
+import os
+import sys
 import torch
-from rules.cfr import cfr_plus_iteration
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from poker_ai.rules.cfr import cfr_plus_iteration
 
 class DummyGame:
     def __init__(self, num_actions):

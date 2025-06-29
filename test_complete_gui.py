@@ -4,13 +4,15 @@ Complete test of the GUI card display functionality.
 This tests card display in the actual game context.
 """
 
-import sys
 import os
+import sys
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 def test_gui_with_game():
     """Test GUI with actual game state including cards."""

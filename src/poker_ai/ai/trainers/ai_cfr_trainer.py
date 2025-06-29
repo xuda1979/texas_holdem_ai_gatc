@@ -3,11 +3,11 @@ import torch.optim as optim
 import logging
 import yaml
 import os
-from ai_models.transformer import TransformerAverageStrategy
+from poker_ai.ai.models.transformer import TransformerAverageStrategy
 # Assuming rules.cfr is accessible from this path. Adjust if necessary.
 # e.g., if 'rules' is a top-level directory: from rules.cfr import ...
 # If trainers and rules are siblings under a common root (e.g. 'src'): from ..rules.cfr import ...
-from rules.cfr import update_regret, calculate_strategy, update_strategy
+from poker_ai.rules.cfr import update_regret, calculate_strategy, update_strategy
 import torch.nn.functional as F
 
 
@@ -15,7 +15,7 @@ import torch.nn.functional as F
 # For robustness, consider passing config path or dictionary.
 # For now, keeping as is, assuming it's found relative to where the script/module is run.
 try:
-    with open('config.yaml', 'r') as f:
+    with open(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'), 'r') as f:
         config = yaml.safe_load(f)
 except FileNotFoundError:
     print("Warning: config.yaml not found. Using default config values for AICFRTrainer.")
@@ -33,6 +33,10 @@ log_dir = os.path.dirname(log_file_path)
 if log_dir and not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
+
+# Expose config for package-level access so tests can override it
+import sys
+sys.modules[__package__ + '.config'] = config
 
 class AICFRTrainer:
     def __init__(self, device: str | None = None):

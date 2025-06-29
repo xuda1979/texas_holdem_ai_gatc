@@ -3,7 +3,8 @@ from setuptools import setup, find_packages
 setup(
     name='texas_holdem_project',
     version='1.0',
-    packages=find_packages(),
+    packages=find_packages("src"),
+    package_dir={'': 'src'},
     install_requires=[
         'numpy',
         'torch',
@@ -11,7 +12,8 @@ setup(
         'pyyaml',
     ],
     entry_points={'console_scripts': [
-        'play-poker=human_vs_ai:main',
-        'train-poker=run_training:main',
+        'play-poker=poker_ai.cli.play:main',
+        'train-poker=poker_ai.cli.train:main',
+        'self-play=poker_ai.cli.self_play:main',
     ]},
 )

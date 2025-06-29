@@ -5,12 +5,15 @@ Final comprehensive test - simulates full GUI workflow without windows.
 
 import sys
 import os
+import pytest
 from unittest.mock import Mock, patch, MagicMock
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 def test_complete_workflow():
     """Test complete GUI workflow simulation."""
@@ -18,6 +21,9 @@ def test_complete_workflow():
     print("🧪 Starting comprehensive GUI workflow test...")
     
     # Mock all tkinter components
+    if not os.environ.get('DISPLAY'):
+        pytest.skip('Tk display not available')
+
     mock_tk = MagicMock()
     mock_root = MagicMock()
     mock_tk.Tk.return_value = mock_root
@@ -27,10 +33,10 @@ def test_complete_workflow():
         'tkinter.messagebox': MagicMock(),
         'tkinter.simpledialog': MagicMock()
     }):
-        with patch('play.gui.tk', mock_tk):
-            from play.gui import PokerGameGUI, GUIHumanStrategy
-            from game_engine.texas_holdem import TexasHoldem
-            from playStrategy import RandomAIStrategy
+        with patch('poker_ai.gui.gui.tk', mock_tk):
+            from poker_ai.gui.gui import PokerGameGUI, GUIHumanStrategy
+            from poker_ai.engine.texas_holdem import TexasHoldem
+            from poker_ai.gui.playStrategy import RandomAIStrategy
         
         print("✅ All imports successful")
         
@@ -96,6 +102,9 @@ def test_error_conditions():
     
     print("\n🧪 Testing error conditions...")
     
+    if not os.environ.get('DISPLAY'):
+        pytest.skip('Tk display not available')
+
     mock_tk = MagicMock()
     
     with patch.dict('sys.modules', {
@@ -103,9 +112,9 @@ def test_error_conditions():
         'tkinter.messagebox': MagicMock(),
         'tkinter.simpledialog': MagicMock()
     }):
-        with patch('play.gui.tk', mock_tk):
-            from play.gui import PokerGameGUI
-        
+        with patch('poker_ai.gui.gui.tk', mock_tk):
+            from poker_ai.gui.gui import PokerGameGUI
+
         with patch.object(PokerGameGUI, 'setup_gui'), \
              patch.object(PokerGameGUI, 'start_game'), \
              patch.object(PokerGameGUI, '_load_card_images'):

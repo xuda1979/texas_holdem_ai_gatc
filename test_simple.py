@@ -3,11 +3,15 @@
 Simple test to verify GUI imports and basic functionality
 """
 
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.abspath(os.path.dirname(__file__))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 def test_imports():
     """Test all necessary imports"""

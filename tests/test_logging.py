@@ -1,5 +1,14 @@
+import os
+import sys
 import torch
-from trainers import ai_cfr_trainer
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from poker_ai.ai import trainers as ai_cfr_trainer
 
 
 def test_training_logs_loss(tmp_path):
@@ -12,6 +21,7 @@ def test_training_logs_loss(tmp_path):
     }
 
     ai_cfr_trainer.config = config
+    ai_cfr_trainer.ai_cfr_trainer_module.config = config
     logger = ai_cfr_trainer.logging.getLogger()
     logger.setLevel(ai_cfr_trainer.logging.INFO)
     handler = ai_cfr_trainer.logging.FileHandler(log_file)

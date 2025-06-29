@@ -6,16 +6,18 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 
 ## Project Structure
 
-- **ai_models**: Contains the neural network models (Transformer).
-- **trainers**: Includes the AI trainers, self-play scripts, and performance profiling tools.
-- **play**: Handles the human vs. AI gameplay and GUI.
-- **rules**: Defines the Texas Hold'em rules and game logic. If the optional
-  `treys` library is installed, hand evaluation uses it for accurate ranking.
-- **tests**: Unit tests for all major components.
-- **scripts**: Main scripts for running training and simulations.
-- **self_play_data**: Directory for storing self-play results.
-- **models**: Stores trained AI models.
-- **config.yaml**: Centralized configuration file.
+All production code now lives under `src/poker_ai` to allow modular development.
+
+- `engine/` – core game engine implementation.
+- `rules/` – poker rules and CFR utilities.
+- `ai/models/` – neural network models.
+- `ai/trainers/` – training algorithms and helpers.
+- `selfplay/` – parallel self‑play environment.
+- `gui/` – human vs. AI interface and GUI utilities.
+- `utils/` – supporting utilities.
+- `evaluation/` – exploitability and analysis tools.
+- `config/` – configuration module containing `config.py` and `config.yaml`.
+- `cli/` – command line entry points (`train.py`, `play.py`, `self_play.py`).
 
 
 ## Setup
@@ -27,17 +29,17 @@ This project implements a Texas Hold'em AI using Counterfactual Regret Minimizat
 
 2. **Run training**:
    ```bash
-   python run_training.py
+   python -m poker_ai.cli.train
    ```
 
 ### Training CLI Options
 
-`run_training.py` exposes several command-line flags. Use `-h` to see all options.
+`poker_ai.cli.train` exposes several command-line flags. Use `-h` to see all options.
 
 Example:
 
 ```bash
-python run_training.py --num-hands 500 --algorithm deep_cfr --save-model-every 50
+python -m poker_ai.cli.train --num-hands 500 --algorithm deep_cfr --save-model-every 50
 ```
 
 During training each hand uses a random number of players (between 2 and 10).
@@ -49,28 +51,28 @@ During training each hand uses a random number of players (between 2 and 10).
 
 4. **Play against the AI**:
    ```bash
-   python play/gui.py
+   python -m poker_ai.cli.play
    ```
 
 5. **Command-line play simulation**:
    ```bash
-   python human_vs_ai.py --total-players 2 --num-humans 1 --starting-stack 1000
+   python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
    ```
    The script falls back to interactive prompts if arguments are omitted.
 
    After installation via `setup.py`, you can also use the entry points:
    ```bash
    play-poker --total-players 2 --num-humans 1
-  train-poker --num-hands 500
+   train-poker --num-hands 500
   ```
 
 ### Trained Model
 
-`human_vs_ai.py` and the GUI expect a model file at `trained_models/cfr_model.pth`.
+`poker_ai.cli.play` and the GUI expect a model file at `trained_models/cfr_model.pth`.
 Run the training script to generate it:
 
 ```bash
-python run_training.py
+python -m poker_ai.cli.train
 ```
 
 The directory `trained_models/` will be created automatically when saving.

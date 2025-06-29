@@ -1,5 +1,14 @@
+import os
+import sys
 import pytest
-from game_engine.texas_holdem import TexasHoldemRules
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from poker_ai.engine.texas_holdem import TexasHoldemRules
 
 
 def test_post_blinds():

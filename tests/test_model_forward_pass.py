@@ -1,15 +1,17 @@
-import torch
-import sys
 import os
+import sys
+import torch
 
 # Adjust the Python path to include the root directory of the project
 # This allows importing modules from ai_models, utils etc.
 # Assuming 'tests' is a directory at the root of the project.
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from ai_models.transformer import TransformerAverageStrategy
+from poker_ai.ai.models.transformer import TransformerAverageStrategy
 
 def test_transformer_forward_pass():
     print("Running TransformerAverageStrategy Forward Pass Test...")

@@ -2,8 +2,8 @@ import os
 import time
 import json
 from datetime import datetime
-from trainers.ai_cfr_trainer import AICFRTrainer
-from rules.texas_holdem_rules import TexasHoldemRules
+from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
+from poker_ai.engine.texas_holdem import TexasHoldemRules
 
 MODEL_DIR = 'models'
 DATA_DIR = 'data/simulated_data'

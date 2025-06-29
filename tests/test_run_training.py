@@ -1,11 +1,20 @@
+import os
+import sys
 import unittest
 from unittest.mock import patch, MagicMock
-import time # Import the actual time module
-import run_training # To mock elements within run_training
+import time
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from poker_ai.cli import train as run_training
 
 class TestRunTraining(unittest.TestCase):
 
-    @patch('run_training.initialize_trainer')
+    @patch('poker_ai.cli.train.initialize_trainer')
     @patch('time.time')
     def test_time_based_saving_triggered(self, mock_time_time, mock_initialize_trainer):
         mock_trainer_instance = MagicMock()
@@ -39,14 +48,14 @@ class TestRunTraining(unittest.TestCase):
         }
         game_engine_config_mock = { 'num_players': 2, 'starting_stack': 1000, 'big_blind': 10, 'small_blind': 5 }
 
-        with patch('run_training.parse_args', return_value=args_mock), \
-             patch('run_training.load_configuration', return_value={
+        with patch('poker_ai.cli.train.parse_args', return_value=args_mock), \
+             patch('poker_ai.cli.train.load_configuration', return_value={
                  'training': training_params_mock,
                  'game_engine': game_engine_config_mock,
                  'model': {},
                  'curriculum': {'stages': []}
              }), \
-             patch('run_training.SelfPlay') as MockSelfPlay: # Corrected patch target
+             patch('poker_ai.cli.train.SelfPlay') as MockSelfPlay: # Corrected patch target
 
             mock_self_play_instance = MockSelfPlay.return_value
             mock_self_play_instance.play_hand_for_training = MagicMock()
@@ -55,7 +64,7 @@ class TestRunTraining(unittest.TestCase):
 
             self.assertEqual(mock_trainer_instance.save_model.call_count, 2) # 1 conditional + 1 final
 
-    @patch('run_training.initialize_trainer')
+    @patch('poker_ai.cli.train.initialize_trainer')
     @patch('time.time')
     def test_hand_based_saving_still_works(self, mock_time_time, mock_initialize_trainer):
         mock_trainer_instance = MagicMock()
@@ -79,14 +88,14 @@ class TestRunTraining(unittest.TestCase):
         }
         game_engine_config_mock = { 'num_players': 2, 'starting_stack': 1000, 'big_blind': 10, 'small_blind': 5 }
 
-        with patch('run_training.parse_args', return_value=args_mock), \
-             patch('run_training.load_configuration', return_value={
+        with patch('poker_ai.cli.train.parse_args', return_value=args_mock), \
+             patch('poker_ai.cli.train.load_configuration', return_value={
                  'training': training_params_mock,
                  'game_engine': game_engine_config_mock,
                  'model': {},
                  'curriculum': {'stages': []}
              }), \
-             patch('run_training.SelfPlay') as MockSelfPlay: # Corrected patch target
+             patch('poker_ai.cli.train.SelfPlay') as MockSelfPlay: # Corrected patch target
 
             mock_self_play_instance = MockSelfPlay.return_value
             mock_self_play_instance.play_hand_for_training = MagicMock()
@@ -95,7 +104,7 @@ class TestRunTraining(unittest.TestCase):
 
             self.assertEqual(mock_trainer_instance.save_model.call_count, 3) # Saves at hand 2, 4 + 1 final
 
-    @patch('run_training.initialize_trainer')
+    @patch('poker_ai.cli.train.initialize_trainer')
     @patch('time.time')
     def test_no_saving_if_conditions_not_met(self, mock_time_time, mock_initialize_trainer):
         mock_trainer_instance = MagicMock()
@@ -119,14 +128,14 @@ class TestRunTraining(unittest.TestCase):
         }
         game_engine_config_mock = { 'num_players': 2, 'starting_stack': 1000, 'big_blind': 10, 'small_blind': 5 }
 
-        with patch('run_training.parse_args', return_value=args_mock), \
-             patch('run_training.load_configuration', return_value={
+        with patch('poker_ai.cli.train.parse_args', return_value=args_mock), \
+             patch('poker_ai.cli.train.load_configuration', return_value={
                  'training': training_params_mock,
                  'game_engine': game_engine_config_mock,
                  'model': {},
                  'curriculum': {'stages': []}
              }), \
-             patch('run_training.SelfPlay') as MockSelfPlay: # Corrected patch target
+             patch('poker_ai.cli.train.SelfPlay') as MockSelfPlay: # Corrected patch target
 
             mock_self_play_instance = MockSelfPlay.return_value
             mock_self_play_instance.play_hand_for_training = MagicMock()
@@ -134,7 +143,7 @@ class TestRunTraining(unittest.TestCase):
             run_training.main()
             self.assertEqual(mock_trainer_instance.save_model.call_count, 1) # 0 conditional + 1 final
 
-    @patch('run_training.initialize_trainer')
+    @patch('poker_ai.cli.train.initialize_trainer')
     @patch('time.time')
     def test_time_based_saving_with_default_config(self, mock_time_time, mock_initialize_trainer):
         # Tests if default time (10 min) is used if not in args and specific value not in loaded config
@@ -167,14 +176,14 @@ class TestRunTraining(unittest.TestCase):
         }
         game_engine_config_mock = { 'num_players': 2, 'starting_stack': 1000, 'big_blind': 10, 'small_blind': 5 }
 
-        with patch('run_training.parse_args', return_value=args_mock), \
-             patch('run_training.load_configuration', return_value={
+        with patch('poker_ai.cli.train.parse_args', return_value=args_mock), \
+             patch('poker_ai.cli.train.load_configuration', return_value={
                  'training': training_params_mock,
                  'game_engine': game_engine_config_mock,
                  'model': {},
                  'curriculum': {'stages': []}
              }), \
-             patch('run_training.SelfPlay') as MockSelfPlay: # Corrected patch target
+             patch('poker_ai.cli.train.SelfPlay') as MockSelfPlay: # Corrected patch target
 
             mock_self_play_instance = MockSelfPlay.return_value
             mock_self_play_instance.play_hand_for_training = MagicMock()
