@@ -18,20 +18,8 @@ class RandomAIStrategy(PlayerStrategy):
         return False
 
     def choose_action(self, game, player_index):
-        # Determine the amount needed to call
+        actions = game.get_valid_actions(player_index)
         amount_to_call = game.rules.current_bet - game.rules.bets[player_index]
-
-        # Determine valid actions based on the current bet
-        if amount_to_call > 0:
-            if game.rules.player_chips[player_index] < amount_to_call:
-                # Player can only call (go all-in) or fold
-                actions = ['call', 'fold']
-            else:
-                # Player can call, raise, or fold
-                actions = ['call', 'raise', 'fold']
-        else:
-            # No current bet; player can check or bet
-            actions = ['check', 'bet']
 
         action = random.choice(actions)
 
@@ -69,10 +57,7 @@ class HumanStrategy(PlayerStrategy):
             else:
                 print("You can check.")
 
-            if amount_to_call > 0:
-                valid_actions = ['call', 'raise', 'fold']
-            else:
-                valid_actions = ['check', 'bet']
+            valid_actions = game.get_valid_actions(player_index)
 
             action = input(f"Choose your action ({', '.join(valid_actions)}): ").lower()
             if action in ['raise', 'bet']:

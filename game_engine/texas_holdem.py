@@ -5,6 +5,14 @@ import json
 import os
 from treys import Evaluator, Card  # Ensure treys is installed: pip install treys
 
+
+class CardDeck(list):
+    """Simple list subclass exposing a ``cards`` attribute for tests."""
+
+    @property
+    def cards(self):
+        return list(self)
+
 SUITS = ['h', 'd', 'c', 's']
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 from datetime import datetime
@@ -34,7 +42,7 @@ class TexasHoldemRules:
     def _create_deck(self):
         suits = ['h', 'd', 'c', 's']  # h: hearts, d: diamonds, c: clubs, s: spades
         ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
-        return [rank + suit for suit in suits for rank in ranks]
+        return CardDeck([rank + suit for suit in suits for rank in ranks])
 
     def shuffle_deck(self):
         random.shuffle(self.deck)
@@ -545,6 +553,28 @@ class TexasHoldem:
         # So max additional raise is player_chips.
         return self.rules.player_chips[player_index]
 
+    def get_valid_actions(self, player_index):
+        """Return a list of valid actions for the given player."""
+        amount_to_call = self.rules.current_bet - self.rules.bets[player_index]
+
+        # Player has no chips left
+        if self.rules.player_chips[player_index] <= 0:
+            if amount_to_call > 0:
+                return ["call", "fold"]
+            return ["check"]
+
+        if amount_to_call > 0:
+            if self.rules.player_chips[player_index] <= amount_to_call:
+                # Player can only call all-in or fold
+                return ["call", "fold"]
+            else:
+                # Player can call, raise or fold
+                return ["call", "raise", "fold"]
+        else:
+            if self.rules.player_chips[player_index] > 0:
+                return ["check", "bet"]
+            return ["check"]
+
 
     def perform_showdown(self):
         active_players = [i for i in range(self.num_players) if self.rules.active_players[i]]
@@ -655,11 +685,17 @@ class TexasHoldem:
                 hand_str = self.format_hand_display(self.rules.hands[i])
                 print(f"Player {i + 1}'s hand: {hand_str}")
 
-        winner, player_best_hands = self.perform_showdown()
-        if winner is not None:
-            self.show_winner(winner, player_best_hands)
-        else:
+        showdown_result = self.perform_showdown()
+        if showdown_result is None:
             print("\nNo winner could be determined.")
+        else:
+            winner, player_best_hands = showdown_result
+            if player_best_hands is None:
+                # Only one player remained to showdown
+                self.winner = winner
+                self.declare_winner()
+            else:
+                self.show_winner(winner, player_best_hands)
 
         self.save_history_if_needed()
 
