@@ -3,6 +3,7 @@
 import random
 import json
 import os
+import logging
 from treys import Evaluator, Card  # Ensure treys is installed: pip install treys
 
 
@@ -19,7 +20,7 @@ from datetime import datetime
 
 
 class TexasHoldemRules:
-    def __init__(self, num_players=2, starting_stack=10000):
+    def __init__(self, num_players=2, starting_stack=10000, verbose=True):
         self.num_players = num_players
         self.starting_stack = starting_stack
         self.deck = self._create_deck()
@@ -38,6 +39,12 @@ class TexasHoldemRules:
         self.actions_this_round = 0 # Counter for actions in the current betting round
         self.last_raiser = None # Tracks the player index of the last raiser in a betting round
         self.total_bets_this_hand = [0] * num_players # Tracks total bets per player for the current hand
+        self.logger = logging.getLogger(__name__)
+        self.verbose = verbose
+
+    def _log(self, msg: str) -> None:
+        if self.verbose:
+            self.logger.info(msg)
 
     def _create_deck(self):
         suits = ['h', 'd', 'c', 's']  # h: hearts, d: diamonds, c: clubs, s: spades
@@ -68,7 +75,7 @@ class TexasHoldemRules:
         self.bets[small_blind_player] = self.small_blind
         self.pot += self.small_blind
         self.betting_history.append(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
-        print(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
+        self._log(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
         structured_blind_actions.append((str(small_blind_player), ('bet', self.small_blind)))
 
         # Big Blind
@@ -76,7 +83,7 @@ class TexasHoldemRules:
         self.bets[big_blind_player] = self.big_blind
         self.pot += self.big_blind
         self.betting_history.append(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
-        print(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
+        self._log(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
         structured_blind_actions.append((str(big_blind_player), ('bet', self.big_blind)))
 
         self.current_bet = self.big_blind
@@ -94,11 +101,11 @@ class TexasHoldemRules:
             amount = self.bets[player_index] + bet_difference
             self.player_chips[player_index] = 0
             self.betting_history.append(f"Player {player_index + 1} goes all-in with {bet_difference} chips.")
-            print(f"Player {player_index + 1} goes all-in with {bet_difference} chips.")
+            self._log(f"Player {player_index + 1} goes all-in with {bet_difference} chips.")
         else:
             self.player_chips[player_index] -= bet_difference
             self.betting_history.append(f"Player {player_index + 1} raises to {amount} chips.")
-            print(f"Player {player_index + 1} raises to {amount} chips.")
+            self._log(f"Player {player_index + 1} raises to {amount} chips.")
 
         self.pot += bet_difference
         self.total_bets_this_hand[player_index] += bet_difference # Accumulate total bet for the hand
@@ -108,7 +115,7 @@ class TexasHoldemRules:
             self.previous_raise_amount = amount - self.current_bet
             self.current_bet = amount
             self.betting_history.append(f"Current bet is now {self.current_bet} chips.")
-            print(f"Current bet is now {self.current_bet} chips.")
+            self._log(f"Current bet is now {self.current_bet} chips.")
 
     def advance_turn(self):
         self.current_player = (self.current_player + 1) % self.num_players
@@ -148,33 +155,33 @@ class TexasHoldemRules:
             # Burn a card
             burned = self.deck.pop(0)
             self.betting_history.append(f"Burned a card: {self._format_card(burned)}.")
-            print(f"Burned a card: {self._format_card(burned)}.")
+            self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the flop (3 cards)
             for _ in range(3):
                 card = self.deck.pop(0)
                 self.community_cards.append(card)
                 self.betting_history.append(f"Dealt community card: {self._format_card(card)}.")
-                print(f"Dealt community card: {self._format_card(card)}.")
+                self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == 'turn':
             # Burn a card
             burned = self.deck.pop(0)
             self.betting_history.append(f"Burned a card: {self._format_card(burned)}.")
-            print(f"Burned a card: {self._format_card(burned)}.")
+            self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the turn (1 card)
             card = self.deck.pop(0)
             self.community_cards.append(card)
             self.betting_history.append(f"Dealt community card: {self._format_card(card)}.")
-            print(f"Dealt community card: {self._format_card(card)}.")
+            self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == 'river':
             # Burn a card
             burned = self.deck.pop(0)
             self.betting_history.append(f"Burned a card: {self._format_card(burned)}.")
-            print(f"Burned a card: {self._format_card(burned)}.")
+            self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the river (1 card)
             card = self.deck.pop(0)
             self.community_cards.append(card)
             self.betting_history.append(f"Dealt community card: {self._format_card(card)}.")
-            print(f"Dealt community card: {self._format_card(card)}.")
+            self._log(f"Dealt community card: {self._format_card(card)}.")
         else:
             raise ValueError("Invalid round stage.")
 
@@ -186,8 +193,8 @@ class TexasHoldemRules:
 
 
 class TexasHoldem:
-    def __init__(self, num_players, starting_stack=1000, player_strategies=None):
-        self.rules = TexasHoldemRules(num_players, starting_stack)
+    def __init__(self, num_players, starting_stack=1000, player_strategies=None, verbose=True):
+        self.rules = TexasHoldemRules(num_players, starting_stack, verbose=verbose)
         self.num_players = num_players
         self.starting_stack = starting_stack
         if player_strategies is None:
@@ -198,9 +205,15 @@ class TexasHoldem:
         self.hand_count = 0
         self.historical_actions = []
         self.history_limit = 500  # Save history every 500 hands
-        self.current_hand_initial_actions = [] # For structured blind actions        # Ensure data directory exists
+        self.current_hand_initial_actions = []
+        self.logger = logging.getLogger(__name__)
+        self.verbose = verbose
         if not os.path.exists('data'):
             os.makedirs('data')
+
+    def _log(self, msg: str) -> None:
+        if self.verbose:
+            self.logger.info(msg)
 
     def initialize_game(self):
         # Reset game state for new hand
@@ -255,23 +268,23 @@ class TexasHoldem:
                     if self.rules.current_bet == 0 and self.rules.bets[player_index] == 0:
                         action_description = f"Player {player_index + 1} checks."
                         self.rules.betting_history.append(action_description)
-                        print(action_description)
+                        self._log(action_description)
                     else: # Or if they are trying to call but already match the bet (e.g. after a previous partial all-in)
                         action_description = f"Player {player_index + 1} effectively checks (already matching current bet or no bet to call)."
                         self.rules.betting_history.append(action_description)
-                        print(action_description)
+                        self._log(action_description)
                     # No change in bet needed if amount_to_call <=0
                 elif amount_to_call > self.rules.player_chips[player_index]: # All-in call
                     amount_to_call = self.rules.player_chips[player_index]
                     action_description = f"Player {player_index + 1} calls all-in with {amount_to_call} chips."
                     self.rules.betting_history.append(action_description)
-                    print(action_description)
+                    self._log(action_description)
                     new_bet = self.rules.bets[player_index] + amount_to_call
                     self.rules.bet(player_index, new_bet) # bet method handles chip deduction and all-in state
                 else: # Regular call
                     action_description = f"Player {player_index + 1} calls {amount_to_call} chips."
                     self.rules.betting_history.append(action_description)
-                    print(action_description)
+                    self._log(action_description)
                     new_bet = self.rules.bets[player_index] + amount_to_call
                     self.rules.bet(player_index, new_bet)
 
@@ -299,7 +312,7 @@ class TexasHoldem:
                 if is_raise_action: # This is a RAISE
                     if actual_raise_or_bet_amount < min_bet_or_raise_value:
                         action_description = f"Player {player_index + 1} attempted to raise by {actual_raise_or_bet_amount}, less than min raise of {min_bet_or_raise_value}. Adjusting to min raise."
-                        print(action_description)
+                        self._log(action_description)
                         self.rules.betting_history.append(action_description)
                         actual_raise_or_bet_amount = min_bet_or_raise_value
 
@@ -308,7 +321,7 @@ class TexasHoldem:
                 else: # This is an opening BET
                     if actual_raise_or_bet_amount < min_bet_or_raise_value: # min_bet_or_raise_value is BB here
                         action_description = f"Player {player_index + 1} attempted to bet {actual_raise_or_bet_amount}, less than min bet of {min_bet_or_raise_value}. Adjusting to min bet."
-                        print(action_description)
+                        self._log(action_description)
                         self.rules.betting_history.append(action_description)
                         actual_raise_or_bet_amount = min_bet_or_raise_value
                     total_player_bet = actual_raise_or_bet_amount
@@ -320,7 +333,7 @@ class TexasHoldem:
                     all_in_amount = self.rules.player_chips[player_index] + self.rules.bets[player_index]
                     action_description = f"Player {player_index + 1} goes all-in with {self.rules.player_chips[player_index]} chips (total bet {all_in_amount})."
                     self.rules.betting_history.append(action_description)
-                    print(action_description)
+                    self._log(action_description)
                     total_player_bet = all_in_amount # This is their all-in bet amount
                     # The actual_raise_or_bet_amount needs to be recalculated if they are all-in short
                     if total_player_bet > self.rules.current_bet:
@@ -334,7 +347,7 @@ class TexasHoldem:
                     else: # Opening bet
                         action_description = f"Player {player_index + 1} bets {total_player_bet} chips."
                     self.rules.betting_history.append(action_description)
-                    print(action_description)
+                    self._log(action_description)
 
                 # Call self.rules.bet with the player's total bet for this round
                 self.rules.bet(player_index, total_player_bet)
@@ -362,7 +375,7 @@ class TexasHoldem:
                 self.rules.active_players[player_index] = False
                 action_description = f"Player {player_index + 1} folds."
                 self.rules.betting_history.append(action_description)
-                print(action_description)
+                self._log(action_description)
                 active_players_count = sum(1 for i in range(self.num_players) if self.rules.active_players[i])
                 if active_players_count == 1:
                     self.end_game_early = True
@@ -376,21 +389,21 @@ class TexasHoldem:
                 if self.rules.current_bet == 0 or self.rules.bets[player_index] == self.rules.current_bet:
                     action_description = f"Player {player_index + 1} checks."
                     self.rules.betting_history.append(action_description)
-                    print(action_description)
+                    self._log(action_description)
                 else: # Bet to call, cannot check
                     error_msg = f"Player {player_index + 1} tried to check, but there is a bet of {self.rules.current_bet - self.rules.bets[player_index]} to call. Defaulting to fold."
                     self.rules.betting_history.append(error_msg)
-                    print(error_msg)
+                    self._log(error_msg)
                     self.process_action(player_index, 'fold') # Or 'call' if preferred default
             else: # Invalid action string
                 action_description = f"Player {player_index + 1} made an invalid action '{action}' and is folding by default."
                 self.rules.betting_history.append(action_description)
-                print(action_description)
+                self._log(action_description)
                 self.process_action(player_index, 'fold')
         except ValueError as ve:
             error_log = f"Error processing action for Player {player_index + 1} ('{action}', {raise_amount}): {ve}. Defaulting to fold."
             self.rules.betting_history.append(error_log)
-            print(error_log)
+            self._log(error_log)
             # Fallback action, typically fold.
             if self.rules.active_players[player_index]: # Ensure not trying to fold an already folded player
                  self.process_action(player_index, 'fold')
@@ -600,10 +613,10 @@ class TexasHoldem:
                 player_scores[player_index] = score
                 player_best_hands[player_index] = best_hand
             except Exception as e:
-                print(f"ERROR: Failed to evaluate hand for player {player_index}: {e}")
-                print(f"Community cards: {len(community_cards)} cards")
-                print(f"Hole cards: {len(hole_cards)} cards")
-                print(f"Total cards: {len(community_cards) + len(hole_cards)}")
+                self._log(f"ERROR: Failed to evaluate hand for player {player_index}: {e}")
+                self._log(f"Community cards: {len(community_cards)} cards")
+                self._log(f"Hole cards: {len(hole_cards)} cards")
+                self._log(f"Total cards: {len(community_cards) + len(hole_cards)}")
                 raise
 
         # Determine the winner(s)
@@ -645,13 +658,13 @@ class TexasHoldem:
         self.winner = None
 
     def play_game(self):
-        print(f"--- Hand {self.hand_count + 1} ---")
+        self._log(f"--- Hand {self.hand_count + 1} ---")
         self.initialize_game() # Deals hands, posts blinds, sets up pre-flop player
         self.show_player_hands()
         self.display_player_chips()
 
         # Pre-flop betting round
-        print("\n--- Pre-flop Betting Round ---")
+        self._log("\n--- Pre-flop Betting Round ---")
         self.betting_round(is_preflop=True)
         if self.end_game_early:
             self.declare_winner() # Pot distribution happens here
@@ -668,7 +681,7 @@ class TexasHoldem:
             self.play_stage(stage) # Deals community cards for the stage
             self.print_community_cards(stage)
             self.display_player_chips()
-            print(f"\n--- Betting Round after the {stage.capitalize()} ---")
+            self._log(f"\n--- Betting Round after the {stage.capitalize()} ---")
             self.betting_round(is_preflop=False)
             if self.end_game_early:
                 self.declare_winner()
@@ -677,17 +690,17 @@ class TexasHoldem:
                 return
 
         # Showdown
-        print("\n--- Showdown ---")
+        self._log("\n--- Showdown ---")
         # Pot was already awarded if end_game_early was true.
         # If not end_game_early, then proceed to showdown.
         for i in range(self.num_players):
             if self.rules.active_players[i]:
                 hand_str = self.format_hand_display(self.rules.hands[i])
-                print(f"Player {i + 1}'s hand: {hand_str}")
+                self._log(f"Player {i + 1}'s hand: {hand_str}")
 
         showdown_result = self.perform_showdown()
         if showdown_result is None:
-            print("\nNo winner could be determined.")
+            self._log("\nNo winner could be determined.")
         else:
             winner, player_best_hands = showdown_result
             if player_best_hands is None:
@@ -700,9 +713,9 @@ class TexasHoldem:
         self.save_history_if_needed()
 
     def declare_winner(self):
-        print(f"\n--- Hand Conclusion ---")
-        print(f"All other players have folded.")
-        print(f"The winner is Player {self.winner + 1}!")
+        self._log(f"\n--- Hand Conclusion ---")
+        self._log(f"All other players have folded.")
+        self._log(f"The winner is Player {self.winner + 1}!")
 
         winner_player_index = self.winner
         eligible_pot_for_winner = 0
@@ -712,7 +725,7 @@ class TexasHoldem:
 
         actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
 
-        print(f"Pot won: {actual_winnings} chips.")
+        self._log(f"Pot won: {actual_winnings} chips.")
         self.rules.player_chips[winner_player_index] += actual_winnings
         self.historical_actions[-1]['winner'] = f"Player {winner_player_index + 1}"
         self.historical_actions[-1]['pot_won'] = actual_winnings
@@ -731,10 +744,10 @@ class TexasHoldem:
             hand_rankings[player_index] = hand_name
 
         if isinstance(winner, list):
-            print("\nIt's a tie between the following players:")
+            self._log("\nIt's a tie between the following players:")
             for w in winner:
-                print(f"Player {w + 1} with a {hand_rankings[w]}")
-            print(f"Pot split between players.")
+                self._log(f"Player {w + 1} with a {hand_rankings[w]}")
+            self._log(f"Pot split between players.")
             # Simplified tie logic for pot distribution with all-ins:
             # Each winner gets their share of the pot they are eligible for.
             # This is complex without full side pot logic.
@@ -767,8 +780,8 @@ class TexasHoldem:
 
             actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
 
-            print(f"\nThe winner is Player {winner_player_index + 1} with a {hand_rankings[winner_player_index]}!")
-            print(f"Pot won: {actual_winnings} chips.")
+            self._log(f"\nThe winner is Player {winner_player_index + 1} with a {hand_rankings[winner_player_index]}!")
+            self._log(f"Pot won: {actual_winnings} chips.")
             self.rules.player_chips[winner_player_index] += actual_winnings
             self.historical_actions[-1]['winner'] = f"Player {winner_player_index + 1}"
             self.historical_actions[-1]['pot_won'] = actual_winnings
@@ -783,18 +796,18 @@ class TexasHoldem:
         return ' '.join([card[0] + suit_symbols.get(card[1], card[1]) for card in hand])
 
     def display_player_chips(self):
-        print("\n--- Player Chip Counts ---")
+        self._log("\n--- Player Chip Counts ---")
         for i in range(self.num_players):
             status = "Active" if self.rules.active_players[i] else "Eliminated"
-            print(f"Player {i + 1}: {self.rules.player_chips[i]} chips ({status})")
-        print("---------------------------\n")
+            self._log(f"Player {i + 1}: {self.rules.player_chips[i]} chips ({status})")
+        self._log("---------------------------\n")
 
     def show_player_hands(self):
         for i in range(self.num_players):
             strategy = self.player_strategies[i]
             if strategy.is_human:
                 hand_str = self.format_hand_display(self.rules.hands[i])
-                print(f"Player {i + 1}'s hand: {hand_str}")
+                self._log(f"Player {i + 1}'s hand: {hand_str}")
             else:
                 pass  # AI hands can be hidden or shown as desired
 
@@ -815,8 +828,8 @@ class TexasHoldem:
 
     def print_community_cards(self, stage):
         community_str = self.format_hand_display(self.rules.community_cards)
-        print(f"\nCommunity cards after the {stage.capitalize()}: {community_str}")
-        print(f"Pot: {self.rules.pot} chips.")
+        self._log(f"\nCommunity cards after the {stage.capitalize()}: {community_str}")
+        self._log(f"Pot: {self.rules.pot} chips.")
 
     def get_player_status(self):
         return {
@@ -834,7 +847,7 @@ class TexasHoldem:
             try:
                 with open(filename, 'w') as f:
                     json.dump(self.historical_actions, f, indent=4)
-                print(f"\n--- Historical data saved to {filename} ---")
+                self._log(f"\n--- Historical data saved to {filename} ---")
                 self.historical_actions.clear()
             except Exception as e:
-                print(f"Error saving historical data: {e}")
+                self._log(f"Error saving historical data: {e}")

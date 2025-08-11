@@ -2,6 +2,7 @@
 Handles the conversion of game state into a numerical representation suitable for a Transformer model.
 """
 import torch
+import logging
 from typing import List, Tuple, Any
 
 # Assuming GameState and Player will be importable from these paths
@@ -70,17 +71,21 @@ TYPE_ID_ROUND = 4.0
 NORM_AMOUNT = 100.0 # e.g. divide amounts by a typical big blind or average pot
 NORM_STACK_POT = 100.0 # For stack and pot sizes
 
-def _encode_card(card_str: str) -> float:
-    """
-    Encodes a card string (e.g., 'Js', 'Td') into a numeric representation.
-    Rank + Suit/10. e.g. Jack of Spades (Js) -> 11.1
+def _encode_card(card_str: str) -> List[float]:
+    """Encode a card as one-hot rank and suit vectors.
+
+    Returns a list of length 17: 13 for rank followed by 4 for suit.
     """
     if len(card_str) != 2:
         raise ValueError(f"Invalid card string: {card_str}")
-    rank, suit = card_str[0].upper(), card_str[1].lower() # Normalize case
-    if rank not in RANK_TO_NUM or suit not in SUIT_TO_NUM:
+    rank, suit = card_str[0].upper(), card_str[1].lower()
+    ranks = list(RANK_TO_NUM.keys())
+    suits = list(SUIT_TO_NUM.keys())
+    if rank not in ranks or suit not in suits:
         raise ValueError(f"Invalid card components: {rank}, {suit}")
-    return float(RANK_TO_NUM[rank] + SUIT_TO_NUM[suit] / 10.0)
+    rank_vec = [1.0 if r == rank else 0.0 for r in ranks]
+    suit_vec = [1.0 if s == suit else 0.0 for s in suits]
+    return rank_vec + suit_vec
 
 def _get_numeric_player_id(player_id_str: str, all_player_ids_in_order: List[str]) -> int:
     """
@@ -107,31 +112,23 @@ def prepare_transformer_input(
     """
     raw_sequence: List[List[float]] = []
     
-    # Ensure d_raw_feature is at least 3 for the specific type indicator strategy
-    if d_raw_feature < 3:
-        # This specific encoding strategy might not work well.
-        # Fallback or error, for now, let's print a warning.
-        print(f"Warning: d_raw_feature is {d_raw_feature}, which is less than 3. "
-              "The suggested encoding uses 3 features for some items.")
-        # The _create_feature_vector will still try its best to fit.
+    # Ensure d_raw_feature can accommodate card encoding
+    min_features = len(_encode_card('As')) + 1  # card one-hot + type id
+    if d_raw_feature < min_features:
+        logging.warning(
+            "d_raw_feature is %s, which is less than the required %s features for card encoding.",
+            d_raw_feature,
+            min_features,
+        )
 
     all_player_ids_ordered = game_state.player_order
 
     # Helper to create a feature vector of fixed dimension d_raw_feature
-    def _create_feature(value1: float, value2: float = 0.0, value3_or_type_id: float = 0.0) -> List[float]:
-        """
-        Creates a feature vector of size d_raw_feature.
-        - For d_raw_feature=3: [value1, value2, value3_or_type_id]
-        - For d_raw_feature > 3: [value1, value2, value3_or_type_id, 0, ..., 0]
-        - For d_raw_feature < 3: Truncates. e.g. d_raw_feature=1 -> [value1]
-        """
-        base = [value1, value2, value3_or_type_id]
-        if d_raw_feature == 3:
-            return base
-        elif d_raw_feature > 3:
-            return (base + [0.0] * (d_raw_feature - 3))[:d_raw_feature]
-        else: # d_raw_feature < 3
+    def _pad_feature(values: List[float]) -> List[float]:
+        base = list(values)
+        if len(base) >= d_raw_feature:
             return base[:d_raw_feature]
+        return base + [0.0] * (d_raw_feature - len(base))
 
     # 1. Card Encoding
     current_player_obj = game_state.get_player(current_player_id)
@@ -142,13 +139,13 @@ def prepare_transformer_input(
     # Uses [encoded_card_value, 0, TYPE_ID_CARD (or 0)]
     for card_str in current_player_obj.hand:
         encoded_card = _encode_card(card_str)
-        raw_sequence.append(_create_feature(encoded_card, 0.0, TYPE_ID_CARD))
+        raw_sequence.append(_pad_feature(encoded_card + [TYPE_ID_CARD]))
 
     # Community cards (0 to 5 cards)
     # Uses [encoded_card_value, 0, TYPE_ID_CARD (or 0)]
     for card_str in game_state.community_cards:
         encoded_card = _encode_card(card_str)
-        raw_sequence.append(_create_feature(encoded_card, 0.0, TYPE_ID_CARD))
+        raw_sequence.append(_pad_feature(encoded_card + [TYPE_ID_CARD]))
         
     # 2. Betting History Encoding
     # Uses [player_id_numeric, action_id_numeric, amount_normalized]
@@ -160,27 +157,27 @@ def prepare_transformer_input(
         
         normalized_amount = float(amount_val / NORM_AMOUNT if amount_val is not None else 0.0)
         
-        raw_sequence.append(_create_feature(numeric_p_id, action_id, normalized_amount))
+        raw_sequence.append(_pad_feature([numeric_p_id, action_id, normalized_amount]))
 
     # 3. Other Game State Features
     # Pot size: [pot_value_normalized, 0, TYPE_ID_POT]
     normalized_pot = float(game_state.pot / NORM_STACK_POT)
-    raw_sequence.append(_create_feature(normalized_pot, 0.0, TYPE_ID_POT))
+    raw_sequence.append(_pad_feature([normalized_pot, TYPE_ID_POT]))
     
     # Current bet faced by player: [bet_value_normalized, 0, TYPE_ID_CURRENT_BET]
     # This is the additional amount the player needs to call.
     player_bet_in_round = current_player_obj.current_bet_in_round
     effective_bet_faced = max(0, game_state.current_bet - player_bet_in_round)
     normalized_bet_faced = float(effective_bet_faced / NORM_AMOUNT)
-    raw_sequence.append(_create_feature(normalized_bet_faced, 0.0, TYPE_ID_CURRENT_BET))
+    raw_sequence.append(_pad_feature([normalized_bet_faced, TYPE_ID_CURRENT_BET]))
 
     # Player's current stack size: [stack_value_normalized, 0, TYPE_ID_PLAYER_STACK]
     normalized_stack = float(current_player_obj.stack / NORM_STACK_POT)
-    raw_sequence.append(_create_feature(normalized_stack, 0.0, TYPE_ID_PLAYER_STACK))
+    raw_sequence.append(_pad_feature([normalized_stack, TYPE_ID_PLAYER_STACK]))
 
     # Current betting round: [round_id, 0, TYPE_ID_ROUND]
     round_id_numeric = float(ROUND_TO_ID.get(game_state.betting_round.lower(), -1)) # -1 for unknown
-    raw_sequence.append(_create_feature(round_id_numeric, 0.0, TYPE_ID_ROUND))
+    raw_sequence.append(_pad_feature([round_id_numeric, TYPE_ID_ROUND]))
     
     # 4. Assembling the Sequence (already done by appending to raw_sequence)
 

@@ -37,17 +37,29 @@ def update_strategy(cumulative_strategy, current_strategy):
     """
     return cumulative_strategy + current_strategy
 
-def compute_regrets(payoffs, action_values, actual_action):
+def compute_regrets(action_values, state_value):
+    """Compute regret for each action.
+
+    Counterfactual regret for an action is the difference between the value of
+    taking that action and the state's value under the current strategy.  The
+    previous implementation accepted an ``actual_action`` argument and
+    subtracted the value of that action from every other action, which does not
+    match the definition used in CFR.
+
+    Parameters
+    ----------
+    action_values : torch.Tensor
+        Expected value of each available action.
+    state_value : torch.Tensor | float
+        The value of the state under the mixed strategy.  Typically this is a
+        scalar computed as ``(strategy * action_values).sum()``.
+
+    Returns
+    -------
+    torch.Tensor
+        Regret for every action.
     """
-    Compute the regrets for each action.
-    
-    :param payoffs: The payoff values for the current state.
-    :param action_values: The expected values of each action.
-    :param actual_action: The action that was actually taken.
-    :return: Regret values for each action.
-    """
-    regrets = payoffs - action_values
-    return regrets
+    return action_values - state_value
 
 def regret_matching_plus(cumulative_regret, regrets, num_actions):
     """
@@ -72,8 +84,8 @@ def cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, num_actions
         for action in range(num_actions):
             action_values[action] = game.simulate_action(action)
 
-        actual_action = game.get_actual_action()
-        regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
+        state_value = torch.sum(current_strategy * action_values)
+        regrets = compute_regrets(action_values, state_value)
 
         if prune_threshold > 0.0:
             mask = cumulative_regret < prune_threshold
@@ -119,9 +131,9 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
         # Simulate action values based on game state and strategy
         for action in range(num_actions):
             action_values[action] = game.simulate_action(action)
-        
-        actual_action = game.get_actual_action()
-        regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
+
+        state_value = torch.sum(current_strategy * action_values)
+        regrets = compute_regrets(action_values, state_value)
         current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
         cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
 
@@ -136,8 +148,8 @@ def discounted_cfr_plus_iteration(game, cumulative_regret, cumulative_strategy, 
         action_values = torch.zeros(num_actions)
         for action in range(num_actions):
             action_values[action] = game.simulate_action(action)
-        actual_action = game.get_actual_action()
-        regrets = compute_regrets(action_values, action_values[actual_action], actual_action)
+        state_value = torch.sum(current_strategy * action_values)
+        regrets = compute_regrets(action_values, state_value)
         cumulative_regret.mul_(discount)
         current_strategy, cumulative_regret = regret_matching_plus(cumulative_regret, regrets, num_actions)
         cumulative_strategy = update_strategy(cumulative_strategy, current_strategy)
