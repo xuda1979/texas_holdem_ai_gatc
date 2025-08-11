@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 import builtins
 from texas_holdem import TexasHoldem  # Ensure this import is correct
-from rules.cfr import update_regret, update_strategy
+from rules.cfr import update_regret, update_strategy, calculate_strategy
 
 # Ensure ``round`` can handle mis-specified arguments in unit tests
 _orig_round = builtins.round
@@ -67,7 +67,10 @@ class CFRTrainer:
         regrets_tensor = torch.tensor(regrets, dtype=torch.float32)
         self.optimizer.zero_grad()
         predictions = self.model(states_tensor)
-        loss = F.mse_loss(predictions, regrets_tensor)
+        # Convert regrets into a regret-matched strategy target
+        with torch.no_grad():
+            target = torch.stack([calculate_strategy(r, self.num_actions) for r in regrets_tensor])
+        loss = F.mse_loss(predictions, target)
         loss.backward()
         self.optimizer.step()
         print("Train step completed.")  # Debug print statement
@@ -97,12 +100,19 @@ class CFRTrainer:
         action_utilities = torch.zeros(self.num_actions)
         node_utility = 0.0
 
-        # Iterate over all actions. For simplicity we apply a "check" action to
-        # generate the next state since the full environment dynamics are
-        # outside the scope of these tests.
-        for a in range(self.num_actions):
+        # Enumerate distinct actions for traversal
+        base_actions = ["fold", "call", "raise", "check"]
+        if self.num_actions <= len(base_actions):
+            actions = base_actions[:self.num_actions]
+        else:
+            actions = base_actions + ["check"] * (self.num_actions - len(base_actions))
+
+        for a, action in enumerate(actions):
             next_state = state.clone()
-            next_state.apply_action(player, "check", 0)
+            amount = 0
+            if action == "raise":
+                amount = self.config.get("raise_amount", 1)
+            next_state.apply_action(player, action, amount)
             util = self.cfr(next_state, player, iteration + 1)
             action_utilities[a] = util
             node_utility += strategy[a] * util
@@ -125,18 +135,41 @@ class CFRTrainer:
     def encode_state(self, state):
         """Convert a game state into a fixed size numpy array.
 
-        The ``TexasHoldem`` class returns numpy arrays from ``get_initial_state``
-        so this helper reshapes/pads the array to ``self.input_shape``.
+        Encodes card information along with pot size, bets and active players
+        without relying on ``np.resize``.  Output shape matches
+        ``self.input_shape``.
         """
-        if isinstance(state, np.ndarray):
-            arr = state
-        elif hasattr(state, "get_initial_state"):
-            arr = state.get_initial_state()
-        else:
-            arr = np.array(state)
+        encoded = np.zeros(self.input_shape, dtype=np.float32)
 
-        arr = np.resize(arr, self.input_shape)
-        return arr
+        if isinstance(state, np.ndarray):
+            src = state
+            slices = tuple(slice(0, min(encoded.shape[i], src.shape[i])) for i in range(len(self.input_shape)))
+            encoded[slices] = src[slices]
+            return encoded
+
+        if isinstance(state, TexasHoldem):
+            card_tensor = state.get_initial_state()[0]  # remove batch dim
+            h = min(encoded.shape[0] - 1, card_tensor.shape[0])
+            w = min(encoded.shape[1], card_tensor.shape[1])
+            c = min(encoded.shape[2], card_tensor.shape[2])
+            encoded[:h, :w, :c] = card_tensor[:h, :w, :c]
+
+            feature_row = h
+            if feature_row < encoded.shape[0]:
+                encoded[feature_row, 0, 0] = state.pot
+                encoded[feature_row, 1, 0] = state.current_bet
+                for i, bet in enumerate(state.bets):
+                    col = i + 2
+                    if col < encoded.shape[1]:
+                        encoded[feature_row, col, 0] = bet
+                    if col < encoded.shape[1] and encoded.shape[2] > 1:
+                        encoded[feature_row, col, 1] = 1.0 if state.players_active[i] else 0.0
+            return encoded
+
+        arr = np.array(state)
+        slices = tuple(slice(0, min(encoded.shape[i], arr.shape[i])) for i in range(len(self.input_shape)))
+        encoded[slices] = arr[slices]
+        return encoded
 
     def save_model(self, model_path):
         os.makedirs(os.path.dirname(model_path), exist_ok=True)

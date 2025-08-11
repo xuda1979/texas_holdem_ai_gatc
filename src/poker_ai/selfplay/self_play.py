@@ -7,7 +7,6 @@ from utils.state_representation import prepare_transformer_input
 from utils.action_mapping import get_action_from_index
 import torch
 import copy
-import random # Added import
 from typing import List, Tuple, Dict, Any
 import os
 import json
@@ -18,6 +17,17 @@ from poker_ai.ai.models.transformer import TransformerAverageStrategy
 class DummyStrategy:
     def choose_action(self, game_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
         return 'fold', None
+
+class RuleBasedStrategy:
+    """Deterministic opponent strategy for self-play."""
+    def choose_action(self, game_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
+        amount_to_call = game_rules_obj.current_bet - game_rules_obj.bets[player_index]
+        player_chips = game_rules_obj.player_chips[player_index]
+        if amount_to_call > 0:
+            if player_chips >= amount_to_call:
+                return 'call', None
+            return 'fold', None
+        return 'check', None
 
 class SelfPlay:
     """Orchestrates a single poker game used for training."""
@@ -37,6 +47,7 @@ class SelfPlay:
         # Apply blind settings after creation to avoid unexpected kwargs
         self.game_engine.rules.big_blind = game_engine_config.get('big_blind', 10)
         self.game_engine.rules.small_blind = game_engine_config.get('small_blind', 5)
+        self.opponent_strategy = RuleBasedStrategy()
 
     def _is_action_valid(self, engine_rules: TexasHoldemRules, player_idx: int, action_str: str, amount: int | None) -> bool:
         player_chips = engine_rules.player_chips[player_idx]
@@ -113,90 +124,17 @@ class SelfPlay:
         return ai_gs
 
     def _get_opponent_action(self, engine_rules_obj: TexasHoldemRules, player_index: int) -> Tuple[str, int | None]:
-        player_chips = engine_rules_obj.player_chips[player_index]
-        player_current_bet_in_round = engine_rules_obj.bets[player_index]
-        game_current_bet = engine_rules_obj.current_bet
-        amount_to_call = game_current_bet - player_current_bet_in_round
-
-        chosen_action_str = 'fold' # Default safe action
-        chosen_amount_for_engine = None
-
-        if amount_to_call == 0: # Can check or bet
-            rand_val = random.random()
-            if rand_val < 0.7: # 70% chance to check
-                chosen_action_str, chosen_amount_for_engine = 'check', None
-            else: # 30% chance to bet
-                bet_total_amount = int(engine_rules_obj.pot * 0.5)
-                bet_total_amount = max(bet_total_amount, engine_rules_obj.big_blind)
-                bet_total_amount = min(bet_total_amount, player_chips) # Cap at player's stack
-
-                if self._is_action_valid(engine_rules_obj, player_index, 'bet', bet_total_amount):
-                    chosen_action_str, chosen_amount_for_engine = 'bet', bet_total_amount
-                else: # Bet is invalid (e.g. player_chips is 0, or calculated bet is 0 and invalid)
-                    chosen_action_str, chosen_amount_for_engine = 'check', None # Fallback to check
-        else: # Facing a bet/raise (amount_to_call > 0)
-            rand_val = random.random()
-            if rand_val < 0.1: # 10% chance to fold
-                chosen_action_str, chosen_amount_for_engine = 'fold', None
-            elif rand_val < 0.3: # 20% chance to attempt raise (cumulative 0.1 + 0.2 = 0.3)
-                # Try to raise: e.g., raise by 75% of current pot size, min increment is big blind
-                raise_increment = int(engine_rules_obj.pot * 0.75)
-                raise_increment = max(raise_increment, engine_rules_obj.big_blind)
-                raise_increment = min(raise_increment, player_chips - amount_to_call) # Cap increment if it makes player all-in
-
-                if raise_increment <=0 : # cannot make a positive raise increment (e.g. already all in to call)
-                    # Fallback to call if possible
-                    if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
-                         chosen_action_str, chosen_amount_for_engine = 'call', None # Engine calculates call amount
-                    else: # Cannot call
-                         chosen_action_str, chosen_amount_for_engine = 'fold', None
-                else:
-                    # Validate the proposed raise. `_is_action_valid` for 'raise' expects the *total* bet amount.
-                    proposed_total_bet_for_validation = game_current_bet + raise_increment
-                    if self._is_action_valid(engine_rules_obj, player_index, 'raise', proposed_total_bet_for_validation):
-                        chosen_action_str, chosen_amount_for_engine = 'raise', raise_increment
-                    else: # Raise is invalid or unaffordable, try to call
-                        if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
-                            chosen_action_str, chosen_amount_for_engine = 'call', None
-                        else: # Cannot call
-                            chosen_action_str, chosen_amount_for_engine = 'fold', None
-            else: # 70% chance to call
-                if self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
-                    chosen_action_str, chosen_amount_for_engine = 'call', None
-                else: # Cannot call
-                    chosen_action_str, chosen_amount_for_engine = 'fold', None
-        
-        # Final safety net: if chosen action is somehow still invalid, default to fold or check.
-        # This logic should ideally be covered by the decision paths above.
-        # For 'call', _is_action_valid needs the total bet amount (game_current_bet)
-        # For 'bet', _is_action_valid needs the total bet amount
-        # For 'raise', _is_action_valid needs the total bet amount
-        # The `chosen_amount_for_engine` is what process_action expects (None for call, total for bet, increment for raise)
-        
-        # Re-construct the 'amount' argument for _is_action_valid based on action type
-        amount_for_validation = None
-        if chosen_action_str == 'bet':
-            amount_for_validation = chosen_amount_for_engine
-        elif chosen_action_str == 'raise':
-            # Must calculate total bet for validation if chosen_amount_for_engine is the increment
-            if chosen_amount_for_engine is not None:
-                 amount_for_validation = game_current_bet + chosen_amount_for_engine
-            else: # Should not happen if raise is chosen with None amount
-                 pass # Keep it None, will likely fail validation or be fold
-        elif chosen_action_str == 'call':
-            amount_for_validation = game_current_bet # Call is to match current game bet
-
-        if not self._is_action_valid(engine_rules_obj, player_index, chosen_action_str, amount_for_validation):
-            # print(f"Warning: Opponent action {chosen_action_str}, {chosen_amount_for_engine} (valid. amount: {amount_for_validation}) was chosen but is invalid. Fallback.")
-            if amount_to_call == 0: # Original situation was check/bet
-                chosen_action_str, chosen_amount_for_engine = 'check', None
-            # Check if player can call the original amount_to_call
-            elif self._is_action_valid(engine_rules_obj, player_index, 'call', game_current_bet):
-                chosen_action_str, chosen_amount_for_engine = 'call', None
-            else: # Must fold
-                chosen_action_str, chosen_amount_for_engine = 'fold', None
-                
-        return chosen_action_str, chosen_amount_for_engine
+        """Return an action for an opponent player using a rule-based policy."""
+        action_str, amount = self.opponent_strategy.choose_action(engine_rules_obj, player_index)
+        if action_str == 'call':
+            validation_amount = engine_rules_obj.current_bet
+        else:
+            validation_amount = amount
+        if not self._is_action_valid(engine_rules_obj, player_index, action_str, validation_amount):
+            if self._is_action_valid(engine_rules_obj, player_index, 'check', None):
+                return 'check', None
+            return 'fold', None
+        return action_str, amount
 
     def _simulate_hand_outcome(self, temp_game_engine_state: TexasHoldemRules, ai_player_idx_for_payoff: int) -> float:
         sim_engine = TexasHoldem(**self.game_engine_base_config)
@@ -425,8 +363,15 @@ class SelfPlay:
         if not training_data_for_hand:
             print("No training data (AI decision points) collected for this hand.")
         for state_tensor_data, _, _, cf_payoffs_data in training_data_for_hand:
-            print(f"Calling cfr_trainer.train with state_tensor shape: {state_tensor_data.shape}, cf_payoffs: {cf_payoffs_data.tolist()}")
-            self.cfr_trainer.train(state_tensor_data, cf_payoffs_data)
+            print(
+                f"Calling cfr_trainer.train with state_tensor shape: {state_tensor_data.shape}, cf_payoffs: {cf_payoffs_data.tolist()}"
+            )
+            train_fn = self.cfr_trainer.train
+            if train_fn.__code__.co_argcount == 3:  # self, state_tensor, cf_payoffs
+                train_fn(state_tensor_data, cf_payoffs_data)
+            else:
+                info_set_id = str(state_tensor_data.tolist())
+                train_fn(info_set_id, state_tensor_data, cf_payoffs_data)
         
         print("\nHand complete.")
         return training_data_for_hand
