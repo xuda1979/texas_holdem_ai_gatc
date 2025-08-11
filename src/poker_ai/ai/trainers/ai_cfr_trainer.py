@@ -18,11 +18,13 @@ try:
     with open(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'), 'r') as f:
         config = yaml.safe_load(f)
 except FileNotFoundError:
-    print("Warning: config.yaml not found. Using default config values for AICFRTrainer.")
+    logging.warning(
+        "config.yaml not found. Using default config values for AICFRTrainer."
+    )
     # Define a default config structure if file not found, to allow module loading
     config = {
         'logging': {'log_file': 'aicfr_trainer.log'},
-        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001},
+        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18},
         'training': {'save_model_path': 'aicfr_model.pth'}
     }
 
@@ -45,10 +47,10 @@ class AICFRTrainer:
         hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
         output_dim = model_config.get('num_actions', 10) # Default if not found
         learning_rate = model_config.get('learning_rate', 0.001) # Default if not found
-        
+
         # Fetch d_raw_feature with a default value
         # This value should match the d_raw_feature used in state_representation.py
-        d_raw_feature = model_config.get('d_raw_feature', 3) 
+        d_raw_feature = model_config.get('d_raw_feature', 18)
 
         self.model = TransformerAverageStrategy(
             input_feature_dim=d_raw_feature,
@@ -64,18 +66,13 @@ class AICFRTrainer:
         # Expose configuration so callers (e.g. self-play) can retrieve model params
         self.config = config
 
-        # Initialize cumulative regret and strategy tensors
-        # These should be persistent across training iterations for a given state-space node if traditional CFR.
-        # For deep CFR, these are often associated with the overall training process rather than per-state.
-        # The prompt implies these are class members, updated per training step on a specific state.
-        # This means they represent the regret/strategy for the "average" state encountered, or this trainer
-        # is intended for a single info set (not typical for deep CFR).
-        # Given the context, these likely track average regrets/strategies over the samples seen by the network.
-        self.cumulative_regret = torch.zeros(self.num_actions, device=self.device)
-        self.cumulative_strategy = torch.zeros(self.num_actions, device=self.device)
+        # Track regrets and strategies per information set.
+        # Keys are information set identifiers supplied during training.
+        self.cumulative_regret: dict[str, torch.Tensor] = {}
+        self.cumulative_strategy: dict[str, torch.Tensor] = {}
 
 
-    def train(self, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
+    def train(self, info_set_id: str, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
         """
         Trains the model for one step based on the provided state and counterfactual payoffs.
         Args:
@@ -106,15 +103,26 @@ class AICFRTrainer:
             # d. Calculate action regrets
             action_regrets = all_counterfactual_payoffs - state_value
 
+            # Retrieve or initialize tensors for this information set
+            if info_set_id not in self.cumulative_regret:
+                self.cumulative_regret[info_set_id] = torch.zeros(self.num_actions, device=self.device)
+                self.cumulative_strategy[info_set_id] = torch.zeros(self.num_actions, device=self.device)
+
+            cumulative_regret = self.cumulative_regret[info_set_id]
+            cumulative_strategy = self.cumulative_strategy[info_set_id]
+
             # e. Update cumulative regrets
-            # Assuming update_regret handles device placement if necessary, or all tensors are on same device
-            self.cumulative_regret = update_regret(self.cumulative_regret, action_regrets)
+            cumulative_regret = update_regret(cumulative_regret, action_regrets)
 
             # f. Get current iteration's regret-matched policy
-            current_regret_matched_policy = calculate_strategy(self.cumulative_regret, self.num_actions)
+            current_regret_matched_policy = calculate_strategy(cumulative_regret, self.num_actions)
 
             # g. Update cumulative strategy (accumulate the regret-matched policy)
-            self.cumulative_strategy = update_strategy(self.cumulative_strategy, current_regret_matched_policy.detach())
+            cumulative_strategy = update_strategy(cumulative_strategy, current_regret_matched_policy.detach())
+
+            # Store updated tensors back
+            self.cumulative_regret[info_set_id] = cumulative_regret
+            self.cumulative_strategy[info_set_id] = cumulative_strategy
             
             # h. Compute Loss: Train model's output (strategy_pred) to match current_regret_matched_policy
             # Target should be detached as we don't want to backprop through its calculation.
@@ -154,13 +162,22 @@ class AICFRTrainer:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
 
-    def get_final_average_strategy(self):
-        # Normalize the cumulative strategy to get the average strategy
-        # Avoid division by zero if cumulative_strategy is all zeros
-        sum_cumulative_strategy = torch.sum(self.cumulative_strategy)
+    def get_final_average_strategy(self, info_set_id: str):
+        """Return the average strategy for a given information set."""
+        cumulative_strategy = self.cumulative_strategy.get(info_set_id)
+        if cumulative_strategy is None:
+            logging.warning(
+                "Requested average strategy for unknown information set '%s'. Returning uniform.",
+                info_set_id,
+            )
+            return torch.ones(self.num_actions, device=self.device) / self.num_actions
+
+        sum_cumulative_strategy = torch.sum(cumulative_strategy)
         if sum_cumulative_strategy == 0:
-            # Return a uniform strategy if no strategy has been accumulated
-            logging.warning("Cumulative strategy is all zeros. Returning uniform strategy.")
-            return torch.ones(self.num_actions) / self.num_actions
-        return self.cumulative_strategy / sum_cumulative_strategy
+            logging.warning(
+                "Cumulative strategy is all zeros for information set '%s'. Returning uniform strategy.",
+                info_set_id,
+            )
+            return torch.ones(self.num_actions, device=self.device) / self.num_actions
+        return cumulative_strategy / sum_cumulative_strategy
 

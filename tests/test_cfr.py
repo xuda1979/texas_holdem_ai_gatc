@@ -32,10 +32,9 @@ class TestCFR(unittest.TestCase):
         self.assertTrue(torch.equal(updated_strategy, torch.tensor([1.2, 1.3, 1.5])), "Strategy update should be correct")
 
     def test_compute_regrets(self):
-        payoffs = torch.tensor([2.0, 3.0, 4.0])
-        action_values = torch.tensor([3.0, 3.0, 3.0])
-        actual_action = 1
-        regrets = compute_regrets(payoffs, action_values, actual_action)
+        action_values = torch.tensor([2.0, 3.0, 4.0])
+        state_value = torch.tensor(3.0)
+        regrets = compute_regrets(action_values, state_value)
         self.assertTrue(torch.equal(regrets, torch.tensor([-1.0, 0.0, 1.0])), "Regrets should be computed correctly")
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ def test_transformer_forward_pass():
     # These should ideally be sourced from a test config or match the main config.yaml
     # For d_raw_feature, it's what prepare_transformer_input produces.
     # For num_actions, it's what get_action_from_index maps to.
-    input_feature_dim = 3  # Example: from config.yaml model.d_raw_feature
+    input_feature_dim = 18  # Updated feature dimension with one-hot card encoding
     hidden_dim = 128       # Example: from config.yaml model.hidden_dim
     num_actions = 10       # Example: from config.yaml model.num_actions
     
