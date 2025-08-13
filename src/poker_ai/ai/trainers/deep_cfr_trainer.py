@@ -1,42 +1,58 @@
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from collections import deque
-from typing import List, Tuple
+import random
+from typing import Tuple
 
-from ai_models.transformer import TransformerAverageStrategy
-from rules.cfr import calculate_strategy, update_regret, update_strategy
+# Correctly import the refactored AdvantageNetwork
+from poker_ai.ai.models.transformer import AdvantageNetwork
 
 class ReplayBuffer:
-    """Simple FIFO replay buffer for storing trajectories."""
+    """A simple reservoir sampling replay buffer for Deep CFR."""
     def __init__(self, capacity: int):
         self.capacity = capacity
-        self.buffer: deque = deque(maxlen=capacity)
+        self.buffer: list = []
+        self.position = 0
 
-    def push(self, data):
-        self.buffer.append(data)
+    def push(self, state: torch.Tensor, regrets: torch.Tensor, iteration: int):
+        """Adds an experience to the buffer using reservoir sampling."""
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
 
-    def sample(self, batch_size: int):
-        indices = torch.randperm(len(self.buffer))[:batch_size]
-        return [self.buffer[i] for i in indices]
+        # The tuple stored in the buffer
+        experience = (state.detach().cpu(), regrets.detach().cpu(), iteration)
 
-    def __len__(self):
+        # Reservoir sampling logic
+        if self.position < self.capacity:
+            self.buffer[self.position] = experience
+        else:
+            j = random.randint(0, self.position)
+            if j < self.capacity:
+                self.buffer[j] = experience
+        self.position += 1
+
+    def sample(self, batch_size: int) -> list:
+        """Samples a batch of experiences from the buffer."""
+        return random.sample(self.buffer, batch_size)
+
+    def __len__(self) -> int:
         return len(self.buffer)
 
 
 class DeepCFRTrainer:
-    """Minimal Deep CFR trainer using Transformer networks."""
-    def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, learning_rate: float = 1e-3,
-                 buffer_capacity: int = 10000, device: str | None = None):
+    """
+    A Deep CFR trainer that implements the algorithm from 'texas.tex'.
+    It uses a single advantage network and trains with a weighted MSE loss (Linear CFR).
+    """
+    def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int,
+                 learning_rate: float = 1e-4, buffer_capacity: int = 1_000_000,
+                 device: str | None = None):
+
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
-        self.advantage_net = TransformerAverageStrategy(
-            input_feature_dim=input_feature_dim,
-            hidden_dim=hidden_dim,
-            num_heads=4,
-            num_layers=2,
-            num_actions=num_actions,
-        )
-        self.strategy_net = TransformerAverageStrategy(
+        self.num_actions = num_actions
+
+        # Use the new AdvantageNetwork
+        self.advantage_net = AdvantageNetwork(
             input_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=4,
@@ -44,15 +60,13 @@ class DeepCFRTrainer:
             num_actions=num_actions,
         )
         self.advantage_net.to(self.device)
-        self.strategy_net.to(self.device)
-        self.adv_optimizer = optim.Adam(self.advantage_net.parameters(), lr=learning_rate)
-        self.strat_optimizer = optim.Adam(self.strategy_net.parameters(), lr=learning_rate)
 
+        self.optimizer = optim.Adam(self.advantage_net.parameters(), lr=learning_rate)
+
+        # The replay buffer stores (infoset_embedding, realized_regrets, iteration_number)
         self.replay_buffer = ReplayBuffer(buffer_capacity)
-        self.num_actions = num_actions
-        self.cumulative_regret = torch.zeros(num_actions, device=self.device)
-        self.cumulative_strategy = torch.zeros(num_actions, device=self.device)
-        # Minimal config dict for compatibility with SelfPlay expectations
+
+        # A minimal config dict for compatibility with other components
         self.config = {
             'model': {
                 'd_raw_feature': input_feature_dim,
@@ -62,39 +76,55 @@ class DeepCFRTrainer:
             }
         }
 
-    def store_trajectory(self, state: torch.Tensor, action: int, regret: torch.Tensor):
-        self.replay_buffer.push((state.detach(), action, regret.detach()))
+    @torch.no_grad()
+    def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Gets the predicted advantages for a given state tensor.
+        Runs in no_grad context as it's used for inference/data generation.
+        """
+        if state_tensor.ndim == 2:
+            state_tensor = state_tensor.unsqueeze(0)
+        state_tensor = state_tensor.to(self.device)
+        advantages = self.advantage_net(state_tensor)
+        return advantages.squeeze(0).cpu()
 
-    def train_step(self, batch_size: int = 32):
+    def train(self, batch_size: int = 256):
+        """
+        Performs one training step on a batch from the replay buffer.
+        This implements the weighted loss function from Linear CFR.
+        """
         if len(self.replay_buffer) < batch_size:
             return
+
+        # Sample from the replay buffer
         batch = self.replay_buffer.sample(batch_size)
-        states = torch.stack([b[0] for b in batch]).to(self.device)
-        actions = torch.tensor([b[1] for b in batch], device=self.device)
-        regrets = torch.stack([b[2] for b in batch]).to(self.device)
+        states, regrets, iterations = zip(*batch)
 
-        # Train advantage network to predict regrets
+        states = torch.stack(states).to(self.device)
+        regrets = torch.stack(regrets).to(self.device)
+        iterations = torch.tensor(iterations, dtype=torch.float32, device=self.device).view(-1, 1)
+
+        # Get network predictions
         adv_pred = self.advantage_net(states)
-        adv_loss = nn.functional.mse_loss(adv_pred, regrets)
-        self.adv_optimizer.zero_grad()
-        adv_loss.backward()
-        self.adv_optimizer.step()
 
-        # Update cumulative regret with predicted regrets for strategy training
-        avg_regret = adv_pred.mean(dim=0)
-        self.cumulative_regret = update_regret(self.cumulative_regret, avg_regret)
-        strategy_target = calculate_strategy(self.cumulative_regret, self.num_actions)
-        self.cumulative_strategy = update_strategy(self.cumulative_strategy, strategy_target.detach())
+        # Calculate the weighted MSE loss (Linear CFR)
+        # The loss is weighted by the iteration number T
+        loss_values = (adv_pred - regrets)**2
+        weighted_loss = (loss_values * iterations).sum() / iterations.sum()
 
-        # Train strategy network to match regret-matched policy
-        strat_pred = self.strategy_net(states)
-        strat_loss = nn.functional.mse_loss(strat_pred, strategy_target.expand_as(strat_pred).detach())
-        self.strat_optimizer.zero_grad()
-        strat_loss.backward()
-        self.strat_optimizer.step()
+        # Optimizer step
+        self.optimizer.zero_grad()
+        weighted_loss.backward()
+        self.optimizer.step()
 
-    def get_average_strategy(self):
-        total = self.cumulative_strategy.sum()
-        if total > 0:
-            return self.cumulative_strategy / total
-        return torch.ones(self.num_actions) / self.num_actions
+        return weighted_loss.item()
+
+    def save_model(self, path: str):
+        """Saves the advantage network's state dict."""
+        torch.save(self.advantage_net.state_dict(), path)
+
+    def load_model(self, path: str):
+        """Loads the advantage network's state dict."""
+        self.advantage_net.load_state_dict(torch.load(path, map_location=self.device))
+        self.advantage_net.to(self.device)
+        self.advantage_net.eval()

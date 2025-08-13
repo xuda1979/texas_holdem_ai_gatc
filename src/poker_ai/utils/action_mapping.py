@@ -1,95 +1,153 @@
 """
-Maps action indices to game actions and amounts.
+Maps action indices to game actions and amounts, and provides legality checks.
 """
-from game_engine.game_state import GameState
+import torch
+from poker_ai.engine.texas_holdem import TexasHoldem
 
-def get_action_from_index(action_index: int, game_state: GameState, player_stack: int) -> tuple[str, int | None]:
+def _is_action_valid(game: TexasHoldem, player_id: int, action_str: str, amount: int | None) -> bool:
+    """
+    Checks if a given action is legal in the current game state.
+    This is a helper function containing the core game logic for action validation.
+    """
+    rules = game.rules
+    player_chips = rules.player_chips[player_id]
+
+    # This needs to be the player's bet in the current round, not their total bet in the hand.
+    # The game engine should track this. Assuming `rules.bets` is reset each round.
+    player_bet_in_round = rules.bets[player_id]
+
+    amount_to_call = rules.current_bet - player_bet_in_round
+
+    if action_str == 'fold':
+        # Fold is always legal unless the player is all-in and there's no bet to call.
+        return True
+
+    if action_str == 'check':
+        # Check is only legal if there is no bet to call.
+        return amount_to_call == 0
+
+    if action_str == 'call':
+        # Call is only legal if there is a bet to call.
+        if amount_to_call <= 0:
+            return False
+        # A player can always call, even if it means going all-in.
+        return True
+
+    if action_str == 'bet':
+        # Bet is only legal if there is no current bet in the round.
+        if rules.current_bet != 0:
+            return False
+        if amount is None or amount <= 0:
+            return False
+        # Bet must be at least the big blind, unless the player is going all-in for less.
+        if amount < rules.big_blind and amount != player_chips:
+            return False
+        # Cannot bet more than you have.
+        return player_chips >= amount
+
+    if action_str == 'raise':
+        # Raise is only legal if there is a current bet.
+        if rules.current_bet == 0:
+            return False
+        if amount is None:
+            return False
+
+        # The total amount of the raise must be more than the current bet.
+        if amount <= rules.current_bet:
+            return False
+
+        # The player must have enough chips to make the raise.
+        # The amount to commit is the total new bet amount minus what they've already bet.
+        raise_amount_to_commit = amount - player_bet_in_round
+        if player_chips < raise_amount_to_commit:
+            return False
+
+        # The raise increment must be at least the size of the previous bet/raise,
+        # unless the player is going all-in for less (an "under-raise").
+        min_raise_increment = rules.previous_raise_amount if rules.previous_raise_amount > 0 else rules.big_blind
+        actual_raise_increment = amount - rules.current_bet
+
+        if actual_raise_increment < min_raise_increment:
+            # An under-raise is only legal if the player is going all-in.
+            return raise_amount_to_commit == player_chips
+
+        return True
+
+    return False
+
+def get_legal_actions_mask(game: TexasHoldem, player_id: int, num_actions: int) -> torch.Tensor:
+    """
+    Returns a boolean tensor indicating which of the abstract actions are legal.
+    """
+    mask = torch.zeros(num_actions, dtype=torch.bool)
+    player_stack = game.rules.player_chips[player_id]
+
+    for action_idx in range(num_actions):
+        action_str, amount = get_action_from_index(action_idx, game, player_id)
+
+        # The 'raise' action from get_action_from_index should be treated as 'bet' if no bet has been made.
+        if game.rules.current_bet == 0 and action_str == 'raise':
+            action_str = 'bet'
+
+        if _is_action_valid(game, player_id, action_str, amount):
+            mask[action_idx] = True
+
+    # If no actions are legal (should not happen, fold is always an option), log an error.
+    if not mask.any():
+        # As a fallback, mark 'fold' as legal.
+        mask[0] = True
+
+    return mask
+
+
+def get_action_from_index(action_index: int, game: TexasHoldem, player_id: int) -> tuple[str, int | None]:
     """
     Converts an action index (0-9) to a game action string and amount.
-
-    Args:
-        action_index: An integer from 0 to 9 representing the action.
-        game_state: The current game state object.
-        player_stack: The current stack size of the player.
-
-    Returns:
-        A tuple containing the action string (e.g., "fold", "raise")
-        and the amount for the action (or None if not applicable).
+    This version is adapted to work with the TexasHoldem game engine object.
     """
     action_string = ""
     amount = None
+    pot = game.rules.pot
+    player_stack = game.rules.player_chips[player_id]
+    current_bet = game.rules.current_bet
+    player_bet_in_round = game.rules.bets[player_id]
+
+    # Define raise percentages relative to the pot
+    raise_percentages = {
+        3: 0.25, 4: 0.50, 5: 0.75, 6: 1.0, 7: 1.5, 8: 2.0
+    }
 
     if action_index == 0:
         action_string = "fold"
-        amount = None
     elif action_index == 1:
         action_string = "check"
-        amount = None
-        # Note: Legality of check (e.g. if current_bet > 0) will be handled by the game engine.
     elif action_index == 2:
         action_string = "call"
-        # Assuming player_current_bet is what the player has already put in the pot in the current round.
-        # For simplicity now, to_call is just game_state.current_bet.
-        # This implies the player needs to put in game_state.current_bet to call.
-        # A more accurate calculation would be:
-        # player_bet_in_round = game_state.get_player_bet_in_round(player_id) # Needs implementation in GameState
-        # to_call = game_state.current_bet - player_bet_in_round
-        # For now, using the simplified version:
-        to_call = game_state.current_bet
-        amount = int(round(to_call))
-    elif action_index == 3:
-        action_string = "raise"
-        # Bet/Raise 25% of Pot
-        # Amount is the total bet amount.
-        raise_amount = game_state.pot * 0.25
-        amount = int(round(raise_amount))
-    elif action_index == 4:
-        action_string = "raise"
-        # Bet/Raise 50% of Pot
-        raise_amount = game_state.pot * 0.50
-        amount = int(round(raise_amount))
-    elif action_index == 5:
-        action_string = "raise"
-        # Bet/Raise 75% of Pot
-        raise_amount = game_state.pot * 0.75
-        amount = int(round(raise_amount))
-    elif action_index == 6:
-        action_string = "raise"
-        # Bet/Raise 100% of Pot
-        raise_amount = game_state.pot * 1.0
-        amount = int(round(raise_amount))
-    elif action_index == 7:
-        action_string = "raise"
-        # Bet/Raise 150% of Pot
-        raise_amount = game_state.pot * 1.5
-        amount = int(round(raise_amount))
-    elif action_index == 8:
-        action_string = "raise"
-        # Bet/Raise 200% of Pot
-        raise_amount = game_state.pot * 2.0
-        amount = int(round(raise_amount))
+        amount = current_bet - player_bet_in_round
+    elif action_index in raise_percentages:
+        # If there's no bet, this is a 'bet'. Otherwise, it's a 'raise'.
+        action_string = "raise" if current_bet > 0 else "bet"
+        # The amount is the total size of the new bet, not the increment.
+        # For a bet, it's % of pot. For a raise, it's current_bet + % of pot.
+        raise_increment = pot * raise_percentages[action_index]
+        amount = current_bet + raise_increment
     elif action_index == 9:
-        action_string = "raise" # Or "bet" if current_bet is 0, game engine can alias.
-        amount = player_stack # All-in
+        action_string = "raise" if current_bet > 0 else "bet"
+        amount = player_stack + player_bet_in_round # The total amount would be their full stack
     else:
         raise ValueError(f"Invalid action_index: {action_index}. Must be 0-9.")
 
-    # Ensure the bet/raise amount is at least the current bet if it's a raise,
-    # or the minimum bet if opening.
-    # Also, cap by player_stack.
-    # These complexities will be handled by the game engine or in a later refinement.
-    # For now, the mapping is direct. If amount is not None, it should be an int.
+    # Clamp the amount to be within the player's stack
     if amount is not None:
-        amount = int(round(amount))
-        # A simple clamp to not bet more than stack.
-        # Game engine will have more robust logic for this (e.g. side pots).
-        if amount > player_stack:
-            amount = player_stack
-        # If it's a raise, the amount should be at least the current bet plus a minimum raise unit,
-        # or if it's an opening bet, at least a minimum bet.
-        # For now, if current_bet > 0 and the calculated amount for "raise" is less than current_bet,
-        # it's not a valid raise. The game engine should handle this.
-        # The current logic simply calculates the target bet amount for "raise" actions.
+        amount_to_commit = amount - player_bet_in_round if action_string == 'raise' else amount
+        if amount_to_commit > player_stack:
+            amount = player_stack + player_bet_in_round
+
+        amount = int(round(amount)) if amount > 0 else 0
+
+    # The action string for 'call' should be the final amount to call
+    if action_string == 'call':
+        amount = current_bet - player_bet_in_round
 
     return action_string, amount
 
