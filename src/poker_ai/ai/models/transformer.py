@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 
 
-class TransformerAverageStrategy(nn.Module):
-    """Encoder-only Transformer producing action probabilities."""
+class AdvantageNetwork(nn.Module):
+    """Encoder-only Transformer producing raw advantages for each action."""
 
     def __init__(
         self,
@@ -23,9 +23,9 @@ class TransformerAverageStrategy(nn.Module):
         self.num_actions = num_actions
 
     def forward(self, x: torch.Tensor, src_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """Encode ``x`` and return a probability distribution over actions."""
+        """Encode ``x`` and return raw, unbounded advantages for each action."""
         x = self.input_projection(x)
         x = self.transformer(x, mask=src_mask)
         x = self.fc(x[:, -1, :])
-        return nn.Softmax(dim=-1)(x)
+        return x
 
