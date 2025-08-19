@@ -2,15 +2,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from ai_models.transformer import TransformerAverageStrategy
-from rules.cfr import calculate_strategy, update_regret, update_strategy
+from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
 class SingleNetworkCFRTrainer:
     """CFR trainer that predicts regret and strategy with a single network."""
     def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, lr: float = 1e-3,
                  device: str | None = None):
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = TransformerAverageStrategy(
+        self.model = AdvantageNetwork(
             input_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=4,

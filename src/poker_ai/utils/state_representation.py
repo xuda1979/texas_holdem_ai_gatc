@@ -121,7 +121,7 @@ def prepare_transformer_input(
             min_features,
         )
 
-    all_player_ids_ordered = game_state.player_order
+    all_player_ids_ordered = [str(i) for i in range(game_state.num_players)]
 
     # Helper to create a feature vector of fixed dimension d_raw_feature
     def _pad_feature(values: List[float]) -> List[float]:
@@ -143,13 +143,13 @@ def prepare_transformer_input(
 
     # Community cards (0 to 5 cards)
     # Uses [encoded_card_value, 0, TYPE_ID_CARD (or 0)]
-    for card_str in game_state.community_cards:
+    for card_str in game_state.rules.community_cards:
         encoded_card = _encode_card(card_str)
         raw_sequence.append(_pad_feature(encoded_card + [TYPE_ID_CARD]))
         
     # 2. Betting History Encoding
     # Uses [player_id_numeric, action_id_numeric, amount_normalized]
-    for p_id_str, action_tuple in game_state.betting_history:
+    for p_id_str, action_tuple in game_state.rules.betting_history:
         action_name, amount_val = action_tuple
         
         numeric_p_id = float(_get_numeric_player_id(p_id_str, all_player_ids_ordered))
@@ -161,13 +161,13 @@ def prepare_transformer_input(
 
     # 3. Other Game State Features
     # Pot size: [pot_value_normalized, 0, TYPE_ID_POT]
-    normalized_pot = float(game_state.pot / NORM_STACK_POT)
+    normalized_pot = float(game_state.rules.pot / NORM_STACK_POT)
     raw_sequence.append(_pad_feature([normalized_pot, TYPE_ID_POT]))
     
     # Current bet faced by player: [bet_value_normalized, 0, TYPE_ID_CURRENT_BET]
     # This is the additional amount the player needs to call.
     player_bet_in_round = current_player_obj.current_bet_in_round
-    effective_bet_faced = max(0, game_state.current_bet - player_bet_in_round)
+    effective_bet_faced = max(0, game_state.rules.current_bet - player_bet_in_round)
     normalized_bet_faced = float(effective_bet_faced / NORM_AMOUNT)
     raw_sequence.append(_pad_feature([normalized_bet_faced, TYPE_ID_CURRENT_BET]))
 
@@ -176,7 +176,7 @@ def prepare_transformer_input(
     raw_sequence.append(_pad_feature([normalized_stack, TYPE_ID_PLAYER_STACK]))
 
     # Current betting round: [round_id, 0, TYPE_ID_ROUND]
-    round_id_numeric = float(ROUND_TO_ID.get(game_state.betting_round.lower(), -1)) # -1 for unknown
+    round_id_numeric = float(ROUND_TO_ID.get(game_state.rules.betting_round.lower(), -1)) # -1 for unknown
     raw_sequence.append(_pad_feature([round_id_numeric, TYPE_ID_ROUND]))
     
     # 4. Assembling the Sequence (already done by appending to raw_sequence)

@@ -7,7 +7,7 @@ import threading
 import signal
 import torch
 from datetime import datetime
-from poker_ai.ai.models.transformer import TransformerAverageStrategy
+from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.config import config
 
@@ -32,7 +32,7 @@ def model_exists(weights_path, config_path):
 def load_existing_model(weights_path, config_path):
     with open(config_path, 'r') as f:
         model_config = json.load(f)
-    model = TransformerAverageStrategy(**model_config)
+    model = AdvantageNetwork(**model_config)
     model.load_state_dict(torch.load(weights_path))
     print(f'Model loaded from {weights_path}')
     return model
@@ -46,7 +46,7 @@ def initialize_new_model():
         'num_layers': 2,
         'num_actions': 4,
     }
-    return TransformerAverageStrategy(**model_config)
+    return AdvantageNetwork(**model_config)
 
 def save_transformer_model(transformer_strategy):
     models_dir = config.MODEL_DIR
