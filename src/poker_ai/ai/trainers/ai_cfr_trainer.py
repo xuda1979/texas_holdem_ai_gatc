@@ -3,7 +3,7 @@ import torch.optim as optim
 import logging
 import yaml
 import os
-from poker_ai.ai.models.transformer import TransformerAverageStrategy
+from poker_ai.ai.models.transformer import AdvantageNetwork
 # Assuming rules.cfr is accessible from this path. Adjust if necessary.
 # e.g., if 'rules' is a top-level directory: from rules.cfr import ...
 # If trainers and rules are siblings under a common root (e.g. 'src'): from ..rules.cfr import ...
@@ -24,7 +24,7 @@ except FileNotFoundError:
     # Define a default config structure if file not found, to allow module loading
     config = {
         'logging': {'log_file': 'aicfr_trainer.log'},
-        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18},
+        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18, 'max_seq_len': 256},
         'training': {'save_model_path': 'aicfr_model.pth'}
     }
 
@@ -52,7 +52,7 @@ class AICFRTrainer:
         # This value should match the d_raw_feature used in state_representation.py
         d_raw_feature = model_config.get('d_raw_feature', 18)
 
-        self.model = TransformerAverageStrategy(
+        self.model = AdvantageNetwork(
             input_feature_dim=d_raw_feature,
             hidden_dim=hidden_dim,
             num_heads=8,  # Assuming num_heads and num_layers are fixed or could also be in config
@@ -71,6 +71,21 @@ class AICFRTrainer:
         self.cumulative_regret: dict[str, torch.Tensor] = {}
         self.cumulative_strategy: dict[str, torch.Tensor] = {}
 
+    def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Returns the advantages for a given state tensor.
+        """
+        if state_tensor.ndim == 2: # Should be [seq_len, feature_dim]
+            state_tensor_batched = state_tensor.unsqueeze(0)
+        elif state_tensor.ndim == 3 and state_tensor.shape[0] == 1: # Already batched
+            state_tensor_batched = state_tensor
+        else:
+            raise ValueError(f"state_tensor has unexpected shape: {state_tensor.shape}")
+
+        state_tensor_batched = state_tensor_batched.to(self.device)
+        with torch.no_grad():
+            advantages = self.model(state_tensor_batched).squeeze(0)
+        return advantages
 
     def train(self, info_set_id: str, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
         """
@@ -140,13 +155,14 @@ class AICFRTrainer:
             # Re-raise or handle as appropriate for the application
             raise
 
-    def save_model(self):
+    def save_model(self, model_path=None):
         # Ensure config path is correct or make it an argument
         try:
-            model_path = config['training']['save_model_path']
+            if model_path is None:
+                model_path = self.config['training']['save_model_path']
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             torch.save(self.model.state_dict(), model_path)
-            logging.info(f"Model saved to {config['training']['save_model_path']}")
+            logging.info(f"Model saved to {model_path}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 

@@ -10,7 +10,7 @@ import torch
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
-from poker_ai.selfplay.self_play import SelfPlay, load_transformer_model   # ← new
+from poker_ai.selfplay.self_play import SelfPlay
 from typing import List, Dict
 
 # Configuration Loading
@@ -57,7 +57,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--algorithm",
-        default="ai_cfr",
+        default="deep_cfr",
         choices=["ai_cfr", "deep_cfr", "single_network"],
         help="Training algorithm to use"
     )

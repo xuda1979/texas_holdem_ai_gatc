@@ -57,7 +57,10 @@ class SelfPlay:
         """
         # a. Get the infoset tensor for the current player
         # This function needs to be robust and handle the game state correctly
-        state_tensor = prepare_transformer_input(game, player_id)
+        model_config = self.cfr_trainer.config.get('model', {})
+        max_seq_len = model_config.get('max_seq_len', 256)
+        d_raw_feature = model_config.get('d_raw_feature', 18)
+        state_tensor = prepare_transformer_input(game, player_id, max_seq_len, d_raw_feature)
         
         # b. Get advantages from the network
         advantages = self.cfr_trainer.get_advantages(state_tensor)
@@ -88,7 +91,12 @@ class SelfPlay:
         # In this engine, chance events (dealing cards) are handled by advancing the stage
         if game.rules.betting_round_is_over():
             next_game = copy.deepcopy(game)
-            next_game.play_stage() # Deals flop, turn, or river
+            if len(game.rules.community_cards) == 0:
+                next_game.play_stage('flop')
+            elif len(game.rules.community_cards) == 3:
+                next_game.play_stage('turn')
+            elif len(game.rules.community_cards) == 4:
+                next_game.play_stage('river')
             return self._traverse_mccfr(next_game, traverser_id, iteration, p0, p1)
 
         # --- Decision Node ---
@@ -109,6 +117,8 @@ class SelfPlay:
                 # Create a new game state for this action
                 next_game = copy.deepcopy(game)
                 action_str, amount = get_action_from_index(action_idx, next_game, player_id=current_player)
+                next_game.process_action(current_player, action_str, amount)
+                next_game.rules.advance_turn()
 
                 # The opponent's reach probability is not updated here
                 reach_prob_p0, reach_prob_p1 = p0, p1
@@ -126,7 +136,10 @@ class SelfPlay:
             opponent_reach = p1 if traverser_id == 0 else p0
             weighted_regrets = regrets * opponent_reach
 
-            state_tensor = prepare_transformer_input(game, traverser_id)
+            model_config = self.cfr_trainer.config.get('model', {})
+            max_seq_len = model_config.get('max_seq_len', 256)
+            d_raw_feature = model_config.get('d_raw_feature', 18)
+            state_tensor = prepare_transformer_input(game, traverser_id, max_seq_len, d_raw_feature)
             self.cfr_trainer.replay_buffer.push(state_tensor, weighted_regrets, iteration)
 
             return node_value
@@ -139,6 +152,7 @@ class SelfPlay:
             next_game = copy.deepcopy(game)
             action_str, amount = get_action_from_index(action_idx, next_game, player_id=current_player)
             next_game.process_action(current_player, action_str, amount)
+            next_game.rules.advance_turn()
 
             # Update reach probabilities for the sampled action
             if current_player == 0:
