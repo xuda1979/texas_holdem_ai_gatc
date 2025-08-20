@@ -68,17 +68,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--device",
-        choices=["cpu", "cuda", "npu"],
+        choices=["cpu", "cuda"],
         default=None,
-        help="Computation device. Defaults to CUDA if available, then NPU, then CPU.",
+        help="Computation device. Defaults to CUDA if available, then CPU. Use --npu for NPU support.",
+    )
+    parser.add_argument(
+        "--npu",
+        action="store_true",
+        help="Enable training on all available NPUs."
     )
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict, device: str):
+def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False):
     """Return a trainer instance based on selected algorithm."""
+    trainer = None
     if algorithm == "ai_cfr":
-        return AICFRTrainer(device=device)
+        trainer = AICFRTrainer(device=device)
     elif algorithm == "deep_cfr":
         from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer
         model_cfg = config.get("model", {})
@@ -86,7 +92,7 @@ def initialize_trainer(algorithm: str, config: dict, device: str):
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
-        return DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
+        trainer = DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
         model_cfg = config.get("model", {})
@@ -94,22 +100,55 @@ def initialize_trainer(algorithm: str, config: dict, device: str):
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
-        return SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr, device=device)
+        trainer = SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr, device=device)
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
+
+    if use_all_npus:
+        model_to_wrap = None
+        if hasattr(trainer, 'advantage_net'):
+            model_to_wrap = trainer.advantage_net
+        elif hasattr(trainer, 'model'):
+            model_to_wrap = trainer.model
+
+        if model_to_wrap:
+            print("Wrapping model with DataParallel for multi-NPU training.")
+            # The model is already on the correct device from the trainer's __init__
+            wrapped_model = torch.nn.DataParallel(model_to_wrap)
+            if hasattr(trainer, 'advantage_net'):
+                trainer.advantage_net = wrapped_model
+            elif hasattr(trainer, 'model'):
+                trainer.model = wrapped_model
+        else:
+            print("Warning: Could not find model to wrap for DataParallel.")
+
+    return trainer
 
 
 def main():
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
-    if args.device:
+    device = None
+    use_all_npus = False
+
+    if args.npu:
+        if hasattr(torch, 'npu') and torch.npu.is_available():
+            device = "npu"
+            npu_count = torch.npu.device_count()
+            if npu_count > 1:
+                use_all_npus = True
+                print(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+            else:
+                print("NPU training enabled. Found 1 NPU.")
+        else:
+            print("Warning: --npu flag was specified, but no NPU devices are available. Falling back to CPU.")
+            device = "cpu"
+    elif args.device:
         device = args.device
     else:
         if torch.cuda.is_available():
             device = "cuda"
-        elif hasattr(torch, 'npu') and torch.npu.is_available():
-            device = "npu"
         else:
             device = "cpu"
 
@@ -168,7 +207,7 @@ def main():
     }
 
     try:
-        cfr_trainer = initialize_trainer(args.algorithm, config, device)
+        cfr_trainer = initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus)
         print(f"{args.algorithm} trainer initialized.")
     except Exception as e:
         print(f"Error initializing trainer: {e}")
