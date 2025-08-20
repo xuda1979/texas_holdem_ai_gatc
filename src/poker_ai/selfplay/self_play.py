@@ -12,6 +12,7 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
 from poker_ai.rules.cfr import calculate_strategy
 
+
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
@@ -37,7 +38,7 @@ class SelfPlay:
         # 2. Designate the traverser for this iteration
         # We alternate which player we are collecting training data for
         traverser_id = iteration % 2
-        
+
         # 3. Start the recursive MCCFR traversal from the root of the game
         # The initial reach probabilities for both players are 1.0
         self._traverse_mccfr(game, traverser_id, iteration, p0=1.0, p1=1.0)
@@ -61,20 +62,34 @@ class SelfPlay:
         max_seq_len = model_config.get('max_seq_len', 256)
         d_raw_feature = model_config.get('d_raw_feature', 18)
         state_tensor = prepare_transformer_input(game, player_id, max_seq_len, d_raw_feature)
-        
+
         # b. Get advantages from the network
         advantages = self.cfr_trainer.get_advantages(state_tensor)
-        
+
         # c. Get a mask for legal actions
         legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)
-        
-        # d. Apply the mask to the advantages
-        # We set advantages of illegal actions to a very small number before regret matching
-        advantages[~legal_actions_mask] = -1e9
-        
-        # e. Convert advantages to a strategy via regret matching
-        policy = calculate_strategy(advantages, self.cfr_trainer.num_actions)
 
+        # d. Apply the mask to the advantages by cloning and setting illegal entries to -inf.
+        #    We avoid modifying the original tensor in-place to prevent unintended side-effects.
+        masked_advantages = advantages.clone()
+        masked_advantages[~legal_actions_mask] = float('-inf')
+
+        # e. Convert advantages to a strategy via regret matching over legal actions only.
+        #    We first compute the positive part of the masked advantages.  Negative or
+        #    -inf values contribute zero to the sum.  If there is some positive regret
+        #    among the legal actions, we normalize over those values.  Otherwise,
+        #    we return a uniform distribution over the legal actions.  Illegal
+        #    actions always receive zero probability.
+        positive_adv = torch.clamp(masked_advantages, min=0.0)
+        sum_positive = positive_adv.sum()
+        policy = torch.zeros_like(masked_advantages)
+        if sum_positive > 0:
+            policy[legal_actions_mask] = positive_adv[legal_actions_mask] / sum_positive
+        else:
+            # If all advantages are non-positive, fall back to uniform distribution over legal actions.
+            num_legal = int(legal_actions_mask.sum().item())
+            if num_legal > 0:
+                policy[legal_actions_mask] = 1.0 / num_legal
         return policy
 
     def _traverse_mccfr(self, game: TexasHoldem, traverser_id: int, iteration: int, p0: float, p1: float) -> float:
@@ -157,5 +172,5 @@ class SelfPlay:
             # Update reach probabilities for the sampled action
             if current_player == 0:
                 return self._traverse_mccfr(next_game, traverser_id, iteration, p0 * policy[action_idx], p1)
-            else: # current_player == 1
+            else:  # current_player == 1
                 return self._traverse_mccfr(next_game, traverser_id, iteration, p0, p1 * policy[action_idx])
