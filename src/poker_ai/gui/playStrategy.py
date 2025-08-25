@@ -1,7 +1,9 @@
 # playStrategy.py
 
 import random
-from ai_gto_analyzer import display_ai_gto_stats # Import the new AI GTO display function
+
+# Import the new AI GTO display function lazily inside HumanStrategy to avoid
+# pulling heavy GUI dependencies when simply importing this module.
 
 class PlayerStrategy:
     @property
@@ -43,8 +45,9 @@ class HumanStrategy(PlayerStrategy):
         return True
 
     def choose_action(self, game, player_index):
-        # Display AI-derived GTO stats before prompting for action
-        # model_path can be omitted to use defaults from ai_gto_analyzer
+        # Display AI-derived GTO stats before prompting for action.
+        # The import is delayed to keep GUI dependencies optional.
+        from ai_gto_analyzer import display_ai_gto_stats
         display_ai_gto_stats(game, player_index)
 
         while True:

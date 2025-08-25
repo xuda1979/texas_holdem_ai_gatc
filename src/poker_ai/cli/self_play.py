@@ -10,43 +10,111 @@ from datetime import datetime
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.config import config
+from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.action_mapping import (
+    get_action_from_index,
+    get_legal_actions_mask,
+)
+
+
+class TransformerStrategy:
+    """Wraps an ``AdvantageNetwork`` with game logic helpers."""
+
+    def __init__(self, model: AdvantageNetwork, config: dict, device: torch.device):
+        self.model = model.to(device)
+        self.model.eval()
+        self.config = config
+        self.device = device
+
+    @property
+    def is_human(self) -> bool:
+        return False
+
+    @torch.no_grad()
+    def choose_action(self, game: TexasHoldem, player_index: int):
+        max_seq_len = self.config.get("max_seq_len", 256)
+        d_raw_feature = self.config.get(
+            "d_raw_feature", self.config.get("input_feature_dim", 18)
+        )
+        state_tensor = prepare_transformer_input(
+            game, player_index, max_seq_len, d_raw_feature
+        )
+        advantages = (
+            self.model(state_tensor.unsqueeze(0).to(self.device))
+            .squeeze(0)
+            .cpu()
+        )
+        num_actions = self.config.get("num_actions", self.model.num_actions)
+        legal_mask = get_legal_actions_mask(game, player_index, num_actions)
+
+        # Mask out illegal actions and perform regret matching manually so that
+        # the uniform fallback covers only legal moves.
+        advantages[~legal_mask] = -float("inf")
+        positive = torch.clamp(advantages, min=0) * legal_mask.float()
+        if positive.sum() > 0:
+            policy = positive / positive.sum()
+        else:
+            policy = legal_mask.float() / legal_mask.sum()
+
+        action_idx = torch.multinomial(policy, 1).item()
+        return get_action_from_index(action_idx, game, player_index)
 
 COMMON_ACTIONS = ['talk', 'move']
 
 def load_transformer_model():
-    model_name = 'texas_holdem_transformer_ai'
+    model_name = "texas_holdem_transformer_ai"
     weights_path, config_path = get_model_paths(model_name)
-    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model_exists(weights_path, config_path):
-        return load_existing_model(weights_path, config_path)
-    return initialize_new_model()
+        return load_existing_model(weights_path, config_path, device)
+    return initialize_new_model(device)
 
 def get_model_paths(model_name):
-    weights_path = os.path.join(config.MODEL_DIR, f'{model_name}.weights.h5')
+    weights_path = os.path.join(config.MODEL_DIR, f"{model_name}.pth")
     config_path = os.path.join(config.MODEL_DIR, f'{model_name}_config.json')
     return weights_path, config_path
 
 def model_exists(weights_path, config_path):
     return os.path.exists(weights_path) and os.path.exists(config_path)
 
-def load_existing_model(weights_path, config_path):
-    with open(config_path, 'r') as f:
+def load_existing_model(weights_path, config_path, device):
+    with open(config_path, "r") as f:
         model_config = json.load(f)
-    model = AdvantageNetwork(**model_config)
-    model.load_state_dict(torch.load(weights_path))
-    print(f'Model loaded from {weights_path}')
-    return model
-
-def initialize_new_model():
-    print('No existing model found. Initializing a new model.')
-    model_config = {
-        'input_feature_dim': 10,
-        'hidden_dim': 64,
-        'num_heads': 2,
-        'num_layers': 2,
-        'num_actions': 4,
+    network_params = {
+        k: model_config[k]
+        for k in [
+            "input_feature_dim",
+            "hidden_dim",
+            "num_heads",
+            "num_layers",
+            "num_actions",
+        ]
     }
-    return AdvantageNetwork(**model_config)
+    model = AdvantageNetwork(**network_params)
+    model.load_state_dict(torch.load(weights_path, map_location=device))
+    print(f"Model loaded from {weights_path}")
+    return TransformerStrategy(model, model_config, device)
+
+def initialize_new_model(device):
+    print("No existing model found. Initializing a new model.")
+    model_config = {
+        "input_feature_dim": 18,
+        "hidden_dim": 128,
+        "num_heads": 2,
+        "num_layers": 2,
+        "num_actions": 10,
+        "max_seq_len": 256,
+        "d_raw_feature": 18,
+    }
+    network_params = {
+        "input_feature_dim": model_config["input_feature_dim"],
+        "hidden_dim": model_config["hidden_dim"],
+        "num_heads": model_config["num_heads"],
+        "num_layers": model_config["num_layers"],
+        "num_actions": model_config["num_actions"],
+    }
+    model = AdvantageNetwork(**network_params)
+    return TransformerStrategy(model, model_config, device)
 
 def save_transformer_model(transformer_strategy):
     models_dir = config.MODEL_DIR
@@ -59,22 +127,21 @@ def save_transformer_model(transformer_strategy):
 
 def get_save_paths():
     timestamp = datetime.now().strftime("%y%m%d%H%M%S")
-    weight_path = os.path.join(config.MODEL_DIR, f"{timestamp}_model.weights.h5")
+    weight_path = os.path.join(config.MODEL_DIR, f"{timestamp}_model.pth")
     config_path = os.path.join(config.MODEL_DIR, f"{timestamp}_model.config.json")
     return weight_path, config_path
 
 def save_weights(transformer_strategy, weight_path):
     try:
-        transformer_strategy.model.save_weights(weight_path)
+        torch.save(transformer_strategy.model.state_dict(), weight_path)
         print(f"Saved model weights to {weight_path}")
     except Exception as e:
         print(f"Error saving model weights: {e}")
 
 def save_config(transformer_strategy, config_path):
     try:
-        config = transformer_strategy.model.get_config()
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
+        with open(config_path, "w") as f:
+            json.dump(transformer_strategy.config, f, indent=4)
         print(f"Saved model configuration to {config_path}")
     except Exception as e:
         print(f"Error saving model configuration: {e}")
