@@ -48,16 +48,17 @@ class AICFRTrainer:
         output_dim = model_config.get('num_actions', 10) # Default if not found
         learning_rate = model_config.get('learning_rate', 0.001) # Default if not found
 
-        # Fetch d_raw_feature with a default value
-        # This value should match the d_raw_feature used in state_representation.py
+        # Feature dimensions for history sequence and card set summaries
         d_raw_feature = model_config.get('d_raw_feature', 18)
+        d_card_feature = model_config.get('d_card_feature', 17)
 
         self.model = AdvantageNetwork(
-            input_feature_dim=d_raw_feature,
+            history_feature_dim=d_raw_feature,
+            card_feature_dim=d_card_feature,
             hidden_dim=hidden_dim,
-            num_heads=8,  # Assuming num_heads and num_layers are fixed or could also be in config
+            num_heads=8,  # Could also be in config
             num_layers=2,
-            num_actions=output_dim
+            num_actions=output_dim,
         )
         self.model.to(self.device)
 
@@ -71,54 +72,72 @@ class AICFRTrainer:
         self.cumulative_regret: dict[str, torch.Tensor] = {}
         self.cumulative_strategy: dict[str, torch.Tensor] = {}
 
-    def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Returns the advantages for a given state tensor.
-        """
-        if state_tensor.ndim == 2: # Should be [seq_len, feature_dim]
-            state_tensor_batched = state_tensor.unsqueeze(0)
-        elif state_tensor.ndim == 3 and state_tensor.shape[0] == 1: # Already batched
-            state_tensor_batched = state_tensor
-        else:
-            raise ValueError(f"state_tensor has unexpected shape: {state_tensor.shape}")
+    def get_advantages(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Returns the advantages for the given state representation."""
 
-        state_tensor_batched = state_tensor_batched.to(self.device)
+        if hole_summary.ndim == 1:
+            hole_summary = hole_summary.unsqueeze(0)
+        if community_summary.ndim == 1:
+            community_summary = community_summary.unsqueeze(0)
+        if history_tensor.ndim == 2:
+            history_tensor = history_tensor.unsqueeze(0)
+
+        hole_summary = hole_summary.to(self.device)
+        community_summary = community_summary.to(self.device)
+        history_tensor = history_tensor.to(self.device)
+        mask = mask.to(self.device) if mask is not None else None
+
         with torch.no_grad():
-            advantages = self.model(state_tensor_batched).squeeze(0)
-        return advantages
+            advantages = self.model(hole_summary, community_summary, history_tensor, src_mask=None)
+        return advantages.squeeze(0)
 
-    def train(self, info_set_id: str, state_tensor: torch.Tensor, all_counterfactual_payoffs: torch.Tensor):
-        """
-        Trains the model for one step based on the provided state and counterfactual payoffs.
-        Args:
-            state_tensor: A tensor representing the game state. Expected shape [seq_len, feature_dim].
-            all_counterfactual_payoffs: A tensor of payoffs for each possible action from this state. Shape [num_actions].
-        """
+    def train(
+        self,
+        info_set_id: str,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        all_counterfactual_payoffs: torch.Tensor,
+        mask: torch.Tensor | None = None,
+    ):
+        """Train the model for one step based on the provided state."""
+
         try:
-            # Ensure state_tensor is correctly shaped for the model (batch_size=1)
-            if state_tensor.ndim == 2: # Should be [seq_len, feature_dim]
-                state_tensor_batched = state_tensor.unsqueeze(0)
-            elif state_tensor.ndim == 3 and state_tensor.shape[0] == 1: # Already batched
-                state_tensor_batched = state_tensor
-            else:
-                raise ValueError(f"state_tensor has unexpected shape: {state_tensor.shape}")
+            if hole_summary.ndim == 1:
+                hole_summary = hole_summary.unsqueeze(0)
+            if community_summary.ndim == 1:
+                community_summary = community_summary.unsqueeze(0)
+            if history_tensor.ndim == 2:
+                history_tensor = history_tensor.unsqueeze(0)
 
-            state_tensor_batched = state_tensor_batched.to(self.device)
+            hole_summary = hole_summary.to(self.device)
+            community_summary = community_summary.to(self.device)
+            history_tensor = history_tensor.to(self.device)
             all_counterfactual_payoffs = all_counterfactual_payoffs.to(self.device)
 
             # a. Get model's current strategy prediction
-            strategy_pred = self.model(state_tensor_batched).squeeze(0)
+            strategy_pred = self.model(
+                hole_summary,
+                community_summary,
+                history_tensor,
+                src_mask=None,
+            ).squeeze(0)
 
-            # b. Detach strategy_pred for regret calculation
+            # b. Detach for regret calculation
             current_model_strategy_detached = strategy_pred.detach().clone()
 
-            # c. Calculate state value under the model's current (detached) strategy
+            # c. Calculate state value under current strategy
             state_value = torch.sum(current_model_strategy_detached * all_counterfactual_payoffs)
 
             # d. Calculate action regrets
             action_regrets = all_counterfactual_payoffs - state_value
 
-            # Retrieve or initialize tensors for this information set
             if info_set_id not in self.cumulative_regret:
                 self.cumulative_regret[info_set_id] = torch.zeros(self.num_actions, device=self.device)
                 self.cumulative_strategy[info_set_id] = torch.zeros(self.num_actions, device=self.device)
@@ -129,30 +148,28 @@ class AICFRTrainer:
             # e. Update cumulative regrets
             cumulative_regret = update_regret(cumulative_regret, action_regrets)
 
-            # f. Get current iteration's regret-matched policy
+            # f. Current regret-matched policy
             current_regret_matched_policy = calculate_strategy(cumulative_regret, self.num_actions)
 
-            # g. Update cumulative strategy (accumulate the regret-matched policy)
-            cumulative_strategy = update_strategy(cumulative_strategy, current_regret_matched_policy.detach())
+            # g. Update cumulative strategy
+            cumulative_strategy = update_strategy(
+                cumulative_strategy, current_regret_matched_policy.detach()
+            )
 
-            # Store updated tensors back
             self.cumulative_regret[info_set_id] = cumulative_regret
             self.cumulative_strategy[info_set_id] = cumulative_strategy
-            
-            # h. Compute Loss: Train model's output (strategy_pred) to match current_regret_matched_policy
-            # Target should be detached as we don't want to backprop through its calculation.
+
+            # h. Loss: train model output to match regret-matched policy
             loss = F.mse_loss(strategy_pred, current_regret_matched_policy.detach())
 
-            # i. Optimizer step
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            
+
             logging.info(f"Training step completed. Loss: {loss.item()}")
-        
-        except Exception as e:
+
+        except Exception as e:  # pragma: no cover - logging path
             logging.error(f"Error during training: {str(e)}", exc_info=True)
-            # Re-raise or handle as appropriate for the application
             raise
 
     def save_model(self, model_path=None):

@@ -13,10 +13,14 @@ from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
 def test_trainer_updates_info_set():
     trainer = AICFRTrainer(device="cpu")
-    state = torch.zeros(1, 18)
+    card_dim = trainer.model.card_projection.in_features
+    history_dim = trainer.model.history_projection.in_features
+    hole = torch.zeros(card_dim)
+    community = torch.zeros(card_dim)
+    history = torch.zeros(1, history_dim)
     payoffs = torch.arange(trainer.num_actions, dtype=torch.float32)
     info_set = "root"
-    trainer.train(info_set, state, payoffs)
+    trainer.train(info_set, hole, community, history, payoffs)
     assert info_set in trainer.cumulative_regret
     assert torch.any(trainer.cumulative_regret[info_set] != 0)
     assert info_set in trainer.cumulative_strategy

@@ -15,7 +15,8 @@ def test_advantage_network_forward_pass():
     print("Running AdvantageNetwork Forward Pass Test...")
 
     # Define model parameters
-    input_feature_dim = 18
+    history_feature_dim = 3
+    card_feature_dim = 32
     hidden_dim = 128
     num_actions = 10
     num_heads = 4
@@ -28,11 +29,12 @@ def test_advantage_network_forward_pass():
     # Instantiate the model
     try:
         model = AdvantageNetwork(
-            input_feature_dim=input_feature_dim,
+            history_feature_dim=history_feature_dim,
+            card_feature_dim=card_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=num_heads,
             num_layers=num_layers,
-            num_actions=num_actions
+            num_actions=num_actions,
         )
         model.eval()
         print("Model instantiated successfully.")
@@ -42,8 +44,12 @@ def test_advantage_network_forward_pass():
 
     # Create a dummy input tensor
     try:
-        dummy_input = torch.rand(batch_size, max_seq_len, input_feature_dim)
-        print(f"Dummy input tensor created with shape: {dummy_input.shape}")
+        dummy_history = torch.rand(batch_size, max_seq_len, history_feature_dim)
+        dummy_hole = torch.rand(batch_size, card_feature_dim)
+        dummy_community = torch.rand(batch_size, card_feature_dim)
+        print(
+            f"Dummy tensors created with shapes: history {dummy_history.shape}, hole {dummy_hole.shape}"
+        )
     except Exception as e:
         print(f"Error creating dummy input tensor: {e}")
         raise
@@ -51,7 +57,7 @@ def test_advantage_network_forward_pass():
     # Perform a forward pass
     try:
         with torch.no_grad():
-            output_advantages = model(dummy_input)
+            output_advantages = model(dummy_hole, dummy_community, dummy_history)
         print(f"Model forward pass successful. Output shape: {output_advantages.shape}")
     except Exception as e:
         print(f"Error during model forward pass: {e}")
