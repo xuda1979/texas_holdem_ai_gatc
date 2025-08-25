@@ -11,6 +11,7 @@ from poker_ai.utils.state_representation import (
     MockGameState,
     MockPlayer,
     prepare_transformer_input,
+    CardSetTransformer,
     _encode_card,
     RANK_TO_NUM,
     SUIT_TO_NUM,
@@ -19,8 +20,13 @@ from poker_ai.utils.state_representation import (
 def test_prepare_transformer_input_mask():
     p0 = MockPlayer('p0', ['Ah', 'Ks'], 100)
     gs = MockGameState([p0], [], 0, 0, 'pre-flop', [], ['p0'])
-    tensor, mask = prepare_transformer_input(gs, 'p0', 5, 18, return_mask=True)
-    assert tensor.shape == (5, 18)
+    encoder = CardSetTransformer(card_dim=17, hidden_dim=32)
+    hole, community, seq, mask = prepare_transformer_input(
+        gs, 'p0', 5, 3, set_encoder=encoder, return_mask=True
+    )
+    assert hole.shape == (encoder.output_dim,)
+    assert community.shape == (encoder.output_dim,)
+    assert seq.shape == (5, 3)
     assert mask.shape == (5,)
 
 

@@ -44,16 +44,24 @@ class DeepCFRTrainer:
     A Deep CFR trainer that implements the algorithm from 'texas.tex'.
     It uses a single advantage network and trains with a weighted MSE loss (Linear CFR).
     """
-    def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int,
-                 learning_rate: float = 1e-4, buffer_capacity: int = 1_000_000,
-                 device: str | None = None):
+    def __init__(
+        self,
+        input_feature_dim: int,
+        hidden_dim: int,
+        num_actions: int,
+        learning_rate: float = 1e-4,
+        buffer_capacity: int = 1_000_000,
+        device: str | None = None,
+    ):
 
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self.num_actions = num_actions
+        self.card_feature_dim = input_feature_dim  # placeholder dimension
 
-        # Use the new AdvantageNetwork
+        # Use the new AdvantageNetwork; this trainer treats card summaries as zeros
         self.advantage_net = AdvantageNetwork(
-            input_feature_dim=input_feature_dim,
+            history_feature_dim=input_feature_dim,
+            card_feature_dim=self.card_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=4,
             num_layers=2,
@@ -78,14 +86,14 @@ class DeepCFRTrainer:
 
     @torch.no_grad()
     def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Gets the predicted advantages for a given state tensor.
-        Runs in no_grad context as it's used for inference/data generation.
-        """
+        """Inference helper using zero card summaries (for compatibility)."""
+
         if state_tensor.ndim == 2:
             state_tensor = state_tensor.unsqueeze(0)
         state_tensor = state_tensor.to(self.device)
-        advantages = self.advantage_net(state_tensor)
+        batch = state_tensor.size(0)
+        zeros = torch.zeros(batch, self.card_feature_dim, device=self.device)
+        advantages = self.advantage_net(zeros, zeros, state_tensor)
         return advantages.squeeze(0).cpu()
 
     def train(self, batch_size: int = 256):
@@ -104,8 +112,11 @@ class DeepCFRTrainer:
         regrets = torch.stack(regrets).to(self.device)
         iterations = torch.tensor(iterations, dtype=torch.float32, device=self.device).view(-1, 1)
 
-        # Get network predictions
-        adv_pred = self.advantage_net(states)
+        batch_size = states.size(0)
+        zeros = torch.zeros(batch_size, self.card_feature_dim, device=self.device)
+
+        # Get network predictions using zero card summaries
+        adv_pred = self.advantage_net(zeros, zeros, states)
 
         # Calculate the weighted MSE loss (Linear CFR)
         # The loss is weighted by the iteration number T

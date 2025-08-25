@@ -34,9 +34,13 @@ def test_training_logs_loss(tmp_path):
 
         trainer = ai_cfr_trainer.AICFRTrainer(device="cpu")
 
-        state = torch.zeros(5, 3)
+        card_dim = trainer.model.card_projection.in_features
+        history_dim = trainer.model.history_projection.in_features
+        hole = torch.zeros(card_dim)
+        community = torch.zeros(card_dim)
+        state = torch.zeros(5, history_dim)
         payoffs = torch.tensor([1.0, -1.0])
-        trainer.train("root", state, payoffs)
+        trainer.train("root", hole, community, state, payoffs)
 
         handler.flush()
         logger.removeHandler(handler)
