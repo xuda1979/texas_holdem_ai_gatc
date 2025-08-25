@@ -28,9 +28,12 @@ All production code now lives under `src/poker_ai` to allow modular development.
    ```
 
 2. **Run training**:
-   ```bash
-   python -m poker_ai.cli.train
-   ```
+    ```bash
+    python run_training.py
+    ```
+    The `run_training.py` wrapper ensures the `poker_ai` package can be imported
+    without installing the project. You can still invoke the module directly
+    with `python -m poker_ai.cli.train` if the package is installed.
 
 ### Training CLI Options
 
@@ -55,16 +58,23 @@ During training each hand uses a random number of players (between 2 and 10).
    ```
 
 5. **Command-line play simulation**:
-   ```bash
-   python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
-   ```
-   The script falls back to interactive prompts if arguments are omitted.
+    ```bash
+    python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
+    ```
+    The script falls back to interactive prompts if arguments are omitted.
 
-   After installation via `setup.py`, you can also use the entry points:
-   ```bash
-   play-poker --total-players 2 --num-humans 1
-   train-poker --num-hands 500
-  ```
+6. **AI self-play without humans**:
+    ```bash
+    python self_play.py
+    ```
+    This runs continuous self-play using the latest model weights and saves
+    simulated game histories.
+
+    After installation via `setup.py`, you can also use the entry points:
+    ```bash
+    play-poker --total-players 2 --num-humans 1
+    train-poker --num-hands 500
+    ```
 
 ### Trained Model
 

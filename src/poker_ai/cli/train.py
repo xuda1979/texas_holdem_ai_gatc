@@ -97,7 +97,11 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     elif algorithm == "deep_cfr":
         from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer
         model_cfg = config.get("model", {})
-        d_raw = model_cfg.get("d_raw_feature", 3)
+        # Default to 18 raw features so that card one-hot encodings fit even if
+        # the configuration file cannot be loaded (e.g. when PyYAML is not
+        # installed).  Using a smaller default previously resulted in repeated
+        # warnings from ``prepare_transformer_input``.
+        d_raw = model_cfg.get("d_raw_feature", 18)
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
@@ -105,7 +109,9 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
         model_cfg = config.get("model", {})
-        d_raw = model_cfg.get("d_raw_feature", 3)
+        # Match the default described above for Deep CFR to ensure consistent
+        # feature dimensions across training approaches.
+        d_raw = model_cfg.get("d_raw_feature", 18)
         hidden = model_cfg.get("hidden_dim", 128)
         num_actions = model_cfg.get("num_actions", 10)
         lr = model_cfg.get("learning_rate", 1e-3)
