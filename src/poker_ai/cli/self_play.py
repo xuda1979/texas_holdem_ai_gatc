@@ -66,8 +66,11 @@ def load_transformer_model():
     weights_path, config_path = get_model_paths(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model_exists(weights_path, config_path):
-        return load_existing_model(weights_path, config_path, device)
-    return initialize_new_model(device)
+        strategy = load_existing_model(weights_path, config_path, device)
+        last_mtime = os.path.getmtime(weights_path)
+        return strategy, weights_path, last_mtime
+    strategy = initialize_new_model(device)
+    return strategy, weights_path, None
 
 def get_model_paths(model_name):
     weights_path = os.path.join(config.MODEL_DIR, f"{model_name}.pth")
@@ -146,6 +149,23 @@ def save_config(transformer_strategy, config_path):
     except Exception as e:
         print(f"Error saving model configuration: {e}")
 
+def reload_weights_if_updated(transformer_strategy, weights_path, last_mtime):
+    """Reload model weights if the file at ``weights_path`` changed."""
+    if os.path.exists(weights_path):
+        current_mtime = os.path.getmtime(weights_path)
+        if last_mtime is None or current_mtime > last_mtime:
+            try:
+                state = torch.load(weights_path, map_location=transformer_strategy.device)
+                transformer_strategy.model.load_state_dict(state)
+                print(
+                    f"[Model Reloaded] {datetime.now().isoformat()} - "
+                    f"Loaded weights from {weights_path}"
+                )
+                return current_mtime
+            except Exception as e:
+                print(f"[Model Reloaded] Failed to reload weights: {e}")
+    return last_mtime
+
 def append_common_actions(actions):
     return actions + COMMON_ACTIONS
 
@@ -214,12 +234,15 @@ def terminate_gracefully(transformer_strategy):
     sys.exit(0)
 
 def main():
-    transformer_strategy = load_transformer_model()
+    transformer_strategy, weights_path, last_mtime = load_transformer_model()
     periodic_save(transformer_strategy, interval=1800)
     handle_termination(transformer_strategy)
 
     print("Starting self-play simulation. Press Ctrl+C to terminate.")
     while True:
+        last_mtime = reload_weights_if_updated(
+            transformer_strategy, weights_path, last_mtime
+        )
         simulate_game(transformer_strategy)
         time.sleep(1)
 
