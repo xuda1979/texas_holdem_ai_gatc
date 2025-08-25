@@ -8,7 +8,12 @@ directly and provide a thin wrapper for ``PokerGameGUI`` that imports the heavy
 module only on demand.
 """
 
-from .playStrategy import PlayerStrategy, RandomAIStrategy, HumanStrategy
+from .playStrategy import (
+    PlayerStrategy,
+    RandomAIStrategy,
+    HumanStrategy,
+    ModelAIStrategy,
+)
 
 
 def PokerGameGUI(*args, **kwargs):  # pragma: no cover - simple wrapper
@@ -22,4 +27,5 @@ __all__ = [
     "PlayerStrategy",
     "RandomAIStrategy",
     "HumanStrategy",
+    "ModelAIStrategy",
 ]
