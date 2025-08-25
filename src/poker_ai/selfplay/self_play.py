@@ -40,7 +40,9 @@ class SelfPlay:
             self._traverse_mccfr(copy.deepcopy(game), traverser_id, iteration, base_reach.copy())
 
         # 3. After the traversals, run a training step on the collected data
+ 
         if len(self.cfr_trainer.replay_buffer) >= 256:
+ 
             loss = self.cfr_trainer.train(batch_size=256)
             if loss is not None:
                 print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
