@@ -13,7 +13,7 @@
 
 \geometry{a4paper, margin=1in}
 
-\title{Mastering Heads-Up No-Limit Texas Hold'em with Deep Counterfactual Regret Minimization and Transformer Architectures}
+\title{Mastering Full-Ring No-Limit Texas Hold'em with Deep Counterfactual Regret Minimization and Transformer Architectures}
 
 % Authorship can be customized as needed
 \author[1]{AI Research Group}
@@ -26,13 +26,12 @@
 \maketitle
 
 \begin{abstract}
-Heads-Up No-Limit Texas Hold'em (HU NLHE) presents a monumental challenge for Artificial Intelligence due to its imperfect-information nature and vast state space (on the order of $10^{75}$ game states for standard competitive variants). Traditional Counterfactual Regret Minimization (CFR) methods are computationally intractable at this scale. This paper presents a comprehensive framework for developing a state-of-the-art HU NLHE AI using Deep Counterfactual Regret Minimization (Deep CFR), which leverages deep neural networks for function approximation. We focus on a Transformer-based advantage network, arguing that self‑attention is well suited to capturing long-range dependencies in betting sequences while respecting information constraints. We detail implementation strategies, including structured infoset representation with permutation-invariant card encoding, efficient training via Linear CFR (LCFR) with normalized weighted regression, robust handling of off-tree actions (action translation with optional
-subgame re-solving), and validation practices that prevent common CFR errors.
+Full-ring No-Limit Texas Hold'em, featuring between two and ten players, presents a monumental challenge for Artificial Intelligence due to its imperfect-information nature and vast state space (on the order of $10^{75}$ game states for standard competitive variants). Traditional Counterfactual Regret Minimization (CFR) methods are computationally intractable at this scale. This paper presents a comprehensive framework for developing a state-of-the-art full-ring NLHE AI using Deep Counterfactual Regret Minimization (Deep CFR), which leverages deep neural networks for function approximation. We focus on a Transformer-based advantage network, arguing that self‑attention is well suited to capturing long-range dependencies in betting sequences while respecting information constraints. We detail implementation strategies, including structured infoset representation with permutation-invariant card encoding, efficient training via Linear CFR (LCFR) with normalized weighted regression, robust handling of off-tree actions (action translation with optional subgame re-solving), and validation practices that prevent common CFR errors.
 \end{abstract}
 
 \section{Introduction}
 
-The pursuit of solving imperfect-information games has been a driving force in AI research. No-Limit Texas Hold'em (NLHE), characterized by hidden information and a massive action space, serves as a primary benchmark. In this work we explicitly target \textbf{two-player zero-sum HU NLHE} to align with CFR's theoretical guarantees. Milestones such as Libratus \cite{brown2017superhuman} and Pluribus \cite{brown2019superhuman} demonstrated superhuman performance in large poker settings through abstraction and real-time solving; DeepStack \cite{moravcik2017deepstack} and ReBeL \cite{brown2020rebel} integrated learning with search. Our contribution is a practically grounded, end-to-end Deep CFR blueprint that replaces tabular regrets with a \emph{Transformer} advantage function and a modern training pipeline suitable for HU NLHE.
+The pursuit of solving imperfect-information games has been a driving force in AI research. No-Limit Texas Hold'em (NLHE), characterized by hidden information and a massive action space, serves as a primary benchmark. In this work we target \textbf{full-ring NLHE with two to ten players}, using heuristic extensions of CFR beyond the two-player case. Milestones such as Libratus \cite{brown2017superhuman} and Pluribus \cite{brown2019superhuman} demonstrated superhuman performance in large poker settings through abstraction and real-time solving; DeepStack \cite{moravcik2017deepstack} and ReBeL \cite{brown2020rebel} integrated learning with search. Our contribution is a practically grounded, end-to-end Deep CFR blueprint that replaces tabular regrets with a \emph{Transformer} advantage function and a modern training pipeline suitable for full-ring NLHE.
 
 CFR \cite{zinkevich2007regret} is an iterative algorithm that converges to a Nash equilibrium in zero-sum games by minimizing regret. However, standard tabular CFR requires storing regrets for every information set, which is infeasible in full-scale NLHE.
 
@@ -242,13 +241,13 @@ Evaluating a poker AI involves assessing how closely it approximates a Nash equi
 \begin{enumerate}
     \item \textbf{Exploitability (e):}  The theoretical measure of performance; exact computation is intractable for NLHE.
     \item \textbf{Approximate Best Response (ABR):}  Estimate exploitability with Local Best Response (LBR) or related ABR procedures against the reconstructed average strategy.
-    \item \textbf{Performance Benchmarking:}  Evaluate on HU NLHE (e.g., 100\,bb) against strong baselines (tabular/abstraction CFR, Deep CFR with MLP head, NFSP) and report win rate in milli‑big blinds per game (mbb/g) with confidence intervals over large samples.
+    \item \textbf{Performance Benchmarking:}  Evaluate on full-ring NLHE (e.g., 100\,bb) across random player counts against strong baselines (tabular/abstraction CFR, Deep CFR with MLP head, NFSP) and report win rate in milli‑big blinds per game (mbb/g) with confidence intervals over large samples.
     \item \textbf{Ablations:}  (i) Transformer vs. MLP advantage networks; (ii) card‑set encoder on/off; (iii) LCFR on/off; (iv) retrain‑from‑scratch vs. continuous fine‑tuning; (v) action translation: deterministic nearest vs. stochastic interpolation vs. optional nested re‑solving.
 \end{enumerate}
 
 \section{Conclusion}
 
-Deep CFR provides a powerful framework for tackling the complexity of HU NLHE by generalizing strategic knowledge through function approximation.  Using \emph{only} Transformer components—permutation‑invariant card‑set encoders fused with a history encoder—aligns naturally with poker's structure.  Successful implementation requires careful CFR accounting (reach probabilities and sampling), normalized LCFR weighting, robust handling of off‑tree actions, strict legal‑action masking with a uniform fallback over legal moves, and disciplined evaluation against standard baselines.
+Deep CFR provides a powerful framework for tackling the complexity of full-ring NLHE by generalizing strategic knowledge through function approximation.  Using \emph{only} Transformer components—permutation‑invariant card‑set encoders fused with a history encoder—aligns naturally with poker's structure.  Successful implementation requires careful CFR accounting (reach probabilities and sampling), normalized LCFR weighting, robust handling of off‑tree actions, strict legal‑action masking with a uniform fallback over legal moves, and disciplined evaluation against standard baselines.
 
 \bibliographystyle{plain}
 % References

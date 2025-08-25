@@ -1,10 +1,9 @@
-"""
-Implements External Sampling MCCFR for data generation as described in 'texas.tex'.
-This version is simplified for Heads-Up No-Limit Hold'em (2 players).
-"""
+"""Implements External Sampling MCCFR for data generation as described in ``texas.tex``."""
+
+import random
 import torch
 import copy
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # Assuming these imports are correct relative to the project structure
 from poker_ai.engine.texas_holdem import TexasHoldem
@@ -18,35 +17,30 @@ class SelfPlay:
 
     def __init__(self, cfr_trainer, game_engine_config: Dict[str, Any]):
         self.cfr_trainer = cfr_trainer
-        self.game_config = game_engine_config
-        # Ensure this is a 2-player game for HU-NLHE as per the paper
-        if self.game_config.get('num_players', 2) != 2:
-            raise ValueError("This MCCFR implementation is designed for 2 players (HU-NLHE).")
+        self.starting_stack = game_engine_config.get('starting_stack', 1000)
+        self.big_blind = game_engine_config.get('big_blind', 10)
+        self.small_blind = game_engine_config.get('small_blind', 5)
+        self.min_players = game_engine_config.get('min_players', 2)
+        self.max_players = game_engine_config.get('max_players', 10)
 
     def play_hand_for_training(self, iteration: int):
         """
         Runs one full MCCFR traversal for a new hand, generating training data.
         """
-        # 1. Initialize a new hand
-        # Strategies are not used in MCCFR traversal, so they can be None
-        game = TexasHoldem(
-            num_players=self.game_config['num_players'],
-            starting_stack=self.game_config['starting_stack']
-        )
+        # 1. Initialize a new hand with a random number of players
+        num_players = random.randint(self.min_players, self.max_players)
+        game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
+        game.rules.big_blind = self.big_blind
+        game.rules.small_blind = self.small_blind
         game.initialize_game()
 
-        # 2. Designate the traverser for this iteration
-        # We alternate which player we are collecting training data for
-        traverser_id = iteration % 2
+        # 2. Perform a traversal for each player in the hand
+        base_reach = [1.0] * num_players
+        for traverser_id in range(num_players):
+            self._traverse_mccfr(copy.deepcopy(game), traverser_id, iteration, base_reach.copy())
 
-        # 3. Start the recursive MCCFR traversal from the root of the game
-        # The initial reach probabilities for both players are 1.0
-        self._traverse_mccfr(game, traverser_id, iteration, p0=1.0, p1=1.0)
-
-        # 4. After the traversal, run a training step on the collected data
-        # The trainer's replay buffer is filled by the traversal.
-        # We check if the buffer has enough samples to start training.
-        if len(self.cfr_trainer.replay_buffer) > 256:
+        # 3. After the traversals, run a training step on the collected data
+        if len(self.cfr_trainer.replay_buffer) >= 256:
             loss = self.cfr_trainer.train(batch_size=256)
             if loss is not None:
                 print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
@@ -92,11 +86,14 @@ class SelfPlay:
                 policy[legal_actions_mask] = 1.0 / num_legal
         return policy
 
-    def _traverse_mccfr(self, game: TexasHoldem, traverser_id: int, iteration: int, p0: float, p1: float) -> float:
-        """
-        Recursive function to perform an External Sampling MCCFR traversal.
-        - `p0`, `p1`: Reach probabilities for player 0 and 1 respectively.
-        """
+    def _traverse_mccfr(
+        self,
+        game: TexasHoldem,
+        traverser_id: int,
+        iteration: int,
+        reach_probs: List[float],
+    ) -> float:
+        """Recursive function to perform an External Sampling MCCFR traversal."""
         # --- Terminal Node ---
         # Check if the hand is over (e.g., showdown, or one player folds)
         if game.is_hand_over():
@@ -112,7 +109,7 @@ class SelfPlay:
                 next_game.play_stage('turn')
             elif len(game.rules.community_cards) == 4:
                 next_game.play_stage('river')
-            return self._traverse_mccfr(next_game, traverser_id, iteration, p0, p1)
+            return self._traverse_mccfr(next_game, traverser_id, iteration, reach_probs)
 
         # --- Decision Node ---
         current_player = game.rules.current_player
@@ -135,11 +132,10 @@ class SelfPlay:
                 next_game.process_action(current_player, action_str, amount)
                 next_game.rules.advance_turn()
 
-                # The opponent's reach probability is not updated here
-                reach_prob_p0, reach_prob_p1 = p0, p1
-
                 # Recursively call to get the utility of this action
-                action_utilities[action_idx] = self._traverse_mccfr(next_game, traverser_id, iteration, reach_prob_p0, reach_prob_p1)
+                action_utilities[action_idx] = self._traverse_mccfr(
+                    next_game, traverser_id, iteration, reach_probs.copy()
+                )
 
             # Calculate node value using the current policy
             node_value = (action_utilities * policy).sum().item()
@@ -148,7 +144,10 @@ class SelfPlay:
             regrets = action_utilities - node_value
 
             # Use the opponent's reach probability for weighting the regret update
-            opponent_reach = p1 if traverser_id == 0 else p0
+            opponent_reach = 1.0
+            for idx, prob in enumerate(reach_probs):
+                if idx != traverser_id:
+                    opponent_reach *= prob
             weighted_regrets = regrets * opponent_reach
 
             model_config = self.cfr_trainer.config.get('model', {})
@@ -170,7 +169,6 @@ class SelfPlay:
             next_game.rules.advance_turn()
 
             # Update reach probabilities for the sampled action
-            if current_player == 0:
-                return self._traverse_mccfr(next_game, traverser_id, iteration, p0 * policy[action_idx], p1)
-            else:  # current_player == 1
-                return self._traverse_mccfr(next_game, traverser_id, iteration, p0, p1 * policy[action_idx])
+            new_reach = reach_probs.copy()
+            new_reach[current_player] *= policy[action_idx].item()
+            return self._traverse_mccfr(next_game, traverser_id, iteration, new_reach)
