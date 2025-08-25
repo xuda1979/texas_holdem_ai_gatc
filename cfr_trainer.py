@@ -28,10 +28,11 @@ class CFRTrainer:
         self.input_shape = config['input_shape']
         self.model = self.build_model()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config['learning_rate'])
-        self.cumulative_regret = torch.zeros(self.num_actions)
-        self.cumulative_strategy = torch.zeros(self.num_actions)
-        self.regrets = {}
-        self.strategy = {}
+        # Use dictionaries to maintain regrets/strategies for each information set
+        # encountered during traversal.  Each key is a serialized representation of
+        # the game state ("infoset") and maps to a tensor of size ``num_actions``.
+        self.cumulative_regret = {}
+        self.cumulative_strategy = {}
         print("Model built successfully")  # Debug print statement
 
     def build_model(self):
@@ -93,12 +94,16 @@ class CFRTrainer:
             winners = state.get_winner()
             return 1.0 if player in winners else -1.0
 
-        # Encode the state for the policy network and obtain the current policy.
+        # Encode the state and compute an information set key for lookup/update
+        # of regrets and strategy tables.
         state_rep = self.encode_state(state)
-        strategy = torch.tensor(self.get_strategy(state_rep), dtype=torch.float32)
+        info_set = state_rep.tobytes()
+
+        # Retrieve the current strategy for this information set.
+        strategy = self.get_strategy(info_set)
 
         action_utilities = torch.zeros(self.num_actions)
-        node_utility = 0.0
+        node_utility = torch.tensor(0.0)
 
         # Enumerate distinct actions for traversal
         base_actions = ["fold", "call", "raise", "check"]
@@ -118,19 +123,30 @@ class CFRTrainer:
             node_utility += strategy[a] * util
 
         regrets = action_utilities - node_utility
-        self.cumulative_regret = update_regret(self.cumulative_regret, regrets)
-        self.cumulative_strategy = update_strategy(self.cumulative_strategy, strategy)
+        self.cumulative_regret[info_set] = update_regret(
+            self.cumulative_regret[info_set], regrets
+        )
 
         return node_utility.item()
 
-    def get_strategy(self, state_representation):
-        print("Getting strategy...")  # Debug print statement
-        with torch.no_grad():
-            state_tensor = torch.tensor([state_representation], dtype=torch.float32)
-            predictions = self.model(state_tensor)[0].numpy()
-        strategy = predictions / np.sum(predictions)
-        print("Strategy obtained.")  # Debug print statement
-        return strategy.tolist()
+    def get_strategy(self, info_set):
+        """Return the current regret-matched strategy for ``info_set``.
+
+        Strategies are derived from cumulative regrets using standard regret
+        matching.  The resulting strategy is also accumulated so an average
+        strategy can be computed after training.
+        """
+
+        if info_set not in self.cumulative_regret:
+            self.cumulative_regret[info_set] = torch.zeros(self.num_actions)
+            self.cumulative_strategy[info_set] = torch.zeros(self.num_actions)
+
+        cumulative_regret = self.cumulative_regret[info_set]
+        strategy = calculate_strategy(cumulative_regret, self.num_actions)
+        self.cumulative_strategy[info_set] = update_strategy(
+            self.cumulative_strategy[info_set], strategy
+        )
+        return strategy
 
     def encode_state(self, state):
         """Convert a game state into a fixed size numpy array.
@@ -203,7 +219,8 @@ class CFRTrainer:
             while not game.is_terminal(state):
                 player = game.get_current_player(state)
                 state_representation = self.encode_state(state)
-                strategy = self.get_strategy(state_representation)
+                info_set = state_representation.tobytes()
+                strategy = self.get_strategy(info_set).numpy()
                 action = np.random.choice(self.num_actions, p=strategy)
                 state = game.apply_action(state, action)
 
