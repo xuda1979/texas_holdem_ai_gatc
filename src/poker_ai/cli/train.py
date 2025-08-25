@@ -1,15 +1,12 @@
 """Main command-line interface for training models via self-play."""
 
-import yaml
-import os # For path manipulation if needed, e.g. for robust config loading
+import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
-import random
 import time
 import torch
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
-from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 from poker_ai.selfplay.self_play import SelfPlay
 from typing import List, Dict
 
@@ -21,17 +18,28 @@ CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "conf
 # Or an absolute path, or environment variable. For now, assume it's in CWD.
 
 def load_configuration(config_path: str) -> dict:
-    """Loads YAML configuration from the given path."""
+    """Loads YAML configuration from the given path.
+
+    Falls back to an empty configuration if PyYAML is missing or the file cannot
+    be parsed so that training can still run with default values."""
     try:
-        with open(config_path, 'r') as f:
+        import yaml
+    except ImportError:
+        print("Warning: PyYAML is not installed. Using default configurations.")
+        return {}
+
+    try:
+        with open(config_path, "r") as f:
             config_data = yaml.safe_load(f)
         if config_data is None:
-            print(f"Warning: {config_path} is empty or invalid. Using default configurations.")
-            return {} # Return empty dict to trigger defaults everywhere
+            print(
+                f"Warning: {config_path} is empty or invalid. Using default configurations."
+            )
+            return {}
         return config_data
     except FileNotFoundError:
         print(f"Warning: {config_path} not found. Using default configurations.")
-        return {} # Return empty dict
+        return {}
     except yaml.YAMLError as e:
         print(f"Error parsing {config_path}: {e}. Using default configurations.")
         return {}
@@ -84,6 +92,7 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     """Return a trainer instance based on selected algorithm."""
     trainer = None
     if algorithm == "ai_cfr":
+        from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
         trainer = AICFRTrainer(device=device)
     elif algorithm == "deep_cfr":
         from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer
@@ -177,7 +186,8 @@ def main():
     )
     
     # Game Engine Parameters for SelfPlay
-    num_players = game_engine_config.get('num_players', 2)
+    min_players = game_engine_config.get('min_players', 2)
+    max_players = game_engine_config.get('max_players', 10)
     starting_stack = game_engine_config.get('starting_stack', 1000)
     big_blind = game_engine_config.get('big_blind', 10)
     small_blind = game_engine_config.get('small_blind', 5)
@@ -186,24 +196,19 @@ def main():
     print(f"Total training iterations: {num_iterations}")
     print(f"Save model every: {save_model_every_n_hands} hands (if >0)")
     print(f"Save model every: {save_model_every_minutes} minutes (if >0)")
-    print(f"Number of players: {num_players}")
+    print(f"Players per hand: random {min_players}-{max_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
     print(f"Using device: {device}")
-    # Note: The new DeepCFRTrainer and SelfPlay are simplified for 2-player HU NLHE.
-    # We will enforce this here.
-    if num_players != 2 and args.algorithm == 'deep_cfr':
-        print("Warning: The refactored 'deep_cfr' algorithm is designed for 2 players.")
-        print("Setting number of players to 2 for this training session.")
-        num_players = 2
 
     # Initialization
     print("\n--- Initializing Components ---")
     game_config_for_selfplay = {
-        'num_players': num_players,
         'starting_stack': starting_stack,
         'big_blind': big_blind,
-        'small_blind': small_blind
+        'small_blind': small_blind,
+        'min_players': min_players,
+        'max_players': max_players,
     }
 
     try:

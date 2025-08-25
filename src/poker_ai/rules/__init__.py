@@ -1,9 +1,16 @@
+"""Lightweight export of CFR helpers.
+
+Importing the full Texas Hold'em rule set pulls in the entire game engine and
+its optional dependencies.  Many modules only need the basic CFR utilities, so
+we expose those here without eagerly importing the engine components.  The
+TexasHoldemRules class can still be imported directly from
+``poker_ai.rules.texas_holdem_rules`` when required.
+"""
+
 from .cfr import cfr_plus_iteration, update_regret, update_strategy
-from .texas_holdem_rules import TexasHoldemRules
 
 __all__ = [
-    'cfr_plus_iteration',
-    'update_regret',
-    'update_strategy',
-    'TexasHoldemRules'
+    "cfr_plus_iteration",
+    "update_regret",
+    "update_strategy",
 ]
