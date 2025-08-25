@@ -3,9 +3,19 @@
 """Command line game allowing humans to play against simple AI players."""
 
 import argparse
+import json
+import os
 import sys
+
+import torch
+
+from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
-from poker_ai.gui.playStrategy import HumanStrategy, RandomAIStrategy
+from poker_ai.gui.playStrategy import (
+    HumanStrategy,
+    ModelAIStrategy,
+    RandomAIStrategy,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -14,11 +24,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--total-players", type=int, help="Total number of players (2-10)")
     parser.add_argument("--num-humans", type=int, help="Number of human players")
     parser.add_argument("--starting-stack", type=int, default=10000, help="Starting chip count")
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        help="Path to saved AdvantageNetwork weights (.pth) to control AI players",
+    )
     return parser.parse_args()
+
+
+def load_model(model_path: str) -> ModelAIStrategy:
+    """Load a saved :class:`AdvantageNetwork` and wrap it in ``ModelAIStrategy``."""
+    config_path = os.path.splitext(model_path)[0] + ".config.json"
+    with open(config_path, "r") as f:
+        model_config = json.load(f)
+
+    network_params = {
+        k: model_config[k]
+        for k in [
+            "input_feature_dim",
+            "hidden_dim",
+            "num_heads",
+            "num_layers",
+            "num_actions",
+        ]
+    }
+    model = AdvantageNetwork(**network_params)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    return ModelAIStrategy(model, model_config, device)
 
 def main() -> None:
     args = parse_args()
     print("=== Welcome to Texas Hold'em Poker Simulation ===\n")
+
+    model_strategy = load_model(args.model_path) if args.model_path else None
 
     total_players = args.total_players
     if total_players is None:
@@ -69,7 +108,10 @@ def main() -> None:
     for i in range(num_humans):
         player_strategies.append(HumanStrategy())
     for i in range(num_ai):
-        player_strategies.append(RandomAIStrategy())
+        if model_strategy:
+            player_strategies.append(model_strategy)
+        else:
+            player_strategies.append(RandomAIStrategy())
 
     # Instantiate the game with chosen starting stack
     game = TexasHoldem(total_players, starting_stack, player_strategies)

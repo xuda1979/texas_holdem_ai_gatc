@@ -1,6 +1,13 @@
 # playStrategy.py
 
 import random
+from typing import Dict
+
+import torch
+
+from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.state_representation import prepare_transformer_input
 
 # Import the new AI GTO display function lazily inside HumanStrategy to avoid
 # pulling heavy GUI dependencies when simply importing this module.
@@ -38,6 +45,46 @@ class RandomAIStrategy(PlayerStrategy):
             return action, raise_amount
         return action, None
 
+
+class ModelAIStrategy(PlayerStrategy):
+    """Strategy driven by a trained :class:`AdvantageNetwork`."""
+
+    def __init__(self, model: AdvantageNetwork, config: Dict, device: torch.device):
+        self.model = model.to(device)
+        self.model.eval()
+        self.config = config
+        self.device = device
+
+    @property
+    def is_human(self) -> bool:
+        return False
+
+    @torch.no_grad()
+    def choose_action(self, game, player_index):
+        max_seq_len = self.config.get("max_seq_len", 256)
+        d_raw_feature = self.config.get(
+            "d_raw_feature", self.config.get("input_feature_dim", 18)
+        )
+        state_tensor = prepare_transformer_input(
+            game, player_index, max_seq_len, d_raw_feature
+        )
+        advantages = (
+            self.model(state_tensor.unsqueeze(0).to(self.device))
+            .squeeze(0)
+            .cpu()
+        )
+        num_actions = self.config.get("num_actions", self.model.num_actions)
+        legal_mask = get_legal_actions_mask(game, player_index, num_actions)
+
+        advantages[~legal_mask] = -float("inf")
+        positive = torch.clamp(advantages, min=0) * legal_mask.float()
+        if positive.sum() > 0:
+            policy = positive / positive.sum()
+        else:
+            policy = legal_mask.float() / legal_mask.sum()
+
+        action_idx = torch.multinomial(policy, 1).item()
+        return get_action_from_index(action_idx, game, player_index)
 
 class HumanStrategy(PlayerStrategy):
     @property
