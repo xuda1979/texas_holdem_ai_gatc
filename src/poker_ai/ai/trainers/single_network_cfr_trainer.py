@@ -10,8 +10,11 @@ class SingleNetworkCFRTrainer:
     def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, lr: float = 1e-3,
                  device: str | None = None):
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        # ``AdvantageNetwork`` expects separate history and card feature dims; for
+        # these lightweight tests we reuse ``input_feature_dim`` for both.
         self.model = AdvantageNetwork(
-            input_feature_dim=input_feature_dim,
+            history_feature_dim=input_feature_dim,
+            card_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=4,
             num_layers=2,

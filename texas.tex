@@ -9,8 +9,16 @@
 \usepackage{enumitem}
 \usepackage{natbib}
 \usepackage{microtype}
+% Added packages for clearer references and numerics
+\usepackage[capitalise,nameinlink]{cleveref}
+\usepackage{xspace}
+\usepackage{siunitx}
 
-\title{Belief\textendash MCTS\textendash CRF: A Hybrid, Sample-Efficient Solver for Multi-Player No-Limit Texas Hold'em}
+% Notation helpers
+\newcommand{\sCRF}{\textsc{Street\textendash CRF}\xspace} % conditional random field used for opponent modeling
+\newcommand{\CFRplus}{\text{CFR$^+$}\xspace}
+
+\title{Belief---MCTS---\sCRF: A Hybrid, Sample-Efficient Solver for Multi-Player No\textendash Limit Texas Hold'em}
 \author{Anonymous}
 \date{August 2025}
 
@@ -18,18 +26,19 @@
 \maketitle
 
 \begin{abstract}
-We present \textbf{Belief--MCTS--CRF}, a practical poker agent that couples a transformer-style public information-state encoder with a round-structured conditional random field (CRF) for opponent modeling, a belief-aware Monte Carlo tree search (MCTS), and lightweight endgame subgame solving via CFR$^+$. The CRF converts observed betting sequences into calibrated hand-range posteriors for all opponents; MCTS expands on samples from these beliefs with progressive widening for continuous bet sizes; and a short CFR$^+$ pass refines endgame play. We further introduce (i) a CVaR-based risk-aware utility for multi-player variance control, (ii) population-based self-play with exploiters/best-responses, and (iii) an adaptive bet-size abstraction selected by a contextual bandit. The design integrates cleanly with standard self-play/CFR pipelines and improves robustness without prohibitive compute.
+We present \textbf{Belief--MCTS--\sCRF}, a practical multi\textendash player No\textendash Limit Hold'em agent that couples a transformer\textendash style \emph{public information\textendash state} encoder with a \emph{street\textendash structured conditional random field} (\sCRF) for opponent modeling, \emph{belief\textendash aware} Monte Carlo tree search (MCTS), and lightweight endgame subgame solving via \CFRplus. The \sCRF converts observed betting sequences into \emph{calibrated} hand\textendash range posteriors for all opponents; MCTS expands on samples from these beliefs with progressive widening for continuous bet sizes; and a short \CFRplus pass refines endgame play. We further introduce three innovations: (i) \textbf{CVaR\textendash UCT}, a risk\textendash aware selection/backup rule that directly optimizes lower\textendash tail outcomes in multi\textendash player settings; (ii) \textbf{Public\textendash Subgame\textendash Constrained \CFRplus} (\textbf{PS\textendash \CFRplus}) that re\textendash solves only public subgames using belief\textendash induced chance distributions, eliminating information leakage; and (iii) \textbf{Range\textendash Calibration\textendash Aware Search} (\textbf{RCAS}), which gates reliance on \sCRF beliefs using online calibration metrics. We also employ population\textendash based self\textendash play with exploiters/best\textendash responses and an \emph{adaptive} bet\textendash size abstraction chosen by a contextual bandit. The design integrates cleanly with standard self\textendash play/CFR pipelines and improves robustness without prohibitive compute.
 \end{abstract}
 
 \section{Introduction}
-No-Limit Texas Hold'em (NLHE) is a canonical imperfect-information benchmark with hidden private cards, public community cards, and large, continuous action spaces. Milestone systems such as DeepStack, Libratus, and Pluribus demonstrated expert and superhuman play via neural evaluation with subgame solving (DeepStack), large-scale equilibrium computation and endgame refinement (Libratus), and scalable multi-player search (Pluribus). Meanwhile, CFR$^+$ and descendants improved convergence of regret minimization, and ReBeL unified search and learning around public-belief states. Our goal is a \emph{practical} hybrid that captures much of this power with modest compute, suitable for 6-max play and research iteration.
+No\textendash Limit Texas Hold'em (NLHE) is a canonical imperfect\textendash information benchmark with hidden private cards, public community cards, and large, continuous action spaces. Milestone systems such as DeepStack, Libratus, and Pluribus demonstrated expert and superhuman play via neural evaluation with subgame solving (DeepStack), large\textendash scale equilibrium computation and endgame refinement (Libratus), and scalable multi\textendash player search (Pluribus). Meanwhile, \CFRplus and descendants improved convergence of regret minimization, and ReBeL unified search and learning around public\textendash belief states. Our goal is a \emph{practical} hybrid that captures much of this power with modest compute, suitable for 6\textendash max play and research iteration.\footnote{We use \emph{\sCRF} for a conditional random field used in opponent modeling. \emph{CFR} denotes counterfactual regret minimization (and \CFRplus its practical variant).}
 
 \paragraph{Contributions.}
-(1) A \textbf{round-CRF opponent model} that conditions on position-aware betting sequences (preflop$\rightarrow$flop$\rightarrow$turn$\rightarrow$river) to infer latent (hand-category, style) variables and produce posterior hand ranges for each opponent. 
-(2) \textbf{Belief-MCTS} that samples private hands from the CRF-induced public belief state, uses policy/value priors from a transformer encoder, and applies \emph{progressive widening} to handle continuous bet sizes. 
-(3) \textbf{Endgame CFR$^+$} invoked opportunistically on deep streets for local refinement, warm-started from the current policy/value and beliefs. 
-(4) \textbf{Risk-aware selection/evaluation} via CVaR-regularized returns, reducing downside tails in multi-player variance. 
-(5) \textbf{Population self-play} with exploiters/best-responses, prioritized regret updates, and an \textbf{adaptive action abstraction} maintained by a contextual bandit.
+(1) A \textbf{\sCRF\ opponent model} that conditions on position\textendash aware betting sequences (preflop$\rightarrow$flop$\rightarrow$turn$\rightarrow$river) to infer latent (hand\textendash category, style) variables and produce \emph{calibrated} posterior hand ranges for each opponent. 
+(2) \textbf{Belief\textendash MCTS (CVaR\textendash UCT)} that samples \emph{joint} private hands from the belief state, uses policy/value priors from a transformer encoder, and applies \emph{progressive widening} to handle continuous bet sizes with bandit\textendash guided proposals.
+(3) \textbf{PS\textendash \CFRplus} invoked opportunistically on deep streets for local refinement over \emph{public} subgames, warm\textendash started from the current policy/value and beliefs without private\textendash card leakage. 
+(4) \textbf{Risk\textendash aware selection/backups} via CVaR\textendash regularized returns, reducing downside tails in multi\textendash player variance. 
+(5) \textbf{Range\textendash Calibration\textendash Aware Search (RCAS)} that modulates reliance on beliefs based on live calibration scores (ECE/NLL) computed from showdown anchors and consistency checks.
+(6) \textbf{Population self\textendash play} with exploiters/best\textendash responses, prioritized regret updates, and an \textbf{adaptive action abstraction} maintained by a contextual bandit with hysteresis to prevent action\textendash set churn.
 
 \section{Related Work}
 \textbf{DeepStack} introduced depth-limited continual re-solving with learned value functions for imperfect-information games \citep{moravcik2017deepstack}. \textbf{Libratus} beat top professionals in heads-up NLHE through large-scale abstraction, real-time endgame solving, and nightly strategy repair \citep{brown2017libratus,brown2018libratus}. \textbf{Pluribus} achieved superhuman 6-max play using efficient search and blueprints \citep{brown2019pluribus}. Regret minimization advances such as \textbf{CFR$^+$}/\textbf{DCFR} improved practical convergence \citep{tammelin2014cfrplus,dcfr2023}. \textbf{ReBeL} unified self-play RL with belief-aware search on public states \citep{brown2020rebel}. Recent LLM-based systems (e.g., PokerGPT) explored instruction-tuned textual policies, but remain orthogonal to belief/search-heavy solvers \citep{pokergpt2024}.
@@ -45,37 +54,67 @@ We represent $h_t$ as a sequence of tokenized events: blind postings, bets/raise
 \]
 where $\pi_\theta$ is a masked policy over legal actions (including a dynamic bet-size menu; Sec.~\ref{sec:adaptive_abstraction}), and $v_\theta$ is a public-state value.
 
-\subsection{Round-CRF opponent modeling}
-We define a CRF over the four streets with latent variables $Z^{(r)}$ capturing (hand-category, style) on street $r\in\{\text{pre},\text{flop},\text{turn},\text{river}\}$. The observed variables are action features $A^{(r)}$ (aggression, size relative to pot, facing pressure, SPR, position). The CRF factors are
+\subsection{\sCRF\ opponent modeling: semantics and calibration}
+We define a conditional random field over the four streets with latent variables $Z^{(r)}$ capturing (hand\textendash category, style) on street $r\in\{\text{pre},\text{flop},\text{turn},\text{river}\}$. The observed variables are action features $A^{(r)}$ (aggression, size relative to pot, facing pressure, SPR, position). The \sCRF\ factors are
 \[
 p_\phi(Z^{(1:4)}, A^{(1:4)}\mid \text{context}) \;=\; \frac{1}{\mathcal{Z}} \prod_{r} \psi_r\!\left(Z^{(r)},A^{(r)},\text{ctx}^{(r)}\right)\, \prod_{r=1}^{3} \psi_{r,r+1}(Z^{(r)},Z^{(r+1)}),
 \]
-with $\psi$ parametrized by shallow MLPs on hand-crafted and learned features. Training uses maximum pseudo-likelihood on self-play data with occasional supervised anchors from showdown hands. At inference, we compute marginals $q_\phi(Z^{(r)}\mid h_t)$ and induce a \emph{hand-range posterior} by mapping each $Z^{(r)}$ to a calibrated distribution over private hands $H_{-i}$.
+with $\psi$ parametrized by shallow MLPs on hand-crafted and learned features. Training uses maximum pseudo-likelihood on self-play data with occasional supervised anchors from showdown hands.
+
+\paragraph{Linking \sCRF\ to hand ranges.}
+Let $C(H)$ denote a coarse hand category (e.g., suited connectors, pairs, broadways) that is a deterministic function of a private hand $H$. We model
+\[
+  p_\phi(a\mid C,h_t)\qquad\text{and}\qquad p(a\mid H,h_t)\;=\;p_\phi\!\big(a\mid C(H),h_t\big).
+\]
+Optionally, we relax $C$ via a small soft mapping $p_\eta(C\mid H,h_t)$ and define
+\[
+  p(a\mid H,h_t)\;=\;\sum_{c} p_\phi(a\mid c,h_t)\,p_\eta(c\mid H,h_t).
+\]
+At inference, we compute street\textendash wise marginals $q_\phi(Z^{(r)}\mid h_t)$ and induce a \emph{hand\textendash range posterior} $\rho_t(H_{-i}\mid h_t)$ using $p(a\mid H,h_t)$ with card\textendash blocker and position features.
+
+\paragraph{Calibration and RCAS.}
+We evaluate calibration using expected calibration error (ECE) and negative log-likelihood (NLL) on showdown hands. During search, \emph{Range\textendash Calibration\textendash Aware Search} (RCAS) down\textendash weights belief influence when ECE exceeds a threshold (or when posterior entropy is high), falling back to blueprint ranges.
 
 \paragraph{Belief update.}
-Given a new action $a_t$, update $\rho_t(H_{-i}\mid h_t)$ with a Bayes step approximated by the CRF:
+Given a new action $a_t$, update $\rho_t(H_{-i}\mid h_{t+1})$ with a Bayes step approximated by the \sCRF:
 \[
 \rho_{t+1}(H_{-i}\mid h_{t+1}) \propto \rho_t(H_{-i}\mid h_t) \cdot \underbrace{p_\phi(a_t \mid H_{-i}, h_t)}_{\text{from CRF}},
 \]
-then renormalize; we implement this as a particle filter over hand candidates per opponent.
+then renormalize. We implement a \emph{joint} particle filter over opponents' private hands to preserve card\textendash removal correlations, with systematic resampling when the effective sample size
+\[
+  \mathrm{ESS} \;=\; \frac{1}{\sum_j w_j^2}
+\]
+falls below $0.5M$ (for $M$ particles), and category\textendash preserving jitter to prevent degeneracy.
 
-\subsection{Belief-MCTS with progressive widening}
-We run MCTS on public states; at each node we (i) sample opponents' private hands from $\rho_t$, (ii) restrict actions to a dynamic menu (Sec.~\ref{sec:adaptive_abstraction}), and (iii) use PUCT with $\pi_\theta$ priors and risk-aware values (next subsection). For continuous bet sizes, we employ \emph{progressive widening}: initially a small set of bet sizes, unlocking additional sizes as visit counts grow.
+\subsection{Belief-MCTS (CVaR-UCT) with progressive widening}
+We run MCTS on \emph{public} states; at each node we (i) sample a \emph{joint} assignment $\tilde H_{-i}\sim \rho_t(\cdot\mid h_t)$, (ii) restrict actions to a dynamic menu (Sec.~\ref{sec:adaptive_abstraction}), and (iii) use a CVaR\textendash aware PUCT rule with $\pi_\theta$ priors.
+The selection score for state $x$ and action $a$ is
+\begin{equation}
+\label{eq:puct}
+U(x,a)\;=\;J_\alpha\!\big(\widehat{Q}(x,a)\big)\;+\;c_{\text{puct}}\;P(a\mid x)\;\frac{\sqrt{\sum_b N(x,b)}}{1+N(x,a)}\,,
+\end{equation}
+where $\widehat{Q}(x,a)$ is the running mean of backed\textendash up returns on edge $(x,a)$, $P(a\mid x)=\pi_\theta(a\mid x)$, and $J_\alpha$ is the CVaR\textendash regularized objective in \cref{eq:cvar}. We maintain per\textendash edge estimates of both mean and tail statistics; backups mix rollout returns and $v_\theta$ with a depth\textendash dependent coefficient.
+For continuous bet sizes, we employ \emph{progressive widening}: add a new bet size when
+\begin{equation}
+\label{eq:widen}
+|\mathcal{B}_x| \;<\; k\,\big(N(x)\big)^\alpha,\quad \text{with}\; k{=}2,\; \alpha{=}0.5,
+\end{equation}
+drawing candidates from a log\textendash spaced prior over pot fractions in $[0.25\mathrm{P},\,2.5\mathrm{P}]$ plus \{all\textendash in\}, and accepting only if a contextual bandit (Sec.~\ref{sec:adaptive_abstraction}) yields a high UCB.
 
 \begin{algorithm}[t]
-\caption{Belief\textendash MCTS\textendash CRF (selection $\to$ expansion $\to$ evaluation)}
+\caption{Belief\textendash MCTS\textendash \sCRF\ (selection $\to$ expansion $\to$ evaluation)}
 \label{alg:bmcrf}
 \begin{algorithmic}[1]
-\State \textbf{Input:} public history $h_t$, belief $\rho_t$, encoder $f_\theta$, CRF $p_\phi$, widening rule $W(\cdot)$, risk level $\alpha$
+\State \textbf{Input:} public history $h_t$, belief $\rho_t$, encoder $f_\theta$, \sCRF\ $p_\phi$, widening rule $W(\cdot)$, risk level $\alpha$
 \For{simulation $s = 1,\dots,S$}
   \State $x \gets h_t$; \ \ draw $\tilde H_{-i}\sim \rho_t(\cdot\mid h_t)$
   \While{$x$ not terminal}
     \If{new node}
       \State initialize child set with legal actions, bet-size menu per $W(\cdot)$
       \State set priors $P(a\mid x)\leftarrow \pi_\theta(a\mid x)$
-      \State \textbf{break}
+      \State evaluate leaf via rollout or $v_\theta(x)$; initialize statistics; \textbf{break}
     \Else
-      \State select $a \leftarrow \arg\max_{a} \text{PUCT}(N,Q,P)$ using risk-aware $Q$ (Eq.~\ref{eq:cvar})
+      \State select $a \leftarrow \arg\max_{a} U(x,a)$ where $U$ is in \cref{eq:puct}
       \State $x \leftarrow \text{Step}(x,a,\tilde H_{-i})$; expand additional bet sizes if $W(\cdot)$ triggers
     \EndIf
   \EndWhile
@@ -86,19 +125,19 @@ We run MCTS on public states; at each node we (i) sample opponents' private hand
 \end{algorithm}
 
 \subsection{Risk-aware utility (CVaR)}
-To reduce variance in multi-player games, replace expected returns $\mathbb{E}[X]$ by a CVaR-regularized objective:
+To reduce variance in multi\textendash player games, replace expected returns $\mathbb{E}[X]$ by a CVaR\textendash regularized objective:
 \begin{equation}
 \label{eq:cvar}
 J_\alpha(X) \;=\; \mathbb{E}[X] \;-\; \lambda\,\text{CVaR}_\alpha(-X), \\
 \text{CVaR}_\alpha(Y)=\min_{t}\left\{\, t + \tfrac{1}{1-\alpha}\,\mathbb{E}[(Y-t)_+] \right\}.
 \end{equation}
-We estimate CVaR from rollout samples at each node and use $J_\alpha$ in selection and value backups.
+We estimate CVaR from rollout samples at each node and use $J_\alpha$ in selection (\cref{eq:puct}) and value backups. When calibration is poor (RCAS trigger), we anneal $\lambda\!\to\!0$ to avoid compounding belief errors.
 
-\subsection{Endgame subgame solving via CFR$^+$}
-When the tree reaches specific triggers (e.g., river nodes with SPR $\le 2$ or high pot relative to stacks), we spawn a depth-limited CFR$^+$ solver within the local subgame, initialized from $(\pi_\theta,v_\theta)$ and beliefs $\rho$. A small, fixed number of CFR$^+$ iterations (e.g., $100$--$500$) refines action probabilities and regrets; the resulting policy overwrites MCTS statistics locally before returning to the main search.
+\subsection{Public-Subgame-Constrained \CFRplus}
+When the tree reaches triggers (e.g., river nodes with $\mathrm{SPR} \le 2$ or large pot/stacks), we spawn a depth-limited \CFRplus\ solver on the \emph{public} subgame rooted at the current history. Beliefs $\rho$ affect only \emph{chance} distributions (opponents' ranges)---private cards are never revealed to the solver's decision nodes. We use regret\textendash matching$+$ with linear averaging and regret floor $0$, and run a small budget (e.g., $K\in[100,500]$) warm\textendash started from $(\pi_\theta,v_\theta)$. Policies returned by PS\textendash \CFRplus\ overwrite local MCTS statistics before resuming search. On toy abstractions we monitor exploitability vs.\ $K$ to select the budget.
 
 \subsection{Self-play training with prioritized regrets}
-We maintain a population $\mathcal{P}$ of agents: main agent, exploiters, and best-responses. Self-play generates trajectories $(h_t,a_t,r_t)$; we store (i) encoder training data (supervised policy targets from MCTS visits and value targets), (ii) CRF examples (street-wise action features with optional showdown supervision), and (iii) CFR regrets on sampled subgames for prioritized updates.
+We maintain a population $\mathcal{P}$ of agents: main agent, exploiters, and best\textendash responses (BRs). Self\textendash play generates trajectories $(h_t,a_t,r_t)$; we store (i) encoder supervision (policy targets from visit counts and value targets), (ii) \sCRF\ examples (street\textendash wise action features with showdown anchors), and (iii) CFR regrets on sampled subgames for prioritized updates. Exploiters/BRs are computed periodically with limited search depth and the same action abstraction.
 
 \begin{algorithm}[t]
 \caption{Population self-play with prioritized CFR updates}
@@ -107,58 +146,62 @@ We maintain a population $\mathcal{P}$ of agents: main agent, exploiters, and be
 \State initialize $\theta,\phi$; initialize population $\mathcal{P}$
 \For{epoch $=1,\dots$}
   \State sample matchups from $\mathcal{P}$; run self-play using Alg.~\ref{alg:bmcrf}
-  \State update encoder $\theta$ by minimizing 
-    $\mathcal{L} = \mathcal{L}_{\text{policy}}(\pi_\theta, \text{visits}) + \beta \, \mathcal{L}_{\text{value}}(v_\theta,\text{returns})$
-  \State fit CRF $\phi$ on street-wise features; calibrate to showdown ranges
-  \State sample stored subgames proportional to regret magnitude; run short CFR$^+$; update regret targets
-  \State periodically inject exploiters \& compute best-responses vs current main
+  \State update encoder $\theta$ with $\mathcal{L} = \underbrace{\mathrm{CE}\big(\pi_\theta,\mathrm{softmax}(\log N/\tau)\big)}_{\mathcal{L}_\text{policy}} \;+\; \beta \underbrace{\mathrm{MSE}\big(v_\theta,\widehat{J}_\alpha\big)}_{\mathcal{L}_\text{value}} \;+\; \gamma\,\mathrm{KL}\!\left(\pi_\theta \,\|\, \pi_{\text{prev}}\right)$
+  \State fit \sCRF\ $\phi$ on street-wise features; calibrate with ECE/NLL on showdowns; update RCAS gates
+  \State sample stored subgames proportional to regret magnitude/variance; run short PS-\CFRplus; update regret targets
+  \State every $E$ epochs, inject exploiters and compute approximate BRs vs.\ current main
 \EndFor
 \end{algorithmic}
 \end{algorithm}
 
 \subsection{Adaptive action abstraction}
 \label{sec:adaptive_abstraction}
-We maintain at each node a small menu $\mathcal{B}$ of bet sizes (fractions of pot or all-in). A contextual bandit chooses which sizes to include given features (SPR, position, number of players, board texture). During training, candidate sizes are explored; those with low usage and poor regret are pruned, while promising sizes are added. MCTS progressive widening unlocks additional sizes with visits, ensuring asymptotic coverage.
+We maintain at each node a small menu $\mathcal{B}$ of bet sizes (fractions of pot or all\textendash in). A \emph{contextual bandit} (LinUCB/Thompson) chooses which sizes to include given features (SPR, position, number of players, board texture, pot). During training, candidate sizes are explored; those with low usage and high estimated regret are pruned, while promising sizes are added. A simple \emph{hysteresis} rule prevents action\textendash set churn: sizes must beat a threshold for $T_\text{on}$ visits to join and remain above a lower threshold for $T_\text{off}$ visits to persist. Progressive widening (\cref{eq:widen}) ensures asymptotic coverage.
+
+\paragraph{Leakage stress test.}
+To verify absence of information leakage, we (i) permute opponents' private cards at decision time without changing the public state and check invariance of action probabilities; (ii) rerun evaluation using independent marginal sampling vs.\ joint sampling to confirm that only card\textendash removal changes outcomes.
 
 \section{Implementation Notes}
 Our reference implementation targets a typical research repo with modules such as \texttt{self\_play.py}, \texttt{cfr\_trainer.py}, and a rules engine. The encoder/CRF components expose:
 \begin{itemize}[leftmargin=1.25em]
   \item \verb|encode_public_state(h_t)| $\rightarrow$ tensors + masks
-  \item \verb|pi, v = f_theta(state)| and \verb|belief = crf_phi.posteriors(h_t)|
+  \item \verb|pi, v = f_theta(state)| and \verb|belief = scrf_phi.posteriors(h_t)|
   \item \verb|mcts_step(h_t, belief, pi, v)| with progressive widening hooks
-  \item \verb|solve_endgame_cfr_plus(subgame, init_policy, belief, K)| for $K$ iterations
+  \item \verb|solve_public_subgame_cfr_plus(subgame, init_policy, belief, K)| for $K$ iterations
 \end{itemize}
 We use reservoir replay for trajectories and maintain separate buffers for encoder supervision, CRF fitting, and prioritized CFR regret targets.
 
 \section{Evaluation Protocol}
-\paragraph{Settings.} Report heads-up and 6-max; stacks $S$ (e.g., $100$bb), blind structure, rake model if any. 
+\paragraph{Settings.} Report heads-up and 6-max; stacks $S$ (e.g., $100$bb), blind structure, rake model if any. Fix RNG seeds and rotate positions.
 
-\paragraph{Baselines.} (i) rules / heuristic bots, (ii) ablations of our system (no CRF; no CFR$^+$; no CVaR; static action grid), (iii) previous checkpoints, (iv) optionally reproduce a ReBeL-style PBS search on your code for comparison.
+\paragraph{Baselines.} (i) rules / heuristic bots, (ii) \emph{blueprint only} (no \sCRF/\CFRplus/CVaR), (iii) ablations: no \sCRF, no PS-\CFRplus, no CVaR, static action grid, belief\textendash unaware rollouts, (iv) previous checkpoints, (v) optional ReBeL\textendash style PBS search on our code for comparison.
 
-\paragraph{Metrics.} Primary: bb/100 with 95\% CIs; \emph{AIVAT}-adjusted estimates to reduce variance. For ablations, include effect sizes and training wall-clock. 
+\paragraph{Metrics.} Primary: bb/100 with 95\% CIs; \emph{AIVAT}\textendash adjusted estimates to reduce variance. For ablations, include effect sizes and training wall\textendash clock. Report calibration (ECE/NLL) and posterior entropy.
 
-\paragraph{Game protocol.} Fixed RNG seeds across agents; rotate seat positions; match lengths $>200$k hands for multi-player variance; publish action logs for reproducibility.
+\paragraph{Game protocol.} Match lengths $\ge 300$k hands per matchup for 6\textendash max; publish action logs. Disclose compute (GPUs/CPUs, hours). Include the leakage stress tests described above.
 
 \section{Ablation Studies}
 \begin{enumerate}[leftmargin=1.25em]
-  \item Remove CRF opponent model $\to$ sample from uniform preflop ranges only.
-  \item Disable endgame CFR$^+$ $\to$ rely on MCTS only.
+  \item Remove \sCRF\ opponent model $\to$ sample from uniform preflop ranges only.
+  \item Disable PS-\CFRplus\ $\to$ rely on MCTS only.
   \item Replace CVaR with expected value $\to$ quantify downside risk.
   \item Freeze action abstraction $\to$ static three-size grid (e.g., 33\%, 66\%, 100\%).
   \item Substitute belief-unaware rollouts $\to$ measure importance of $\rho_t$.
+  \item Vary widening parameters $(k,\alpha)$ and particle count $M$.
+  \item RCAS on/off $\to$ impact of calibration gating.
 \end{enumerate}
 
 \section{Limitations and Future Work}
-Belief quality hinges on CRF calibration when showdowns are sparse; rare lines remain underexplored in self-play; and the adaptive abstraction requires careful tuning to avoid action-set churn. Extending to mixed-stack or ante formats and integrating table dynamics (player turnover) are natural next steps. 
+Belief quality hinges on \sCRF\ calibration when showdowns are sparse; rare lines remain underexplored in self-play; and the adaptive abstraction requires careful tuning to avoid action-set churn. Our current PS-\CFRplus\ budget is modest; scaling re\textendash solving under strict latency is future work. Extending to mixed-stack or ante formats and integrating table dynamics (player turnover) are natural next steps. 
 
 \section{Conclusion}
-Belief\textendash MCTS\textendash CRF combines structured opponent modeling, belief-aware search, risk-aware returns, lightweight subgame solving, and adaptive action sets into a cohesive solver that is compute-conscious and robust to exploitation. It is designed to plug directly into standard self-play/CFR codebases and to scale from heads-up to 6-max Hold'em.
+Belief\textendash MCTS\textendash \sCRF\ combines structured opponent modeling, belief\textendash aware search, risk\textendash aware returns, \emph{public\textendash subgame} endgame solving, and adaptive action sets into a cohesive solver that is compute\textendash conscious and robust to exploitation. It is designed to plug directly into standard self\textendash play/CFR codebases and to scale from heads\textendash up to 6\textendash max Hold'em.
 
 \small
 \bibliographystyle{plainnat}
 \begin{thebibliography}{10}
 \bibitem{moravcik2017deepstack}
-M.~Morav\v{c}'\'{i}k, M.~Schmid, N.~Burch, et~al.
+M.~Morav\v{c}{\'\i}k, M.~Schmid, N.~Burch, et~al.
 \newblock DeepStack: Expert-level artificial intelligence in heads-up no-limit poker.
 \newblock \emph{Science}, 356(6337), 2017.
 

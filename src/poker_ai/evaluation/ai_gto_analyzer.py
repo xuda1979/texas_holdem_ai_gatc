@@ -1,7 +1,14 @@
-import yaml
 import os
-import torch # CFRTrainer uses torch
-from cfr_trainer import CFRTrainer # Assuming cfr_trainer.py is in PYTHONPATH or same directory
+import torch  # CFRTrainer uses torch
+
+# Optional dependency: PyYAML.  The analyzer is rarely used in tests, so we
+# allow the module to load even if the package is missing.
+try:  # pragma: no cover - executed when PyYAML is present
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover - PyYAML missing
+    yaml = None
+
+from cfr_trainer import CFRTrainer  # Assuming cfr_trainer.py is in PYTHONPATH or same directory
 from utils.action_mapping import get_action_from_index
 # We need access to game_engine.texas_holdem.TexasHoldem for type hinting if game_state is passed directly
 # However, CFRTrainer.encode_state and get_action_from_index expect specific attributes from game_state or game_state.rules
@@ -25,8 +32,11 @@ def load_cfr_model_and_config(model_path: str | None = None):
 
     if _trainer_config is None or _full_config is None:
         try:
-            with open(MODEL_CONFIG_PATH, 'r') as f:
-                _full_config = yaml.safe_load(f)
+            if yaml is not None:
+                with open(MODEL_CONFIG_PATH, 'r') as f:
+                    _full_config = yaml.safe_load(f)  # type: ignore[arg-type]
+            else:
+                raise FileNotFoundError
             # Extract relevant parts for CFRTrainer.
             # CFRTrainer expects keys like 'num_actions', 'input_shape', 'learning_rate'.
             # The 'model' section in config.yaml has 'num_actions', 'hidden_dim', 'd_raw_feature'.

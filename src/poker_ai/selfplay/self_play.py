@@ -23,10 +23,8 @@ class SelfPlay:
         self.min_players = game_engine_config.get('min_players', 2)
         self.max_players = game_engine_config.get('max_players', 10)
 
-    def play_hand_for_training(self, iteration: int):
-        """
-        Runs one full MCCFR traversal for a new hand, generating training data.
-        """
+    def play_hand_for_training(self, iteration: int = 0):
+        """Run one full MCCFR traversal for a new hand."""
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
         game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
@@ -42,10 +40,11 @@ class SelfPlay:
         # 3. After the traversals, run a training step on the collected data
  
         if len(self.cfr_trainer.replay_buffer) >= 256:
- 
             loss = self.cfr_trainer.train(batch_size=256)
             if loss is not None:
                 print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
+
+        return self.cfr_trainer.replay_buffer
 
     def _get_policy(self, game: TexasHoldem, player_id: int) -> torch.Tensor:
         """

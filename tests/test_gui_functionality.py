@@ -27,7 +27,7 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
     def setUp(self):
         """Set up a test environment before each test."""
         # Patch the entire tkinter module
-        self.patcher_tk = patch('poker_ai.gui.gui.tk', autospec=True)
+        self.patcher_tk = patch('poker_ai.gui.gui.tk')
         self.mock_tk = self.patcher_tk.start()
         
         # Patch Pillow

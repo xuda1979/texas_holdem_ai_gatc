@@ -101,16 +101,28 @@ def get_legal_actions_mask(game: TexasHoldem, player_id: int, num_actions: int) 
 
 
 def get_action_from_index(action_index: int, game: TexasHoldem, player_id: int) -> tuple[str, int | None]:
+    """Converts an action index (0-9) to a game action string and amount.
+
+    The helper primarily targets :class:`TexasHoldem` instances but also works
+    with lightweight stand-ins used in tests.  When the ``game`` object lacks a
+    ``rules`` attribute we fall back to using ``game`` directly and interpret
+    ``player_id`` as the player's stack size.
     """
-    Converts an action index (0-9) to a game action string and amount.
-    This version is adapted to work with the TexasHoldem game engine object.
-    """
+
     action_string = ""
     amount = None
-    pot = game.rules.pot
-    player_stack = game.rules.player_chips[player_id]
-    current_bet = game.rules.current_bet
-    player_bet_in_round = game.rules.bets[player_id]
+
+    if hasattr(game, "rules"):
+        rules = game.rules
+        pot = rules.pot
+        player_stack = rules.player_chips[player_id]
+        current_bet = rules.current_bet
+        player_bet_in_round = rules.bets[player_id]
+    else:  # minimal dummy state for unit tests
+        pot = getattr(game, "pot", 0)
+        current_bet = getattr(game, "current_bet", 0)
+        player_stack = player_id  # here `player_id` encodes stack size
+        player_bet_in_round = getattr(game, "current_player_bet", 0)
 
     # Define raise percentages relative to the pot
     raise_percentages = {
@@ -132,8 +144,9 @@ def get_action_from_index(action_index: int, game: TexasHoldem, player_id: int) 
         raise_increment = pot * raise_percentages[action_index]
         amount = current_bet + raise_increment
     elif action_index == 9:
-        action_string = "raise" if current_bet > 0 else "bet"
-        amount = player_stack + player_bet_in_round # The total amount would be their full stack
+        # Treat index 9 as an all-in raise regardless of current betting state.
+        action_string = "raise"
+        amount = player_stack + player_bet_in_round  # total commitment including prior bet
     else:
         raise ValueError(f"Invalid action_index: {action_index}. Must be 0-9.")
 

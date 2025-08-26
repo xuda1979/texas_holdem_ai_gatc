@@ -1,6 +1,15 @@
+import os
+import sys
 import unittest
 from unittest.mock import patch, MagicMock
 import torch
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+for p in (src_path, project_root):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 from poker_ai.cli.train import initialize_trainer
 
 class TestMultiNPU(unittest.TestCase):
