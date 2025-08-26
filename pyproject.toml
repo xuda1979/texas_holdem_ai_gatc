@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "texas_holdem_ai_gatc"
+version = "0.1.0"
+description = "Modular NLHE engine + rules + self-play skeleton for texas_holdem_ai_gatc"
+authors = [{ name = "GATC", email = "dev@general-algorithm.com" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.23",
+  # Optional: fast hand evaluator; code falls back if missing
+  # "eval7>=0.1.10",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "mypy>=1.10",
+  "ruff>=0.5.7",
+  "black>=24.4",
+  "pre-commit>=3.6",
+]
+
+[project.scripts]
+gatc-holdem-selfplay = "gatc_holdem.sim.self_play:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
