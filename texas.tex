@@ -1,328 +1,200 @@
-\documentclass[11pt,a4paper]{article}
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{amsfonts}
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 \usepackage{hyperref}
-\usepackage{geometry}
-\usepackage{authblk}
-\usepackage{tikz}
-\usetikzlibrary{positioning, arrows.meta, shapes.geometric}
+\usepackage{enumitem}
+\usepackage{natbib}
+\usepackage{microtype}
 
-\geometry{a4paper, margin=1in}
-
-\title{Mastering Full-Ring No-Limit Texas Hold'em with Deep Counterfactual Regret Minimization and Transformer Architectures}
-
-% Authorship can be customized as needed
-\author[1]{AI Research Group}
-\affil[1]{(Organization/Affiliation)}
-
+\title{Belief\textendash MCTS\textendash CRF: A Hybrid, Sample-Efficient Solver for Multi-Player No-Limit Texas Hold'em}
+\author{Anonymous}
 \date{August 2025}
 
 \begin{document}
-
 \maketitle
 
 \begin{abstract}
-Full-ring No-Limit Texas Hold'em, featuring between two and ten players, presents a monumental challenge for Artificial Intelligence due to its imperfect-information nature and vast state space (on the order of $10^{75}$ game states for standard competitive variants). Traditional Counterfactual Regret Minimization (CFR) methods are computationally intractable at this scale. This paper presents a comprehensive framework for developing a state-of-the-art full-ring NLHE AI using Deep Counterfactual Regret Minimization (Deep CFR), which leverages deep neural networks for function approximation. We focus on a Transformer-based advantage network, arguing that self‑attention is well suited to capturing long-range dependencies in betting sequences while respecting information constraints. We detail implementation strategies, including structured infoset representation with permutation-invariant card encoding, efficient training via Linear CFR (LCFR) with normalized weighted regression, robust handling of off-tree actions (action translation with optional subgame re-solving), and validation practices that prevent common CFR errors.
+We present \textbf{Belief--MCTS--CRF}, a practical poker agent that couples a transformer-style public information-state encoder with a round-structured conditional random field (CRF) for opponent modeling, a belief-aware Monte Carlo tree search (MCTS), and lightweight endgame subgame solving via CFR$^+$. The CRF converts observed betting sequences into calibrated hand-range posteriors for all opponents; MCTS expands on samples from these beliefs with progressive widening for continuous bet sizes; and a short CFR$^+$ pass refines endgame play. We further introduce (i) a CVaR-based risk-aware utility for multi-player variance control, (ii) population-based self-play with exploiters/best-responses, and (iii) an adaptive bet-size abstraction selected by a contextual bandit. The design integrates cleanly with standard self-play/CFR pipelines and improves robustness without prohibitive compute.
 \end{abstract}
 
 \section{Introduction}
+No-Limit Texas Hold'em (NLHE) is a canonical imperfect-information benchmark with hidden private cards, public community cards, and large, continuous action spaces. Milestone systems such as DeepStack, Libratus, and Pluribus demonstrated expert and superhuman play via neural evaluation with subgame solving (DeepStack), large-scale equilibrium computation and endgame refinement (Libratus), and scalable multi-player search (Pluribus). Meanwhile, CFR$^+$ and descendants improved convergence of regret minimization, and ReBeL unified search and learning around public-belief states. Our goal is a \emph{practical} hybrid that captures much of this power with modest compute, suitable for 6-max play and research iteration.
 
-The pursuit of solving imperfect-information games has been a driving force in AI research. No-Limit Texas Hold'em (NLHE), characterized by hidden information and a massive action space, serves as a primary benchmark. In this work we target \textbf{full-ring NLHE with two to ten players}, using heuristic extensions of CFR beyond the two-player case. Milestones such as Libratus \cite{brown2017superhuman} and Pluribus \cite{brown2019superhuman} demonstrated superhuman performance in large poker settings through abstraction and real-time solving; DeepStack \cite{moravcik2017deepstack} and ReBeL \cite{brown2020rebel} integrated learning with search. Our contribution is a practically grounded, end-to-end Deep CFR blueprint that replaces tabular regrets with a \emph{Transformer} advantage function and a modern training pipeline suitable for full-ring NLHE.
+\paragraph{Contributions.}
+(1) A \textbf{round-CRF opponent model} that conditions on position-aware betting sequences (preflop$\rightarrow$flop$\rightarrow$turn$\rightarrow$river) to infer latent (hand-category, style) variables and produce posterior hand ranges for each opponent. 
+(2) \textbf{Belief-MCTS} that samples private hands from the CRF-induced public belief state, uses policy/value priors from a transformer encoder, and applies \emph{progressive widening} to handle continuous bet sizes. 
+(3) \textbf{Endgame CFR$^+$} invoked opportunistically on deep streets for local refinement, warm-started from the current policy/value and beliefs. 
+(4) \textbf{Risk-aware selection/evaluation} via CVaR-regularized returns, reducing downside tails in multi-player variance. 
+(5) \textbf{Population self-play} with exploiters/best-responses, prioritized regret updates, and an \textbf{adaptive action abstraction} maintained by a contextual bandit.
 
-CFR \cite{zinkevich2007regret} is an iterative algorithm that converges to a Nash equilibrium in zero-sum games by minimizing regret. However, standard tabular CFR requires storing regrets for every information set, which is infeasible in full-scale NLHE.
+\section{Related Work}
+\textbf{DeepStack} introduced depth-limited continual re-solving with learned value functions for imperfect-information games \citep{moravcik2017deepstack}. \textbf{Libratus} beat top professionals in heads-up NLHE through large-scale abstraction, real-time endgame solving, and nightly strategy repair \citep{brown2017libratus,brown2018libratus}. \textbf{Pluribus} achieved superhuman 6-max play using efficient search and blueprints \citep{brown2019pluribus}. Regret minimization advances such as \textbf{CFR$^+$}/\textbf{DCFR} improved practical convergence \citep{tammelin2014cfrplus,dcfr2023}. \textbf{ReBeL} unified self-play RL with belief-aware search on public states \citep{brown2020rebel}. Recent LLM-based systems (e.g., PokerGPT) explored instruction-tuned textual policies, but remain orthogonal to belief/search-heavy solvers \citep{pokergpt2024}.
 
-Deep CFR \cite{brown2018deep} addresses this scalability issue by replacing tabular regrets with function approximation. These networks generalize strategic knowledge across similar information sets, mitigating the need for manual information abstraction. We also discuss a Single Deep CFR (SD-CFR) style reconstruction of the average strategy that avoids training a separate strategy network \cite{steinberger2019sdcfr}.
+\section{Preliminaries}
+We consider $N$-player NLHE with stack size $S$, blinds $(b_{\small SB},b_{\small BB})$, and standard street order. Let $h_t$ denote the public history up to time $t$ (board, pot, stacks, actions). Let $H_{-i}$ denote opponents' private hands. A \emph{public belief state} (PBS) is a distribution $\rho_t(H_{-i}\mid h_t)$.
 
-This paper advances Deep CFR by integrating Transformer architectures \cite{vaswani2017attention}. Poker is inherently sequential: the meaning of a river bet depends on pre-flop action and public-card reveals. Self‑attention lets the model weigh distant events in the betting history. We further encode private/public \emph{card sets} with permutation-invariant attention (Set Transformer) \cite{lee2019settransformer} before fusing them with the bet‑history encoder.
+\section{Method}
+\subsection{Public information-state encoder}
+We represent $h_t$ as a sequence of tokenized events: blind postings, bets/raises (size as a scalar), calls, folds, checks; positional embeddings for seats; and card embeddings for board reveals. A transformer encoder produces:
+\[
+(\pi_\theta(\cdot\mid h_t),\; v_\theta(h_t)) \;\;=\;\; f_\theta(\text{tokens}(h_t), \text{masks})
+\]
+where $\pi_\theta$ is a masked policy over legal actions (including a dynamic bet-size menu; Sec.~\ref{sec:adaptive_abstraction}), and $v_\theta$ is a public-state value.
 
-\section{Preliminaries and CFR Foundations}
+\subsection{Round-CRF opponent modeling}
+We define a CRF over the four streets with latent variables $Z^{(r)}$ capturing (hand-category, style) on street $r\in\{\text{pre},\text{flop},\text{turn},\text{river}\}$. The observed variables are action features $A^{(r)}$ (aggression, size relative to pot, facing pressure, SPR, position). The CRF factors are
+\[
+p_\phi(Z^{(1:4)}, A^{(1:4)}\mid \text{context}) \;=\; \frac{1}{\mathcal{Z}} \prod_{r} \psi_r\!\left(Z^{(r)},A^{(r)},\text{ctx}^{(r)}\right)\, \prod_{r=1}^{3} \psi_{r,r+1}(Z^{(r)},Z^{(r+1)}),
+\]
+with $\psi$ parametrized by shallow MLPs on hand-crafted and learned features. Training uses maximum pseudo-likelihood on self-play data with occasional supervised anchors from showdown hands. At inference, we compute marginals $q_\phi(Z^{(r)}\mid h_t)$ and induce a \emph{hand-range posterior} by mapping each $Z^{(r)}$ to a calibrated distribution over private hands $H_{-i}$.
 
-\subsection{Game Theory Concepts}
+\paragraph{Belief update.}
+Given a new action $a_t$, update $\rho_t(H_{-i}\mid h_t)$ with a Bayes step approximated by the CRF:
+\[
+\rho_{t+1}(H_{-i}\mid h_{t+1}) \propto \rho_t(H_{-i}\mid h_t) \cdot \underbrace{p_\phi(a_t \mid H_{-i}, h_t)}_{\text{from CRF}},
+\]
+then renormalize; we implement this as a particle filter over hand candidates per opponent.
 
-We model NLHE as an extensive-form game.
-\begin{itemize}
-    \item \textbf{Histories (H):} A sequence of actions (by players or chance) starting from the initial state.
-    \item \textbf{Information Set (Infoset, I):} A partition of the histories belonging to a player~$i$, such that all histories in $I$ are indistinguishable to player~$i$. In poker, $I$ is defined by the player's private cards, public cards, and the complete betting history.
-    \item \textbf{Strategy Profile ($\sigma$):} A collection of strategies, where $\sigma_i(I)(a)$ is the probability that player~$i$ takes action~$a$ at infoset $I$.
+\subsection{Belief-MCTS with progressive widening}
+We run MCTS on public states; at each node we (i) sample opponents' private hands from $\rho_t$, (ii) restrict actions to a dynamic menu (Sec.~\ref{sec:adaptive_abstraction}), and (iii) use PUCT with $\pi_\theta$ priors and risk-aware values (next subsection). For continuous bet sizes, we employ \emph{progressive widening}: initially a small set of bet sizes, unlocking additional sizes as visit counts grow.
+
+\begin{algorithm}[t]
+\caption{Belief\textendash MCTS\textendash CRF (selection $\to$ expansion $\to$ evaluation)}
+\label{alg:bmcrf}
+\begin{algorithmic}[1]
+\State \textbf{Input:} public history $h_t$, belief $\rho_t$, encoder $f_\theta$, CRF $p_\phi$, widening rule $W(\cdot)$, risk level $\alpha$
+\For{simulation $s = 1,\dots,S$}
+  \State $x \gets h_t$; \ \ draw $\tilde H_{-i}\sim \rho_t(\cdot\mid h_t)$
+  \While{$x$ not terminal}
+    \If{new node}
+      \State initialize child set with legal actions, bet-size menu per $W(\cdot)$
+      \State set priors $P(a\mid x)\leftarrow \pi_\theta(a\mid x)$
+      \State \textbf{break}
+    \Else
+      \State select $a \leftarrow \arg\max_{a} \text{PUCT}(N,Q,P)$ using risk-aware $Q$ (Eq.~\ref{eq:cvar})
+      \State $x \leftarrow \text{Step}(x,a,\tilde H_{-i})$; expand additional bet sizes if $W(\cdot)$ triggers
+    \EndIf
+  \EndWhile
+  \State $\hat v \leftarrow$ rollout or $v_\theta(x)$ if depth limit; backpropagate risk-aware returns
+\EndFor
+\State \Return action via (possibly) temperature-smoothed visit counts
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Risk-aware utility (CVaR)}
+To reduce variance in multi-player games, replace expected returns $\mathbb{E}[X]$ by a CVaR-regularized objective:
+\begin{equation}
+\label{eq:cvar}
+J_\alpha(X) \;=\; \mathbb{E}[X] \;-\; \lambda\,\text{CVaR}_\alpha(-X), \\
+\text{CVaR}_\alpha(Y)=\min_{t}\left\{\, t + \tfrac{1}{1-\alpha}\,\mathbb{E}[(Y-t)_+] \right\}.
+\end{equation}
+We estimate CVaR from rollout samples at each node and use $J_\alpha$ in selection and value backups.
+
+\subsection{Endgame subgame solving via CFR$^+$}
+When the tree reaches specific triggers (e.g., river nodes with SPR $\le 2$ or high pot relative to stacks), we spawn a depth-limited CFR$^+$ solver within the local subgame, initialized from $(\pi_\theta,v_\theta)$ and beliefs $\rho$. A small, fixed number of CFR$^+$ iterations (e.g., $100$--$500$) refines action probabilities and regrets; the resulting policy overwrites MCTS statistics locally before returning to the main search.
+
+\subsection{Self-play training with prioritized regrets}
+We maintain a population $\mathcal{P}$ of agents: main agent, exploiters, and best-responses. Self-play generates trajectories $(h_t,a_t,r_t)$; we store (i) encoder training data (supervised policy targets from MCTS visits and value targets), (ii) CRF examples (street-wise action features with optional showdown supervision), and (iii) CFR regrets on sampled subgames for prioritized updates.
+
+\begin{algorithm}[t]
+\caption{Population self-play with prioritized CFR updates}
+\label{alg:training}
+\begin{algorithmic}[1]
+\State initialize $\theta,\phi$; initialize population $\mathcal{P}$
+\For{epoch $=1,\dots$}
+  \State sample matchups from $\mathcal{P}$; run self-play using Alg.~\ref{alg:bmcrf}
+  \State update encoder $\theta$ by minimizing 
+    $\mathcal{L} = \mathcal{L}_{\text{policy}}(\pi_\theta, \text{visits}) + \beta \, \mathcal{L}_{\text{value}}(v_\theta,\text{returns})$
+  \State fit CRF $\phi$ on street-wise features; calibrate to showdown ranges
+  \State sample stored subgames proportional to regret magnitude; run short CFR$^+$; update regret targets
+  \State periodically inject exploiters \& compute best-responses vs current main
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Adaptive action abstraction}
+\label{sec:adaptive_abstraction}
+We maintain at each node a small menu $\mathcal{B}$ of bet sizes (fractions of pot or all-in). A contextual bandit chooses which sizes to include given features (SPR, position, number of players, board texture). During training, candidate sizes are explored; those with low usage and poor regret are pruned, while promising sizes are added. MCTS progressive widening unlocks additional sizes with visits, ensuring asymptotic coverage.
+
+\section{Implementation Notes}
+Our reference implementation targets a typical research repo with modules such as \texttt{self\_play.py}, \texttt{cfr\_trainer.py}, and a rules engine. The encoder/CRF components expose:
+\begin{itemize}[leftmargin=1.25em]
+  \item \verb|encode_public_state(h_t)| $\rightarrow$ tensors + masks
+  \item \verb|pi, v = f_theta(state)| and \verb|belief = crf_phi.posteriors(h_t)|
+  \item \verb|mcts_step(h_t, belief, pi, v)| with progressive widening hooks
+  \item \verb|solve_endgame_cfr_plus(subgame, init_policy, belief, K)| for $K$ iterations
 \end{itemize}
+We use reservoir replay for trajectories and maintain separate buffers for encoder supervision, CRF fitting, and prioritized CFR regret targets.
 
-\subsection{Counterfactual Regret Minimization (CFR)}
+\section{Evaluation Protocol}
+\paragraph{Settings.} Report heads-up and 6-max; stacks $S$ (e.g., $100$bb), blind structure, rake model if any. 
 
-CFR iteratively updates strategies by minimizing regret.  A crucial concept is the \textbf{Counterfactual Value (CFV)}.  The CFV for player~$i$ at infoset $I$ under strategy profile $\sigma$ is the expected utility, weighted by the probability that opponents and chance allow the state to be reached ($\pi_{-i,\text{chance}}^\sigma(I)$).  This weighting is critical for focusing optimization on strategically reachable parts of the game tree.
+\paragraph{Baselines.} (i) rules / heuristic bots, (ii) ablations of our system (no CRF; no CFR$^+$; no CVaR; static action grid), (iii) previous checkpoints, (iv) optionally reproduce a ReBeL-style PBS search on your code for comparison.
 
-The immediate regret (or advantage) for action~$a$ at infoset~$I$ in iteration~$T$ is
-\begin{equation}
-r^T(I, a) \;=\; v^\sigma(I, a) \;-\; v^\sigma(I)\,,
-\end{equation}
-where $v^\sigma(I,a)$ is the CFV of taking action~$a$ and then following~$\sigma$, and $v^\sigma(I)$ is the average CFV at $I$ under~$\sigma$.
+\paragraph{Metrics.} Primary: bb/100 with 95\% CIs; \emph{AIVAT}-adjusted estimates to reduce variance. For ablations, include effect sizes and training wall-clock. 
 
-The cumulative regret is updated as
-\begin{equation}
-R^T(I,a) \;=\; R^{T-1}(I,a)\;+\;r^T(I,a)\,.
-\end{equation}
+\paragraph{Game protocol.} Fixed RNG seeds across agents; rotate seat positions; match lengths $>200$k hands for multi-player variance; publish action logs for reproducibility.
 
-\textbf{Regret matching.}  The strategy for the next iteration is determined by making actions proportional to their positive cumulative regret:
-\begin{equation}
-\sigma^{T+1}(I,a)\;=\;\frac{R_+^T(I,a)}{\sum_{a'\in A(I)} R_+^T(I,a')}\,,
-\end{equation}
-where $R_+^T(I,a) = \max(R^T(I,a),0)$.  If the denominator is zero, a uniform random strategy \emph{over legal actions only} is used; in practice we mask out illegal actions and renormalize.
-
-\section{Deep Counterfactual Regret Minimization (Deep CFR)}
-
-Deep CFR approximates the behavior of CFR in large games by using neural networks to generalize across the vast space of infosets.
-
-\subsection{Architecture Overview}
-
-There are two established approaches:
-\begin{enumerate}
-    \item \textbf{Advantage (Regret) Network ($V_A$):}  Parameterized by $\theta_A$, it approximates immediate advantages at a given infoset, $V_A(I;\theta_A)\approx r(I,\cdot)$.
-    \item \textbf{Average strategy reconstruction:} (a) \emph{Deep CFR} trains a separate strategy‑network from a strategy‑memory buffer using sample weights (LCFR) \cite{brown2018deep}.  (b) \emph{SD‑CFR} reconstructs the average strategy by sampling from the collection of advantage networks saved across iterations, avoiding a separate strategy network \cite{steinberger2019sdcfr}.
+\section{Ablation Studies}
+\begin{enumerate}[leftmargin=1.25em]
+  \item Remove CRF opponent model $\to$ sample from uniform preflop ranges only.
+  \item Disable endgame CFR$^+$ $\to$ rely on MCTS only.
+  \item Replace CVaR with expected value $\to$ quantify downside risk.
+  \item Freeze action abstraction $\to$ static three-size grid (e.g., 33\%, 66\%, 100\%).
+  \item Substitute belief-unaware rollouts $\to$ measure importance of $\rho_t$.
 \end{enumerate}
 
-In this paper we adopt \textbf{SD‑CFR‑style reconstruction} to avoid compounding approximation error.  We checkpoint the advantage network $V_A$ periodically (e.g., every $N$ iterations).  At inference time, to approximate the average strategy, we first uniformly sample a checkpointed network $V_A^k$ from the set of all saved checkpoints.  Then, for the duration of a single game, we derive the policy at each infoset~$I$ by applying regret matching to the advantages predicted by that specific network, $V_A^k(I; \theta_A^k)$.  This avoids training a separate, and potentially lagging, strategy network.  All function approximation is implemented with Transformers.
-
-\subsection{Training Procedure: Sampling and Learning}
-
-Deep CFR interleaves data generation (traversal) and network optimization.
-
-\subsubsection{Game Traversal (Data Generation)}
-
-Since the full game tree cannot be traversed, Deep CFR employs Monte Carlo CFR (MCCFR), most commonly \textbf{External Sampling}.  External Sampling samples the actions of the opponent(s) and chance events, while iterating over all possible actions for the player being optimized (the ``traverser'').  This yields lower variance updates.
-
-During traversal, the system queries $V_A$ to determine the current strategy~$\sigma^T$, calculates the realized CFVs, computes the realized immediate regrets~$r^T(I,a)$, and stores the tuple $(I, r^T(I,a), T)$ in the Advantage Memory Buffer ($M_A$).
-
-\subsubsection{Network Training}
-
-The Advantage Network $V_A$ is trained via supervised learning on the data in $M_A$.  The objective is to minimize the difference between the network's predictions and the realized advantages.
-
-\subsection{Stabilization and Optimization}
-
-\begin{itemize}
-    \item \textbf{Reservoir Sampling:}  Memory buffers ($M_A$) use reservoir sampling to maintain a fixed-size buffer representing a uniform sample of all generated data, crucial for convergence properties.
-    \item \textbf{Linear CFR (LCFR):}  To accelerate convergence, samples are weighted by the iteration index~$T$.
-    \item \textbf{VR‑MCCFR (optional):}  Variance‑reduction baselines can be added to further stabilize estimates without changing the training interface \cite{schmid2018vrmccfr}.
-\end{itemize}
-
-Crucially, LCFR weights must be incorporated into the loss function.  We use a \emph{normalized} weighted mean‑squared error (MSE) to keep gradient scales stable across batches with different iteration mixes:
-\begin{equation}
-L(\theta_A)
-\;=\;
-\frac{\sum_{(I,r,T)\in B}
-T\,\big\|\,V_A(I;\theta_A)\;-\;r\,\big\|^2}{\sum_{(I,r,T)\in B} T}\,,
-\end{equation}
-where $B$ is the training batch, $\theta_A$ are the network parameters, and $T$ is the iteration number when the sample was generated.  Failure to implement this weighted loss correctly will severely hamper convergence.
-
-\section{Applying Transformer Architectures to Poker}
-
-The sequential nature of poker makes it highly suitable for the Transformer architecture.  Self‑attention allows the model to process the entire game sequence simultaneously and identify relevant relationships between distant events (e.g., relating a river bet back to pre‑flop actions).
-
-\subsection{Structured Game State Representation (Input Encoding)}
-
-Encoding the poker infoset requires careful design.  A structured approach separates static context from the dynamic history and treats cards as \emph{sets}.
-\begin{enumerate}
-    \item \textbf{Tokenization:}  The game history is treated as a sequence of events.
-    \begin{itemize}
-        \item \textit{Action Tokens:}  Represent the type of action (e.g., \texttt{[RAISE]}, \texttt{[CALL]}).
-        \item \textit{Card Tokens:}  Represent rank and suit (e.g., \texttt{[As]}).
-    \end{itemize}
-
-    \item \textbf{Card Set Encoder (Permutation‑Invariant):}  Hole cards and public cards (flop/turn/river) are sets.  We encode each set with a small Set Transformer \cite{lee2019settransformer} and produce fixed‑size summaries per street that do not depend on arbitrary card order.
-
-    \item \textbf{Feature Augmentation and Normalization:}  Action tokens are augmented with associated scalars (bet sizes, stack depths) normalized as fractions of pot or stacks (optionally log‑scaled).  Scalars are projected and fused with the token embeddings.
-
-    \item \textbf{Structured Input Construction:}  The input sequence~$X$ is constructed by concatenating different segments:
-    \begin{itemize}
-        \item \textbf{Prefix (Static Context):}  Encoded hole cards (set encoder), positions, stack‑and‑blind configuration.
-        \item \textbf{Sequence (Dynamic History):}  The sequential history of betting actions and the revelation of community cards (Flop, Turn, River).
-    \end{itemize}
-
-    \item \textbf{Positional and Round Encoding:}  The order of events is crucial.  Positional encodings (sinusoidal or learned) must be added.  Furthermore, ``round‑aware'' segment embeddings (Pre‑flop, Flop, Turn, River) are often added to explicitly delineate the betting rounds.
-
-    \item \textbf{Information Hiding:}  The infoset representation must strictly only encode information visible to the acting player.  Opponent hole cards must never be included in the input.
-\end{enumerate}
-
-\subsection{Network Architecture}
-
-We adapt a Transformer encoder for the advantage network ($V_A$).  Because the entire history up to the decision point is available, causal masking is unnecessary.  All modules in our system are Transformer‑based; we do not use LSTMs.
-\begin{itemize}
-    \item \textbf{Card Set Encoders:}  Set Transformer blocks summarize hole cards and public‑card sets per street.
-    \item \textbf{History Encoder:}  A stack of Transformer encoder blocks processes the action/history sequence with positional and round embeddings.
-    \item \textbf{Fusion and Head:}  We concatenate card‑set summaries with the pooled history representation (e.g., a \texttt{[CLS]} token or mean‑pooled vector) and pass through a linear head to output advantages for the discretized legal actions.  Illegal actions are masked prior to regret‑matching, and if all advantages are non‑positive, we sample uniformly over the legal actions.
-\end{itemize}
-
-% TikZ Diagram
-\begin{figure}[h]
-\centering
-\begin{tikzpicture}[
-    node distance=1.5cm,
-    block/.style={rectangle, draw=blue!60, fill=blue!10, very thick, minimum height=1cm, minimum width=5.5cm},
-    input/.style={rectangle, draw=red!60, fill=red!10, very thick, minimum height=0.8cm, minimum width=4.2cm},
-    arrow/.style={-{Stealth[length=3mm, width=2mm]}, thick}
-]
-
-% Nodes
-\node (CardSets) [input] {Card Sets (Hole, Flop, Turn, River)};
-\node (HistSeq) [input, right=1cm of CardSets] {Dynamic History (Bets, Reveals)};
-
-\node (SetEnc) [block, below=1cm of CardSets] {Set Transformer Encoders (per street)};
-\node (EmbedHist) [block, below=1cm of HistSeq] {Embedding, Positional \& Round Encoding};
-
-\node (HistTransformer) [block, below=of EmbedHist] {History Transformer Encoder (x N)};
-
-\node (Fusion) [block, below=1.2cm of SetEnc, xshift=3.4cm] {Fusion (Concat / Pool)};
-\node (OutputHead) [block, below=of Fusion] {Output Head (Linear)};
-
-\node (Output) [input, below=of OutputHead] {Predicted Advantages (legal actions masked)};
-
-% Arrows
-\draw [arrow] (CardSets) -- (SetEnc);
-\draw [arrow] (HistSeq) -- (EmbedHist);
-\draw [arrow] (EmbedHist) -- (HistTransformer);
-\draw [arrow] (SetEnc) -- (Fusion);
-\draw [arrow] (HistTransformer) -- (Fusion);
-\draw [arrow] (Fusion) -- (OutputHead);
-\draw [arrow] (OutputHead) -- (Output);
-
-\end{tikzpicture}
-\caption{Proposed all‑Transformer architecture: permutation‑invariant card‑set encoders fused with a Transformer history encoder to produce advantages over legal abstract actions.}
-\label{fig:architecture}
-\end{figure}
-
-\section{Implementation Details and Challenges}
-
-\subsection{Action Abstraction and Translation}
-
-While Deep CFR reduces the need for \emph{information abstraction}, \emph{action abstraction} is required in NLHE due to the continuous space of bet sizes.  Implementations restrict legal bets to a discrete set per street (e.g., $\{0.5\times,\,1\times,\,2\times\text{pot},\,\text{all‑in}\}$) with standard min‑raise rules.
-
-Crucially, when deployed, an \textbf{action translation} mechanism is required.  If an opponent makes an off‑tree bet size, the system maps it back into the abstraction (e.g., to the nearest sizes).  To reduce bias and discontinuities, we optionally use \emph{stochastic interpolation} between the two nearest sizes.  When available, a stronger alternative is \textbf{nested subgame re‑solving} (safe re‑solving) that starts a small search at the off‑tree node using the blueprint as a prior.
-
-While action abstraction is a practical necessity for CFR‑based methods, it is worth noting that alternative deep reinforcement learning frameworks have explored outputting a continuous probability distribution over bet sizes.  Such approaches, often based on policy gradient methods, face their own challenges in imperfect‑information games, including high variance and difficulty in converging to a Nash equilibrium, which is why the discrete action‑space approach combined with robust translation remains the dominant paradigm in state‑of‑the‑art poker AI.
-
-\subsection{Efficient Distributed Infrastructure}
-
-Training requires a distributed Actor–Learner architecture.
-\begin{enumerate}
-    \item \textbf{Actors (Data Generators):}  Parallel CPU processes execute the MCCFR traversals (External Sampling).  They utilize the latest $V_A$ weights and push data into centralized, concurrent memory buffers.
-    \item \textbf{Learners (Trainers):}  GPU/TPU workers continuously sample batches from the memory buffers (respecting the LCFR weighting as per the normalized loss) to update the Transformer weights.  Following Deep CFR, we periodically \emph{retrain from scratch} on the buffer to reduce drift and overfitting to recent samples.
-\end{enumerate}
-The efficiency of the game logic and traversal code (often implemented in C++ or Rust) is frequently the system bottleneck.
-
-\subsection{Computational Scale and Requirements}
-
-A project of this magnitude requires significant computational resources, comparable to large language model training.
-\begin{itemize}
-    \item \textbf{Model and Memory:}  The Transformer model itself might consist of 6–12 encoder layers with a model dimension of 512–1024, resulting in 50–200 million parameters.  The main memory buffer ($M_A$) for reservoir sampling typically needs to hold $10^8$ to $10^9$ training samples (infoset, regret, iteration tuples).
-    \item \textbf{Compute Resources:}  The distributed setup relies on heterogeneous hardware.  The \textbf{Actors} are CPU‑bound and require thousands of parallel cores to generate data efficiently; the performance of the underlying game engine (typically C++ or Rust) is critical.  The \textbf{Learner} requires one or more high‑end accelerators (e.g., NVIDIA A100/H100 GPUs or a Google TPU Pod slice) for training the network.
-    \item \textbf{Training Duration:}  A full training run from scratch can consume several days to weeks, accumulating thousands of GPU‑hours for the learner and tens of thousands of CPU‑hours for the actors.
-\end{itemize}
-
-\subsection{Avoiding Common CFR Errors}
-
-Rigorous validation of the CFR logic is essential, especially when basing implementation on existing codebases which may contain subtle errors.
-\begin{itemize}
-    \item \textbf{Incorrect Reach Probabilities:}  This is the most critical error.  CFVs \emph{must} be weighted by the opponent's reach probability ($\pi_{-i}$) \emph{and} chance.  Using the player's own reach probability ($\pi_i$) breaks the definition of the counterfactual value and the theoretical guarantees of CFR.
-    \item \textbf{Improper Sampling in MCCFR:}  External Sampling must correctly sample chance and opponent actions according to the \emph{current} strategy profile $\sigma^T$.  Biased sampling leads to incorrect regret estimates.
-    \item \textbf{Errors in Weighted Loss Calculation:}  As detailed above, LCFR weighting must be applied using the iteration index of each sample, with \emph{normalized} weighted MSE to stabilize gradients.
-    \item \textbf{Information Leakage:}  Ensure the infoset representation strictly adheres to the definition and does not include hidden information.
-    \item \textbf{Training Stability and Initialization:}  Transformers require careful learning‑rate scheduling (e.g., warm‑up and decay with AdamW) and gradient clipping.  Periodically retraining from scratch on the full buffer helps avoid drift.
-    \item \textbf{Legal‑Action Masking and Uniform Fallback:}  Before regret‑matching, advantages corresponding to illegal actions are masked (set to $-\infty$ or zeroed).  If all (masked) advantages are non‑positive, the policy falls back to a uniform distribution over the \emph{legal} actions; failing to enforce this can lead the agent to select invalid moves.
-    \item \textbf{Context: CFR+}:  Regret‑matching+ (CFR+) speeds up tabular CFR; with function approximation it is less direct, but worth noting for context \cite{tammelin2014cfrplus}.
-\end{itemize}
-
-Validation should always begin by testing the framework on smaller games (e.g., Kuhn or Leduc poker) and verifying that exploitability converges towards zero.
-
-\section{Evaluation}
-
-Evaluating a poker AI involves assessing how closely it approximates a Nash equilibrium and how robustly it plays under off‑tree perturbations.
-\begin{enumerate}
-    \item \textbf{Exploitability (e):}  The theoretical measure of performance; exact computation is intractable for NLHE.
-    \item \textbf{Approximate Best Response (ABR):}  Estimate exploitability with Local Best Response (LBR) or related ABR procedures against the reconstructed average strategy.
-    \item \textbf{Performance Benchmarking:}  Evaluate on full-ring NLHE (e.g., 100\,bb) across random player counts against strong baselines (tabular/abstraction CFR, Deep CFR with MLP head, NFSP) and report win rate in milli‑big blinds per game (mbb/g) with confidence intervals over large samples.
-    \item \textbf{Ablations:}  (i) Transformer vs. MLP advantage networks; (ii) card‑set encoder on/off; (iii) LCFR on/off; (iv) retrain‑from‑scratch vs. continuous fine‑tuning; (v) action translation: deterministic nearest vs. stochastic interpolation vs. optional nested re‑solving.
-\end{enumerate}
+\section{Limitations and Future Work}
+Belief quality hinges on CRF calibration when showdowns are sparse; rare lines remain underexplored in self-play; and the adaptive abstraction requires careful tuning to avoid action-set churn. Extending to mixed-stack or ante formats and integrating table dynamics (player turnover) are natural next steps. 
 
 \section{Conclusion}
+Belief\textendash MCTS\textendash CRF combines structured opponent modeling, belief-aware search, risk-aware returns, lightweight subgame solving, and adaptive action sets into a cohesive solver that is compute-conscious and robust to exploitation. It is designed to plug directly into standard self-play/CFR codebases and to scale from heads-up to 6-max Hold'em.
 
-Deep CFR provides a powerful framework for tackling the complexity of full-ring NLHE by generalizing strategic knowledge through function approximation.  Using \emph{only} Transformer components—permutation‑invariant card‑set encoders fused with a history encoder—aligns naturally with poker's structure.  Successful implementation requires careful CFR accounting (reach probabilities and sampling), normalized LCFR weighting, robust handling of off‑tree actions, strict legal‑action masking with a uniform fallback over legal moves, and disciplined evaluation against standard baselines.
-
-\bibliographystyle{plain}
-% References
-\begin{thebibliography}{99}
-
-\bibitem{brown2017superhuman}
-Noam Brown and Tuomas Sandholm.
-\newblock Superhuman AI for heads-up no-limit poker: Libratus beats top professionals.
-\newblock {\em Science}, 356(6337):508--513, 2017.
-
-\bibitem{brown2019superhuman}
-Noam Brown and Tuomas Sandholm.
-\newblock Superhuman AI for multiplayer poker.
-\newblock {\em Science}, 365(6456):885--890, 2019.
-
-\bibitem{brown2018deep}
-Noam Brown, Adam Lerer, Sam Gross, and Tuomas Sandholm.
-\newblock Deep counterfactual regret minimization.
-\newblock In {\em International Conference on Machine Learning (ICML)}, pages 793--802.  PMLR, 2019.  (First appeared as arXiv preprint arXiv:1811.00164, 2018).
-
-\bibitem{vaswani2017attention}
-Ashish Vaswani, et al.
-\newblock Attention is all you need.
-\newblock In {\em Advances in neural information processing systems (NeurIPS)}, 2017.
-
-\bibitem{zinkevich2007regret}
-Martin Zinkevich, et al.
-\newblock Regret minimization in games with incomplete information.
-\newblock In {\em Advances in neural information processing systems (NeurIPS)}, 2007.
-
+\small
+\bibliographystyle{plainnat}
+\begin{thebibliography}{10}
 \bibitem{moravcik2017deepstack}
-Matej Moravcik, Martin Schmid, Neil Burch, Viliam Lisý, Dustin Morrill, Nolan Bard, Trevor Davis, Kevin Waugh, Michael Johanson, and Michael Bowling.
+M.~Morav\v{c}'\'{i}k, M.~Schmid, N.~Burch, et~al.
 \newblock DeepStack: Expert-level artificial intelligence in heads-up no-limit poker.
-\newblock {\em Science}, 356(6337):508--513, 2017.
+\newblock \emph{Science}, 356(6337), 2017.
 
-\bibitem{brown2020rebel}
-Noam Brown, Anton Bakhtin, Adam Lerer, and Qianggong Zhang.
-\newblock ReBeL: A general framework for self-play in imperfect-information games.
-\newblock {\em arXiv preprint arXiv:2007.13544}, 2020.
+\bibitem{brown2017libratus}
+N.~Brown and T.~Sandholm.
+\newblock Libratus: The superhuman AI for no-limit poker.
+\newblock \emph{IJCAI}, 2017.
 
-\bibitem{steinberger2019sdcfr}
-Eric Steinberger.
-\newblock Single Deep CFR: One neural network to approximate them all.
-\newblock {\em arXiv preprint arXiv:1901.07621}, 2019.
+\bibitem{brown2018libratus}
+N.~Brown and T.~Sandholm.
+\newblock Superhuman AI for heads-up no-limit poker: Libratus beats top professionals.
+\newblock \emph{Science}, 359(6374), 2018.
 
-\bibitem{lee2019settransformer}
-Juho Lee, Yoonho Lee, Jungtaek Kim, Adam Kosiorek, Seungjin Choi, and Yee Whye Teh.
-\newblock Set Transformer: A framework for attention-based permutation-invariant neural networks.
-\newblock In {\em ICML}, 2019.
+\bibitem{brown2019pluribus}
+N.~Brown and T.~Sandholm.
+\newblock Superhuman AI for multiplayer poker.
+\newblock \emph{Science}, 365(6456), 2019.
 
 \bibitem{tammelin2014cfrplus}
-Oskari Tammelin.
-\newblock Solving large imperfect information games using CFR+.
-\newblock In {\em AAAI Workshop on Computer Poker and Imperfect Information Games}, 2014.
+O.~Tammelin.
+\newblock Solving large imperfect information games using CFR$^+$.
+\newblock \emph{arXiv:1407.5042}, 2014.
 
-\bibitem{lanctot2009mccfr}
-Marc Lanctot, Kevin Waugh, Martin Zinkevich, and Michael Bowling.
-\newblock Monte Carlo sampling for regret minimization in extensive games.
-\newblock In {\em NIPS}, 2009.
+\bibitem{dcfr2023}
+H.~Fu, L.~Fu, J.~Xing.
+\newblock Dynamic Discounted Counterfactual Regret Minimization.
+\newblock \emph{OpenReview}, 2024.
 
-\bibitem{schmid2018vrmccfr}
-Martin Schmid, Neil Burch, Matej Moravcik, and Michael Bowling.
-\newblock Variance reduction in Monte Carlo counterfactual regret minimization (VR-MCCFR).
-\newblock In {\em AAMAS}, 2018.
+\bibitem{brown2020rebel}
+N.~Brown, A.~Bakhtin, A.~Lerer, Q.~Gong.
+\newblock Combining deep RL and search for imperfect-information games (ReBeL).
+\newblock \emph{NeurIPS}, 2020.
 
-\bibitem{heinrich2016nfsp}
-Johannes Heinrich and David Silver.
-\newblock Deep reinforcement learning from self-play in imperfect-information games (Neural Fictitious Self-Play).
-\newblock {\em arXiv preprint arXiv:1603.01121}, 2016.
-
-\bibitem{johanson2013sizing}
-Michael Johanson.
-\newblock Measuring the size of large no-limit poker games.
-\newblock {\em Technical Report}, 2013.
-
+\bibitem{pokergpt2024}
+C.~Huang, Y.~Cao, Y.~Wen, T.~Zhou, Y.~Zhang.
+\newblock PokerGPT: An end-to-end lightweight solver for multi-player Texas Hold'em via LLM.
+\newblock \emph{arXiv:2401.06781}, 2024.
 \end{thebibliography}
-
 \end{document}
