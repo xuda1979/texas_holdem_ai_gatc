@@ -1,8 +1,11 @@
-import torch
 import torch.optim as optim
 import logging
-import yaml
 import os
+import torch
+try:  # pragma: no cover - attempt to use PyYAML if available
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover - PyYAML missing
+    yaml = None
 from poker_ai.ai.models.transformer import AdvantageNetwork
 # Assuming rules.cfr is accessible from this path. Adjust if necessary.
 # e.g., if 'rules' is a top-level directory: from rules.cfr import ...
@@ -11,17 +14,21 @@ from poker_ai.rules.cfr import update_regret, calculate_strategy, update_strateg
 import torch.nn.functional as F
 
 
-# Load configuration - This might fail if config.yaml is not in the expected path during execution
-# For robustness, consider passing config path or dictionary.
-# For now, keeping as is, assuming it's found relative to where the script/module is run.
+# Load configuration.  If the YAML parser or file is missing we fall back to
+# a small default config so that importing this module never fails.
 try:
-    with open(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'), 'r') as f:
-        config = yaml.safe_load(f)
-except FileNotFoundError:
+    if yaml is not None:
+        with open(
+            os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'),
+            'r',
+        ) as f:
+            config = yaml.safe_load(f)  # type: ignore[arg-type]
+    else:
+        raise FileNotFoundError
+except Exception:
     logging.warning(
-        "config.yaml not found. Using default config values for AICFRTrainer."
+        "config.yaml not found or PyYAML unavailable. Using default config values for AICFRTrainer.",
     )
-    # Define a default config structure if file not found, to allow module loading
     config = {
         'logging': {'log_file': 'aicfr_trainer.log'},
         'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18, 'max_seq_len': 256},

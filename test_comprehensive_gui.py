@@ -6,6 +6,7 @@ Test script to validate GUI imports and initialization without running the main 
 import os
 import sys
 from unittest.mock import patch, MagicMock
+import pytest
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
@@ -72,7 +73,10 @@ def test_card_images():
         print("\nTesting card image functionality...")
         
         import tkinter as tk
-        from PIL import Image, ImageTk
+        try:
+            from PIL import Image, ImageTk
+        except Exception:
+            pytest.skip("Pillow not installed")
 
         # Use a mocked root window to avoid display issues
         with patch.object(tk, 'Tk', return_value=MagicMock()) as mock_tk:

@@ -1,6 +1,11 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
-from PIL import Image, ImageTk
+# Pillow is optional: the GUI falls back to text-based cards when it is not
+# installed.  Import lazily so tests can run in minimal environments.
+try:  # pragma: no cover - used only when Pillow is available
+    from PIL import Image, ImageTk  # type: ignore
+except Exception:  # pragma: no cover - Pillow missing
+    Image = ImageTk = None
 import os
 import sys
 
