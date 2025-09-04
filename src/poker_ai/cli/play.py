@@ -35,25 +35,24 @@ def parse_args() -> argparse.Namespace:
 def load_model(model_path: str) -> ModelAIStrategy:
     """Load a saved :class:`AdvantageNetwork` and wrap it in ``ModelAIStrategy``."""
     config_path = os.path.splitext(model_path)[0] + ".config.json"
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         model_config = json.load(f)
 
     network_params = {
-        k: model_config[k]
-        for k in [
-            "input_feature_dim",
-            "hidden_dim",
-            "num_heads",
-            "num_layers",
-            "num_actions",
-        ]
+        "history_feature_dim": model_config["input_feature_dim"],
+        "card_feature_dim": model_config["input_feature_dim"],
+        "hidden_dim": model_config["hidden_dim"],
+        "num_heads": model_config["num_heads"],
+        "num_layers": model_config["num_layers"],
+        "num_actions": model_config["num_actions"],
     }
     model = AdvantageNetwork(**network_params)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.load_state_dict(torch.load(model_path, map_location=device))
     return ModelAIStrategy(model, model_config, device)
 
-def main() -> None:
+
+def main() -> None:  # noqa: C901
     args = parse_args()
     print("=== Welcome to Texas Hold'em Poker Simulation ===\n")
 
@@ -78,11 +77,16 @@ def main() -> None:
     if num_humans is None:
         while True:
             try:
-                num_humans = int(input(f"Enter the number of human players (0 to {total_players}): "))
+                num_humans = int(
+                    input(f"Enter the number of human players (0 to {total_players}): ")
+                )
                 if 0 <= num_humans <= total_players:
                     break
                 else:
-                    print(f"Number of human players must be between 0 and {total_players}. Please try again.")
+                    print(
+                        "Number of human players must be between 0 and "
+                        f"{total_players}. Please try again."
+                    )
             except ValueError:
                 print("Invalid input. Please enter a numeric value.")
     else:
@@ -97,7 +101,7 @@ def main() -> None:
         print("\nChoose tournament type:")
         print("1. Standard Tournament (10,000 chips)")
         choice = input("Enter choice (1): ")
-        if choice == '1':
+        if choice == "1":
             starting_stack = 10000
         else:
             print("Invalid choice. Defaulting to Standard Tournament.")
@@ -105,9 +109,9 @@ def main() -> None:
 
     # Create player strategies
     player_strategies = []
-    for i in range(num_humans):
+    for _ in range(num_humans):
         player_strategies.append(HumanStrategy())
-    for i in range(num_ai):
+    for _ in range(num_ai):
         if model_strategy:
             player_strategies.append(model_strategy)
         else:
@@ -126,6 +130,7 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\nSimulation terminated by user.")
         sys.exit()
+
 
 if __name__ == "__main__":
     main()

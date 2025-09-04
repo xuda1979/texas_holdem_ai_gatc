@@ -3,40 +3,44 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "texas_holdem_ai_gatc"
+name = "texas-holdem-ai-gatc"
 version = "0.1.0"
-description = "Modular NLHE engine + rules + self-play skeleton for texas_holdem_ai_gatc"
-authors = [{ name = "GATC", email = "dev@general-algorithm.com" }]
-readme = "README.md"
-requires-python = ">=3.9"
+description = "Texas Hold'em AI utilities (rules-safe side pots and hand evaluation wrappers)."
+requires-python = ">=3.10"
 dependencies = [
-  "numpy>=1.23",
-  # Optional: fast hand evaluator; code falls back if missing
-  # "eval7>=0.1.10",
+    "numpy>=1.25",
+    "eval7>=0.1.10",
+    "typer>=0.12.3",
+    "pydantic>=2.7",
+    "pyyaml>=6.0.1",
+    "rich>=13.7",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.0",
-  "mypy>=1.10",
-  "ruff>=0.5.7",
-  "black>=24.4",
-  "pre-commit>=3.6",
+    "pytest>=8.2",
+    "hypothesis>=6.112",
+    "black>=24.8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
 ]
 
-[project.scripts]
-gatc-holdem-selfplay = "gatc_holdem.sim.self_play:main"
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+select = ["E","F","W","I","UP","B","C90","N","ANN"]
+ignore = ["ANN101","ANN102"]
 
-[tool.mypy]
-python_version = "3.9"
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true
-no_implicit_optional = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
+[tool.ruff.lint.isort]
+known-first-party = ["gatc_poker"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
