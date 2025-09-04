@@ -16,6 +16,7 @@ All production code now lives under `src/poker_ai` to allow modular development.
 - `gui/` – human vs. AI interface and GUI utilities.
 - `utils/` – supporting utilities.
 - `evaluation/` – exploitability and analysis tools.
+- `gatc_poker/` – rules-safe side pots and hand evaluation wrappers.
 - `config/` – configuration module containing `config.py` and `config.yaml`.
 - `cli/` – command line entry points (`train.py`, `play.py`, `self_play.py`).
 

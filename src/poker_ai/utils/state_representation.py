@@ -11,40 +11,49 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-import logging
-from typing import List, Tuple, Any
 
 # Assuming GameState and Player will be importable from these paths
 # from game_engine.game_state import GameState
 # from game_engine.player import Player
 
+
 # --- Mock classes for development and testing ---
 class MockPlayer:
-    def __init__(self, player_id: str, hand: List[str], stack: int):
+    def __init__(self, player_id: str, hand: list[str], stack: int) -> None:
         self.player_id = player_id
         self.hand = hand
         self.stack = stack
-        self.current_bet_in_round = 0 # Player's current contribution in the betting round
+        self.current_bet_in_round = 0  # Player's current contribution in the betting round
+
 
 class MockGameState:
-    def __init__(self, players: List[MockPlayer], community_cards: List[str],
-                 pot: int, current_bet: int, betting_round: str,
-                 betting_history: List[Tuple[str, Tuple[str, int | None]]],
-                 player_order: List[str] | None = None): # player_order can be passed if specific order matters
-        self.players_map = {p.player_id: p for p in players} # Renamed from self.players to avoid confusion
+    def __init__(
+        self,
+        players: list[MockPlayer],
+        community_cards: list[str],
+        pot: int,
+        current_bet: int,
+        betting_round: str,
+        betting_history: list[tuple[str, tuple[str, int | None]]],
+        player_order: list[str] | None = None,
+    ) -> None:  # player_order can be passed if specific order matters
+        self.players_map = {
+            p.player_id: p for p in players
+        }  # Renamed from self.players to avoid confusion
         if player_order:
             self.player_order = player_order
         else:
-            self.player_order = [p.player_id for p in players] # Default order if not specified
-        
+            self.player_order = [p.player_id for p in players]  # Default order if not specified
+
         self.community_cards = community_cards
         self.pot = pot
-        self.current_bet = current_bet 
+        self.current_bet = current_bet
         self.betting_round = betting_round
         self.betting_history = betting_history
 
     def get_player(self, player_id: str) -> MockPlayer | None:
         return self.players_map.get(player_id)
+
 
 # --- End Mock classes ---
 
@@ -53,28 +62,43 @@ GameState = MockGameState
 Player = MockPlayer
 
 
-RANK_TO_NUM = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
-SUIT_TO_NUM = {'s': 1, 'h': 2, 'd': 3, 'c': 4} # Spades, Hearts, Diamonds, Clubs
+RANK_TO_NUM = {
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "T": 10,
+    "J": 11,
+    "Q": 12,
+    "K": 13,
+    "A": 14,
+}
+SUIT_TO_NUM = {"s": 1, "h": 2, "d": 3, "c": 4}  # Spades, Hearts, Diamonds, Clubs
 
-ACTION_TO_ID = {'fold': 0, 'check': 1, 'call': 2, 'bet': 3, 'raise': 4}
-ROUND_TO_ID = {'pre-flop': 0, 'flop': 1, 'turn': 2, 'river': 3}
+ACTION_TO_ID = {"fold": 0, "check": 1, "call": 2, "bet": 3, "raise": 4}
+ROUND_TO_ID = {"pre-flop": 0, "flop": 1, "turn": 2, "river": 3}
 
 # For feature construction as per prompt's examples for d_raw_feature=3:
-# Card features: [encoded_card_value, 0, 0] (type implied by value, or could use a specific ID like 0 for card type)
-# Action features: [player_id_numeric, action_id_numeric, amount_normalized] (type implied)
+# Card features: [encoded_card_value, 0, 0]
+# Action features: [player_id_numeric, action_id_numeric, amount_normalized]
 # Pot feature: [pot_value_normalized, 0, 1] (type indicator 1)
 # Current Bet feature: [bet_value_normalized, 0, 2] (type indicator 2)
 # Player Stack feature: [stack_value_normalized, 0, 3] (type indicator 3)
 # Round feature: [round_id, 0, 4] (type indicator 4)
 
 # Let's define these type indicators explicitly
-TYPE_ID_CARD = 0.0 # Default type for cards, if needed in the third position.
+TYPE_ID_CARD = 0.0  # Default type for cards, if needed in the third position.
 TYPE_ID_POT = 1.0
 TYPE_ID_CURRENT_BET = 2.0
 TYPE_ID_PLAYER_STACK = 3.0
 TYPE_ID_ROUND = 4.0
-# Betting actions don't use a type_id in the third position in the prompt's example for d_raw_feature=3,
-# as all three positions are used for player_id, action_id, amount.
+# Betting actions don't use a type_id in the third position in the prompt's
+# example for d_raw_feature=3, as all three positions are used for
+# player_id, action_id, amount.
 
 # Normalization constants (placeholders, ideally should be more dynamic or configurable)
 NORM_AMOUNT = 100.0  # e.g. divide amounts by a typical big blind or average pot
@@ -100,10 +124,14 @@ class CardSetTransformer(nn.Module):
         Number of Transformer encoder layers.
     """
 
-    def __init__(self, card_dim: int, hidden_dim: int, num_heads: int = 1, num_layers: int = 1) -> None:
+    def __init__(
+        self, card_dim: int, hidden_dim: int, num_heads: int = 1, num_layers: int = 1
+    ) -> None:
         super().__init__()
         self.proj = nn.Linear(card_dim, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=num_heads, batch_first=True
+        )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_dim = hidden_dim
 
@@ -130,7 +158,8 @@ class CardSetTransformer(nn.Module):
         x = self.encoder(x)
         return x.mean(dim=1)
 
-def _encode_card(card_str: str) -> List[float]:
+
+def _encode_card(card_str: str) -> list[float]:
     """Encode a card as one-hot rank and suit vectors.
 
     Returns a list of length 17: 13 for rank followed by 4 for suit.
@@ -146,27 +175,40 @@ def _encode_card(card_str: str) -> List[float]:
     suit_vec = [1.0 if s == suit else 0.0 for s in suits]
     return rank_vec + suit_vec
 
-def _get_numeric_player_id(player_id_str: str, all_player_ids_in_order: List[str]) -> int:
-    """Convert a string ``player_id`` to its index in the ordered list."""
 
+def _get_numeric_player_id(player_id: str | int, all_player_ids_in_order: list[str]) -> int:
+    """Convert ``player_id`` to its index in the ordered list.
+
+    Parameters
+    ----------
+    player_id:
+        Identifier of the player.  It may be provided as an ``int`` or ``str``
+        depending on the game engine implementation.  We normalise it to a
+        string for comparison.
+    all_player_ids_in_order:
+        List of player identifiers (as strings) in seat order.
+    """
+
+    pid_str = str(player_id)
     try:
-        return all_player_ids_in_order.index(player_id_str)
+        return all_player_ids_in_order.index(pid_str)
     except ValueError as exc:  # pragma: no cover - defensive programming
         raise ValueError(
-            f"Player ID '{player_id_str}' not found in the game's ordered player list."
+            f"Player ID '{pid_str}' not found in the game's ordered player list."
         ) from exc
 
 
-def prepare_transformer_input(
+def prepare_transformer_input(  # noqa: C901
     game_state: GameState,
-    current_player_id: str,
+    current_player_id: str | int,
     max_seq_len: int,
     d_raw_feature: int,
     set_encoder: CardSetTransformer | None = None,
     return_mask: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
-]:
+) -> (
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+    | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+):
     """Create tensors representing the infoset for ``current_player_id``.
 
     The returned tuple contains a summary of the player's hole cards, a
@@ -191,7 +233,7 @@ def prepare_transformer_input(
         current_bet = getattr(game_state.rules, "current_bet", 0)
 
     betting_round = getattr(game_state, "betting_round", None)
-    if betting_round is None:
+    if betting_round is None or callable(betting_round):
         betting_round = getattr(game_state.rules, "betting_round", "pre-flop")
 
     betting_history = getattr(game_state, "betting_history", None)
@@ -200,7 +242,16 @@ def prepare_transformer_input(
 
     player_order = getattr(game_state, "player_order", None)
     if player_order is None:
-        player_order = getattr(game_state, "player_order", list(game_state.players_map.keys()))
+        if hasattr(game_state, "players_map"):
+            player_order = list(game_state.players_map.keys())
+        else:
+            num_players = getattr(game_state, "num_players", None)
+            if num_players is None:
+                num_players = getattr(getattr(game_state, "rules", None), "num_players", 0)
+            player_order = list(range(int(num_players)))
+    player_order = [str(pid) for pid in player_order]
+
+    current_player_id = str(current_player_id)
 
     # ------------------------------------------------------------------
     # Encode card sets using the set encoder (or mean pooling fallback).
@@ -209,7 +260,9 @@ def prepare_transformer_input(
     if not current_player_obj:
         raise ValueError(f"Player {current_player_id} not found in game_state.")
 
-    hole_cards = torch.tensor([_encode_card(c) for c in current_player_obj.hand], dtype=torch.float32)
+    hole_cards = torch.tensor(
+        [_encode_card(c) for c in current_player_obj.hand], dtype=torch.float32
+    )
     hole_cards = hole_cards.unsqueeze(0)  # batch dimension
 
     community_cards_tensor = torch.tensor(
@@ -227,16 +280,14 @@ def prepare_transformer_input(
         else:
             community_summary = torch.zeros_like(hole_summary)
 
-    card_feature_dim = hole_summary.shape[-1]
-
     # ------------------------------------------------------------------
     # Encode betting history and scalar features as a sequence.
     # ------------------------------------------------------------------
-    raw_sequence: List[List[float]] = []
+    raw_sequence: list[list[float]] = []
 
     all_player_ids_ordered = list(player_order)
 
-    def _pad_feature(values: List[float]) -> List[float]:
+    def _pad_feature(values: list[float]) -> list[float]:
         base = list(values)
         if len(base) >= d_raw_feature:
             return base[:d_raw_feature]
@@ -271,8 +322,8 @@ def prepare_transformer_input(
     # ------------------------------------------------------------------
     # Pad sequence and create mask
     # ------------------------------------------------------------------
-    final_sequence: List[List[float]] = []
-    attention_mask: List[int] = []
+    final_sequence: list[list[float]] = []
+    attention_mask: list[int] = []
     for i in range(max_seq_len):
         if i < len(raw_sequence):
             final_sequence.append(raw_sequence[i])
@@ -286,7 +337,8 @@ def prepare_transformer_input(
 
     if history_tensor.shape != (max_seq_len, d_raw_feature):  # pragma: no cover - sanity check
         raise ValueError(
-            f"Final tensor shape is {history_tensor.shape}, expected ({max_seq_len}, {d_raw_feature})."
+            "Final tensor shape is "
+            f"{history_tensor.shape}, expected ({max_seq_len}, {d_raw_feature})."
         )
 
     if return_mask:

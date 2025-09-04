@@ -1,19 +1,24 @@
 """
 A command-line interface to play against a trained Poker AI model.
 """
-import torch
+
 import argparse
 import os
 
+import torch
+
+# ruff: noqa: ANN201,ANN204
+from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import HumanStrategy, PlayerStrategy
-from poker_ai.ai.models.transformer import AdvantageNetwork
-from poker_ai.utils.state_representation import prepare_transformer_input
-from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
 from poker_ai.rules.cfr import calculate_strategy
+from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.state_representation import prepare_transformer_input
+
 
 class AIStrategy(PlayerStrategy):
     """A strategy that uses a trained AdvantageNetwork to make decisions."""
+
     def __init__(self, model_path: str, device: str, num_actions: int = 10):
         self.device = device
         self.num_actions = num_actions
@@ -21,11 +26,12 @@ class AIStrategy(PlayerStrategy):
         # This assumes the model was saved with a config that matches the network class
         # For now, we hardcode the model parameters, but a config file would be better.
         self.model = AdvantageNetwork(
-            input_feature_dim=18, # This must match the state representation
+            history_feature_dim=18,  # This must match the state representation
+            card_feature_dim=18,
             hidden_dim=128,
             num_heads=4,
             num_layers=2,
-            num_actions=self.num_actions
+            num_actions=self.num_actions,
         )
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         self.model.to(self.device)
@@ -39,8 +45,16 @@ class AIStrategy(PlayerStrategy):
     def choose_action(self, game: TexasHoldem, player_index: int):
         """Chooses an action by querying the model."""
         # 1. Get the policy from the network
-        state_tensor = prepare_transformer_input(game, player_index)
-        advantages = self.model(state_tensor.unsqueeze(0).to(self.device)).squeeze(0).cpu()
+        hole, community, history = prepare_transformer_input(game, player_index, 256, 18)
+        advantages = (
+            self.model(
+                hole.unsqueeze(0).to(self.device),
+                community.unsqueeze(0).to(self.device),
+                history.unsqueeze(0).to(self.device),
+            )
+            .squeeze(0)
+            .cpu()
+        )
 
         # 2. Get legal actions and mask the policy
         legal_mask = get_legal_actions_mask(game, player_index, self.num_actions)
@@ -59,8 +73,12 @@ class AIStrategy(PlayerStrategy):
         # 4. Convert action index to game action
         action_str, amount = get_action_from_index(action_idx, game, player_id=player_index)
 
-        print(f"AI (Player {player_index + 1}) chose action: {action_str} {amount if amount is not None else ''}")
+        print(
+            "AI (Player {player_index + 1}) chose action: "
+            f"{action_str} {amount if amount is not None else ''}"
+        )
         return action_str, amount
+
 
 def parse_args() -> argparse.Namespace:
     """Parses command line arguments."""
@@ -69,13 +87,10 @@ def parse_args() -> argparse.Namespace:
         "--model-path",
         type=str,
         required=True,
-        help="Path to the trained model checkpoint (.pth file)."
+        help="Path to the trained model checkpoint (.pth file).",
     )
     parser.add_argument(
-        "--starting-stack",
-        type=int,
-        default=1000,
-        help="Starting stack size for players."
+        "--starting-stack", type=int, default=1000, help="Starting stack size for players."
     )
     parser.add_argument(
         "--device",
@@ -84,6 +99,7 @@ def parse_args() -> argparse.Namespace:
         help="Computation device. Defaults to CUDA if available, then NPU, then CPU.",
     )
     return parser.parse_args()
+
 
 def main():
     args = parse_args()
@@ -98,7 +114,7 @@ def main():
     else:
         if torch.cuda.is_available():
             device = "cuda"
-        elif hasattr(torch, 'npu') and torch.npu.is_available():
+        elif hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
         else:
             device = "cpu"
@@ -113,11 +129,11 @@ def main():
     game = TexasHoldem(
         num_players=2,
         starting_stack=args.starting_stack,
-        player_strategies=[human_strategy, ai_strategy]
+        player_strategies=[human_strategy, ai_strategy],
     )
 
     print("--- Welcome to Human vs AI Poker ---")
-    print(f"You are Player 1. The AI is Player 2.")
+    print("You are Player 1. The AI is Player 2.")
     print(f"Model used: {args.model_path}")
 
     # Game loop
@@ -128,10 +144,11 @@ def main():
             print("\n--- Hand Over ---")
             # Ask user if they want to play another hand
             play_again = input("Play another hand? (y/n): ").lower()
-            if play_again != 'y':
+            if play_again != "y":
                 break
     except KeyboardInterrupt:
         print("\nGame terminated. Thanks for playing!")
+
 
 if __name__ == "__main__":
     main()

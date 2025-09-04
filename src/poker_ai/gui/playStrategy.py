@@ -1,7 +1,7 @@
 # playStrategy.py
 
+# ruff: noqa: N999,ANN001,ANN201,ANN204
 import random
-from typing import Dict
 
 import torch
 
@@ -11,6 +11,7 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 
 # Import the new AI GTO display function lazily inside HumanStrategy to avoid
 # pulling heavy GUI dependencies when simply importing this module.
+
 
 class PlayerStrategy:
     @property
@@ -32,14 +33,14 @@ class RandomAIStrategy(PlayerStrategy):
 
         action = random.choice(actions)
 
-        if action in ['raise', 'bet']:
+        if action in ["raise", "bet"]:
             min_raise = game.get_min_raise_amount(player_index)
             max_raise = game.get_max_raise_amount(player_index)
             if max_raise < min_raise:
                 if amount_to_call > 0:
-                    return 'call', None  # Can't raise; must call or fold
+                    return "call", None  # Can't raise; must call or fold
                 else:
-                    return 'check', None  # Can't raise; must check
+                    return "check", None  # Can't raise; must check
             # AI decides on a raise amount within the allowed range
             raise_amount = random.randint(min_raise, min(max_raise, min_raise + 100))
             return action, raise_amount
@@ -49,7 +50,7 @@ class RandomAIStrategy(PlayerStrategy):
 class ModelAIStrategy(PlayerStrategy):
     """Strategy driven by a trained :class:`AdvantageNetwork`."""
 
-    def __init__(self, model: AdvantageNetwork, config: Dict, device: torch.device):
+    def __init__(self, model: AdvantageNetwork, config: dict, device: torch.device):
         self.model = model.to(device)
         self.model.eval()
         self.config = config
@@ -62,14 +63,16 @@ class ModelAIStrategy(PlayerStrategy):
     @torch.no_grad()
     def choose_action(self, game, player_index):
         max_seq_len = self.config.get("max_seq_len", 256)
-        d_raw_feature = self.config.get(
-            "d_raw_feature", self.config.get("input_feature_dim", 18)
-        )
-        state_tensor = prepare_transformer_input(
+        d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
+        hole, community, history = prepare_transformer_input(
             game, player_index, max_seq_len, d_raw_feature
         )
         advantages = (
-            self.model(state_tensor.unsqueeze(0).to(self.device))
+            self.model(
+                hole.unsqueeze(0).to(self.device),
+                community.unsqueeze(0).to(self.device),
+                history.unsqueeze(0).to(self.device),
+            )
             .squeeze(0)
             .cpu()
         )
@@ -86,15 +89,17 @@ class ModelAIStrategy(PlayerStrategy):
         action_idx = torch.multinomial(policy, 1).item()
         return get_action_from_index(action_idx, game, player_index)
 
+
 class HumanStrategy(PlayerStrategy):
     @property
     def is_human(self):
         return True
 
-    def choose_action(self, game, player_index):
+    def choose_action(self, game, player_index):  # noqa: C901
         # Display AI-derived GTO stats before prompting for action.
         # The import is delayed to keep GUI dependencies optional.
         from ai_gto_analyzer import display_ai_gto_stats
+
         display_ai_gto_stats(game, player_index)
 
         while True:
@@ -110,7 +115,7 @@ class HumanStrategy(PlayerStrategy):
             valid_actions = game.get_valid_actions(player_index)
 
             action = input(f"Choose your action ({', '.join(valid_actions)}): ").lower()
-            if action in ['raise', 'bet']:
+            if action in ["raise", "bet"]:
                 min_raise = game.get_min_raise_amount(player_index)
                 max_raise = game.get_max_raise_amount(player_index)
                 if max_raise < min_raise:
@@ -121,17 +126,22 @@ class HumanStrategy(PlayerStrategy):
                     continue
                 while True:
                     try:
-                        raise_amount = int(input(f"Enter raise amount (minimum {min_raise} chips): "))
+                        raise_amount = int(
+                            input(f"Enter raise amount (minimum {min_raise} chips): ")
+                        )
                         if raise_amount < min_raise:
                             print(f"Raise amount must be at least {min_raise} chips.")
                         elif raise_amount > max_raise:
-                            print(f"Raise amount cannot exceed your available chips ({max_raise} chips).")
+                            print(
+                                f"Raise amount cannot exceed your available chips "
+                                f"({max_raise} chips)."
+                            )
                         else:
                             break
                     except ValueError:
                         print("Invalid input. Please enter a numeric value.")
                 return action, raise_amount
-            elif action in ['call', 'fold', 'check']:
+            elif action in ["call", "fold", "check"]:
                 return action, None
             else:
                 print("Invalid action. Please try again.")
