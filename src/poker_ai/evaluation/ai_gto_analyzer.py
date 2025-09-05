@@ -1,5 +1,5 @@
 import os
-import torch  # CFRTrainer uses torch
+from typing import Any
 
 # Optional dependency: PyYAML.  The analyzer is rarely used in tests, so we
 # allow the module to load even if the package is missing.
@@ -10,12 +10,15 @@ except Exception:  # pragma: no cover - PyYAML missing
 
 from cfr_trainer import CFRTrainer  # Assuming cfr_trainer.py is in PYTHONPATH or same directory
 from utils.action_mapping import get_action_from_index
-# We need access to game_engine.texas_holdem.TexasHoldem for type hinting if game_state is passed directly
-# However, CFRTrainer.encode_state and get_action_from_index expect specific attributes from game_state or game_state.rules
-# For now, let's assume game_state has a .rules attribute and player_chips can be accessed.
 
-MODEL_CONFIG_PATH = 'config.yaml'
-DEFAULT_MODEL_FILENAME = "cfr_model.pth" # From config.yaml training.save_model_path
+# We need access to game_engine.texas_holdem.TexasHoldem for type hinting
+# if game_state is passed directly. However, CFRTrainer.encode_state and
+# get_action_from_index expect specific attributes from ``game_state`` or
+# ``game_state.rules``. For now, let's assume ``game_state`` has a
+# ``rules`` attribute and player chips can be accessed.
+
+MODEL_CONFIG_PATH = "config.yaml"
+DEFAULT_MODEL_FILENAME = "cfr_model.pth"  # From config.yaml training.save_model_path
 
 # Global variable to cache the loaded model and trainer
 # This is to avoid reloading the model on every call if the analyzer is used multiple times.
@@ -23,59 +26,70 @@ _loaded_cfr_trainer = None
 _trainer_config = None
 _full_config = None
 
-def load_cfr_model_and_config(model_path: str | None = None):
-    """
-    Loads the CFRTrainer model and its configuration.
-    If a model is already loaded, it returns the cached one unless a different model_path is specified.
+
+def load_cfr_model_and_config(
+    model_path: str | None = None,
+) -> tuple[CFRTrainer | None, dict | None]:
+    """Load the CFRTrainer model and configuration.
+
+    If a model is already loaded, it returns the cached one unless a
+    different ``model_path`` is specified.
     """
     global _loaded_cfr_trainer, _trainer_config, _full_config
 
     if _trainer_config is None or _full_config is None:
         try:
             if yaml is not None:
-                with open(MODEL_CONFIG_PATH, 'r') as f:
+                with open(MODEL_CONFIG_PATH) as f:
                     _full_config = yaml.safe_load(f)  # type: ignore[arg-type]
             else:
                 raise FileNotFoundError
             # Extract relevant parts for CFRTrainer.
             # CFRTrainer expects keys like 'num_actions', 'input_shape', 'learning_rate'.
             # The 'model' section in config.yaml has 'num_actions', 'hidden_dim', 'd_raw_feature'.
-            # 'input_shape' for CFRTrainer needs to be determined based on game state representation.
-            # Example: (height, width, channels) or (depth, height, width)
-            # TexasHoldem.get_initial_state returns (num_players + 5, len(RANKS), len(SUITS))
-            # Let's assume these are (depth, height, width) for the CNN.
-            # The CFRTrainer's build_model uses c, h, w = self.input_shape[2], self.input_shape[0], self.input_shape[1]
-            # This implies input_shape should be (h, w, c) for the config.
-            # For now, we hardcode a plausible shape based on typical card representations.
-            # A more robust solution would be to derive this from game_engine constants.
-            # num_players = full_config.get('game_engine', {}).get('num_players', 2)
-            # num_ranks = 13 # len(RANKS)
-            # num_suits = 4  # len(SUITS)
-            # depth = num_players + 5 # player hands + community cards
-            # input_shape_for_trainer_config = (num_ranks, num_suits, depth) # (H, W, C)
+            # Determine ``input_shape`` for the trainer based on game state
+            # representation. Example layouts include (height, width, channels)
+            # or (depth, height, width). ``TexasHoldem.get_initial_state``
+            # returns (num_players + 5, len(RANKS), len(SUITS)); treat these as
+            # (depth, height, width) for the CNN. The trainer's build_model uses
+            # ``c, h, w = self.input_shape[2], self.input_shape[0],
+            # self.input_shape[1]`` implying ``input_shape`` should be
+            # ordered as (h, w, c) in the config. For now we hardcode a
+            # plausible shape based on typical card representations. A more
+            # robust solution would derive these from engine constants, e.g.:
+            # ``num_players = full_config.get('game_engine', {}).get('num_players', 2)``,
+            # ``num_ranks = 13`` and ``num_suits = 4``. Depth becomes
+            # ``num_players + 5`` (player hands + community cards), giving
+            # ``input_shape_for_trainer_config = (num_ranks, num_suits, depth)``.
 
             # The CFRTrainer's encode_state uses np.resize(arr, self.input_shape).
             # And its CNN expects (N, C, H, W) after permute, from (N, H, W, C)
             # So self.input_shape should be (H, W, C)
             # Let H = num_ranks, W = num_suits, C = num_players + 5
             # This needs to be consistent with how get_initial_state() output is interpreted.
-            # The default get_initial_state() is (num_players+5, len(RANKS), len(SUITS)) i.e. (C, H, W) like
-            # Let's use a placeholder for input_shape and num_actions from the config.yaml
-            # These should align with the saved model's architecture.
+            # The default ``get_initial_state()`` is ``(num_players + 5,
+            # len(RANKS), len(SUITS))`` i.e. (C, H, W). Let's use placeholders
+            # for ``input_shape`` and ``num_actions`` from ``config.yaml``; these
+            # should align with the saved model's architecture.
 
             # A simplified config for CFRTrainer based on what it uses:
             _trainer_config = {
-                'num_actions': _full_config.get('model', {}).get('num_actions', 10),
+                "num_actions": _full_config.get("model", {}).get("num_actions", 10),
                 # input_shape: (height, width, channels/depth).
                 # game.get_initial_state() produces (depth, height, width)
                 # cfr_trainer.encode_state resizes this to self.input_shape
                 # Then cnn permutes from (N,H,W,C) to (N,C,H,W)
                 # So self.input_shape for trainer needs to be (H,W,C)
-                # Let's use placeholder values if not perfectly clear, assuming model was trained with some shape.
-                # For the purpose of loading, the exact values might only matter if they affect layer sizes
-                # that are not apparent from state_dict keys. Usually, num_actions is the most critical.
-                'input_shape': _full_config.get('model', {}).get('input_shape', (13, 4, 7)), # (Ranks, Suits, Depth_placeholder)
-                'learning_rate': _full_config.get('training', {}).get('learning_rate', 0.001) # Default if not in config
+                # Use placeholder values if the exact training configuration is
+                # unclear. These matter only if they affect layer sizes that are
+                # not obvious from the model's ``state_dict``. Usually,
+                # ``num_actions`` is most critical.
+                "input_shape": _full_config.get("model", {}).get(
+                    "input_shape", (13, 4, 7)
+                ),  # (Ranks, Suits, Depth_placeholder)
+                "learning_rate": _full_config.get("training", {}).get(
+                    "learning_rate", 0.001
+                ),  # Default if not in config
             }
         except Exception as e:
             print(f"Error loading or parsing {MODEL_CONFIG_PATH}: {e}")
@@ -83,9 +97,12 @@ def load_cfr_model_and_config(model_path: str | None = None):
 
     current_model_path = model_path
     if current_model_path is None:
-        model_dir = _trainer_config.get('model_directory', _full_config.get('model', {}).get('directory', 'trained_models'))
-        filename = DEFAULT_MODEL_FILENAME  # This comes from training.save_model_path
-        actual_model_save_path = _full_config.get('training', {}).get('save_model_path', os.path.join('trained_models', DEFAULT_MODEL_FILENAME))
+        _trainer_config.get(
+            "model_directory", _full_config.get("model", {}).get("directory", "trained_models")
+        )
+        actual_model_save_path = _full_config.get("training", {}).get(
+            "save_model_path", os.path.join("trained_models", DEFAULT_MODEL_FILENAME)
+        )
         current_model_path = actual_model_save_path
 
     os.makedirs(os.path.dirname(current_model_path), exist_ok=True)
@@ -108,22 +125,24 @@ def load_cfr_model_and_config(model_path: str | None = None):
                 return None, _trainer_config
         else:
             print(f"AI model file not found at: {current_model_path}. Cannot display AI GTO stats.")
-            _loaded_cfr_trainer = None # Ensure cache is cleared if load fails
-            return None, _trainer_config # Return config for potential re-attempt or partial use
+            _loaded_cfr_trainer = None  # Ensure cache is cleared if load fails
+            return None, _trainer_config  # Return config for potential re-attempt or partial use
 
     except Exception as e:
         print(f"Error initializing CFRTrainer or loading model from {current_model_path}: {e}")
-        _loaded_cfr_trainer = None # Ensure cache is cleared
+        _loaded_cfr_trainer = None  # Ensure cache is cleared
         return None, _trainer_config
 
 
-def display_ai_gto_stats(game, player_index: int, model_path: str | None = None):
-    """
-    Calculates and displays GTO-related statistics for the current player
-    using the project's trained AI model.
+def display_ai_gto_stats(  # noqa: C901
+    game: Any,  # noqa: ANN401
+    player_index: int,
+    model_path: str | None = None,
+) -> None:
+    """Display GTO-related statistics for the current player.
 
     Args:
-        game: The current game object (e.g., an instance of TexasHoldem).
+        game: The current game object (e.g., an instance of ``TexasHoldem``).
         player_index: The index of the human player.
         model_path: Optional path to a specific model file.
     """
@@ -137,30 +156,33 @@ def display_ai_gto_stats(game, player_index: int, model_path: str | None = None)
         return
 
     try:
-        # The game state for encode_state should be the game object itself if it has get_initial_state
-        # Or it could be game.rules if that's what get_initial_state is on.
-        # CFRTrainer.encode_state expects the object that has .get_initial_state()
-        # The `TexasHoldem` class has `get_initial_state`.
-        state_representation = trainer.encode_state(game) # Pass the main game object
+        # The game state for encode_state should be the game object itself if
+        # it has ``get_initial_state``. Alternatively, it could be
+        # ``game.rules`` if that's where ``get_initial_state`` resides.
+        # ``CFRTrainer.encode_state`` expects an object with this method, and
+        # the ``TexasHoldem`` class provides it.
+        state_representation = trainer.encode_state(game)  # Pass the main game object
 
         # Get strategy from the AI model
         # This returns a list of probabilities for num_actions
         ai_strategy_probabilities = trainer.get_strategy(state_representation)
 
-        if len(ai_strategy_probabilities) != trainer_config['num_actions']:
-            print(f"  Error: AI model returned strategy of length {len(ai_strategy_probabilities)}, "
-                  f"but config expects {trainer_config['num_actions']}.")
+        if len(ai_strategy_probabilities) != trainer_config["num_actions"]:
+            print(
+                f"  Error: AI model returned strategy of length {len(ai_strategy_probabilities)}, "
+                f"but config expects {trainer_config['num_actions']}."
+            )
             print("------------------------------------")
             return
 
         print("The AI model suggests the following probabilities for your actions:")
 
-        game_rules = game.rules # Assumes game object has a .rules attribute like TexasHoldem
+        game_rules = game.rules  # Assumes game object has a .rules attribute like TexasHoldem
         player_chips = game_rules.player_chips[player_index]
 
         amount_to_call_for_player = game_rules.current_bet - game_rules.bets[player_index]
 
-        for i in range(trainer_config['num_actions']):
+        for i in range(trainer_config["num_actions"]):
             prob = ai_strategy_probabilities[i]
             action_str, action_amount = get_action_from_index(i, game_rules, player_chips)
 
@@ -175,21 +197,25 @@ def display_ai_gto_stats(game, player_index: int, model_path: str | None = None)
                 # For display, it's better to show the player's actual call amount.
                 if amount_to_call_for_player > 0:
                     display_action = f"Call {amount_to_call_for_player} chips: {prob*100:.1f}%"
-                else: # Player can check, so "Call 0"
+                else:  # Player can check, so "Call 0"
                     display_action = f"Call 0 chips (Check): {prob*100:.1f}%"
             elif action_str == "raise":
                 # Determine the description for the raise based on index
                 # This is for display only, get_action_from_index gives the amount
                 descriptions = {
-                    3: "25% pot", 4: "50% pot", 5: "75% pot",
-                    6: "100% pot", 7: "150% pot", 8: "200% pot",
-                    9: "All-in" # Index 9 is all-in
+                    3: "25% pot",
+                    4: "50% pot",
+                    5: "75% pot",
+                    6: "100% pot",
+                    7: "150% pot",
+                    8: "200% pot",
+                    9: "All-in",  # Index 9 is all-in
                 }
                 desc = descriptions.get(i, "")
-                if i == 9: # All-in
-                     display_action = f"All-in ({action_amount} chips): {prob*100:.1f}%"
+                if i == 9:  # All-in
+                    display_action = f"All-in ({action_amount} chips): {prob*100:.1f}%"
                 else:
-                     display_action = f"Raise to {action_amount} ({desc}): {prob*100:.1f}%"
+                    display_action = f"Raise to {action_amount} ({desc}): {prob*100:.1f}%"
             else:
                 display_action = f"Action {i} ({action_str}, {action_amount}): {prob*100:.1f}%"
 
@@ -197,21 +223,27 @@ def display_ai_gto_stats(game, player_index: int, model_path: str | None = None)
 
         print("\nNotes:")
         print("- Legality of actions (e.g., 'Check' if facing a bet) is determined by game rules.")
-        print("- Raise amounts shown are calculated based on the current pot size and player stack.")
+        print(
+            "- Raise amounts shown are calculated based on the current pot size and player stack."
+        )
 
     except Exception as e:
         print(f"  Error during AI GTO analysis: {e}")
         import traceback
-        traceback.print_exc() # For debugging
+
+        traceback.print_exc()  # For debugging
 
     print("------------------------------------")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # This is a placeholder for testing.
     # To run this, you'd need a mock game object and a trained model + config.
     print("AI GTO Analyzer Module")
-    print("To test, integrate with human_vs_ai.py and ensure a trained model and config.yaml are available.")
+    print(
+        "To test, integrate with human_vs_ai.py and ensure a trained model "
+        "and config.yaml are available."
+    )
 
     # Example of how it might be called (conceptual)
     # from game_engine.texas_holdem import TexasHoldem
@@ -223,7 +255,15 @@ if __name__ == '__main__':
 
     # # Mocking enough of the game and rules for display_ai_gto_stats to run
     # class MockRules:
-    #     def __init__(self, num_players, pot, current_bet, player_bets, player_chips_list, active_players_list):
+    #     def __init__(
+    #         self,
+    #         num_players,
+    #         pot,
+    #         current_bet,
+    #         player_bets,
+    #         player_chips_list,
+    #         active_players_list,
+    #     ):
     #         self.num_players = num_players
     #         self.pot = pot
     #         self.current_bet = current_bet # Max bet this round
@@ -275,7 +315,8 @@ if __name__ == '__main__':
     # # Ensure 'trained_models/cfr_model.pth' exists and config.yaml is correct for it.
     # # display_ai_gto_stats(mock_game_obj, human_player_idx)
 
-    # print("Conceptual test structure is present. Full test requires running human_vs_ai.py with a model.")
-    pass # End of main guard
-import numpy as np # For the mock game state in __main__ example
-import random # if used by encode_state implicitly or game state. Not directly by analyzer.
+    # print(
+    #     "Conceptual test structure is present. Full test requires running"
+    #     " human_vs_ai.py with a model."
+    # )
+    pass  # End of main guard
