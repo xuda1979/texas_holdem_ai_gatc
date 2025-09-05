@@ -52,6 +52,8 @@ During training each hand uses a random number of players (between 2 and 10).
    ```bash
    pytest -q
    ```
+   Extensive unit tests exercise action validation, deck shuffling/dealing,
+   game-state transitions, hand evaluation error paths, and CLI defaults.
 
 4. **Play against the AI**:
    ```bash
