@@ -1,21 +1,25 @@
 """Main command-line interface for training models via self-play."""
 
-import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
+import os  # For path manipulation if needed, e.g. for robust config loading
+import time
+
 import torch
+
+from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
-from typing import List, Dict
 
 # Configuration Loading
 # Robustly locate config.yaml assuming it's in the project root
 CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
 # If script is not in root, adjust path:
-# CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "config.yaml") # If config is with script
+# CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+# if the config file lives alongside this script.
 # Or an absolute path, or environment variable. For now, assume it's in CWD.
+
 
 def load_configuration(config_path: str) -> dict:
     """Loads YAML configuration from the given path.
@@ -29,12 +33,10 @@ def load_configuration(config_path: str) -> dict:
         return {}
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config_data = yaml.safe_load(f)
         if config_data is None:
-            print(
-                f"Warning: {config_path} is empty or invalid. Using default configurations."
-            )
+            print(f"Warning: {config_path} is empty or invalid. Using default configurations.")
             return {}
         return config_data
     except FileNotFoundError:
@@ -49,19 +51,11 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments for the training script."""
     parser = argparse.ArgumentParser(description="Run Poker AI training session")
     parser.add_argument(
-        "--num-hands",
-        type=int,
-        help="Number of hands to simulate (overrides config)"
+        "--num-hands", type=int, help="Number of hands to simulate (overrides config)"
     )
+    parser.add_argument("--save-model-every", type=int, help="Save model every N hands")
     parser.add_argument(
-        "--save-model-every",
-        type=int,
-        help="Save model every N hands"
-    )
-    parser.add_argument(
-        "--save-minutes",
-        type=int,
-        help="Save model every N minutes (overrides config)"
+        "--save-minutes", type=int, help="Save model every N minutes (overrides config)"
     )
     parser.add_argument(
         "--save-samples",
@@ -72,35 +66,36 @@ def parse_args() -> argparse.Namespace:
         "--algorithm",
         default="deep_cfr",
         choices=["ai_cfr", "deep_cfr", "single_network"],
-        help="Training algorithm to use"
+        help="Training algorithm to use",
     )
     parser.add_argument(
-        "--config",
-        default=CONFIG_FILE_PATH,
-        help="Path to configuration YAML file"
+        "--config", default=CONFIG_FILE_PATH, help="Path to configuration YAML file"
     )
     parser.add_argument(
         "--device",
         choices=["cpu", "cuda"],
         default=None,
-        help="Computation device. Defaults to CUDA if available, then CPU. Use --npu for NPU support.",
+        help=(
+            "Computation device. Defaults to CUDA if available, then CPU. "
+            "Use --npu for NPU support."
+        ),
     )
-    parser.add_argument(
-        "--npu",
-        action="store_true",
-        help="Enable training on all available NPUs."
-    )
+    parser.add_argument("--npu", action="store_true", help="Enable training on all available NPUs.")
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False):
+def initialize_trainer(
+    algorithm: str, config: dict, device: str, use_all_npus: bool = False
+) -> object:
     """Return a trainer instance based on selected algorithm."""
     trainer = None
     if algorithm == "ai_cfr":
         from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
+
         trainer = AICFRTrainer(device=device)
     elif algorithm == "deep_cfr":
         from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer
+
         model_cfg = config.get("model", {})
         # Default to 18 raw features so that card one-hot encodings fit even if
         # the configuration file cannot be loaded (e.g. when PyYAML is not
@@ -113,6 +108,7 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
         trainer = DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
+
         model_cfg = config.get("model", {})
         # Match the default described above for Deep CFR to ensure consistent
         # feature dimensions across training approaches.
@@ -126,18 +122,18 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
 
     if use_all_npus:
         model_to_wrap = None
-        if hasattr(trainer, 'advantage_net'):
+        if hasattr(trainer, "advantage_net"):
             model_to_wrap = trainer.advantage_net
-        elif hasattr(trainer, 'model'):
+        elif hasattr(trainer, "model"):
             model_to_wrap = trainer.model
 
         if model_to_wrap:
             print("Wrapping model with DataParallel for multi-NPU training.")
             # The model is already on the correct device from the trainer's __init__
             wrapped_model = torch.nn.DataParallel(model_to_wrap)
-            if hasattr(trainer, 'advantage_net'):
+            if hasattr(trainer, "advantage_net"):
                 trainer.advantage_net = wrapped_model
-            elif hasattr(trainer, 'model'):
+            elif hasattr(trainer, "model"):
                 trainer.model = wrapped_model
         else:
             print("Warning: Could not find model to wrap for DataParallel.")
@@ -145,7 +141,7 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     return trainer
 
 
-def main():
+def main() -> None:  # noqa: C901
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
@@ -153,7 +149,7 @@ def main():
     use_all_npus = False
 
     if args.npu:
-        if hasattr(torch, 'npu') and torch.npu.is_available():
+        if hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
             npu_count = torch.npu.device_count()
             if npu_count > 1:
@@ -162,7 +158,10 @@ def main():
             else:
                 print("NPU training enabled. Found 1 NPU.")
         else:
-            print("Warning: --npu flag was specified, but no NPU devices are available. Falling back to CPU.")
+            print(
+                "Warning: --npu flag was specified, but no NPU devices are available. "
+                "Falling back to CPU."
+            )
             device = "cpu"
     elif args.device:
         device = args.device
@@ -178,27 +177,39 @@ def main():
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
     # We don't directly use model_config here, but AICFRTrainer does.
-    
-    game_engine_config = config.get('game_engine', {})
-    training_params = config.get('training', {})
-    curriculum_stages: List[Dict] = config.get('curriculum', {}).get('stages', [])
+
+    game_engine_config = config.get("game_engine", {})
+    training_params = config.get("training", {})
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
     num_iterations = (
-        args.num_hands if args.num_hands is not None else training_params.get('num_training_hands', 10000)
+        args.num_hands
+        if args.num_hands is not None
+        else training_params.get("num_training_hands", 10000)
     )
     save_model_every_samples = (
-        args.save_samples if args.save_samples is not None
-        else training_params.get('save_model_every_samples', 100000)
+        args.save_samples
+        if args.save_samples is not None
+        else training_params.get("save_model_every_samples", 100000)
     )
-    
+    save_model_every_minutes = (
+        args.save_minutes
+        if args.save_minutes is not None
+        else training_params.get("save_model_every_minutes", 10)
+    )
+    save_model_every_n_hands = (
+        args.save_model_every
+        if args.save_model_every is not None
+        else training_params.get("save_model_every_n_hands", 0)
+    )
+
     # Game Engine Parameters for SelfPlay
-    min_players = game_engine_config.get('min_players', 2)
-    max_players = game_engine_config.get('max_players', 10)
-    starting_stack = game_engine_config.get('starting_stack', 1000)
-    big_blind = game_engine_config.get('big_blind', 10)
-    small_blind = game_engine_config.get('small_blind', 5)
+    min_players = game_engine_config.get("min_players", 2)
+    max_players = game_engine_config.get("max_players", 10)
+    starting_stack = game_engine_config.get("starting_stack", 1000)
+    big_blind = game_engine_config.get("big_blind", 10)
+    small_blind = game_engine_config.get("small_blind", 5)
 
     print("\n--- Configuration ---")
     print(f"Total training iterations: {num_iterations}")
@@ -211,11 +222,11 @@ def main():
     # Initialization
     print("\n--- Initializing Components ---")
     game_config_for_selfplay = {
-        'starting_stack': starting_stack,
-        'big_blind': big_blind,
-        'small_blind': small_blind,
-        'min_players': min_players,
-        'max_players': max_players,
+        "starting_stack": starting_stack,
+        "big_blind": big_blind,
+        "small_blind": small_blind,
+        "min_players": min_players,
+        "max_players": max_players,
     }
 
     try:
@@ -224,6 +235,7 @@ def main():
     except Exception as e:
         print(f"Error initializing trainer: {e}")
         import traceback
+
         traceback.print_exc()
         return
 
@@ -239,6 +251,7 @@ def main():
         tournament_threshold=10,
         device=device,
     )
+    last_save_time = time.time()
 
     for iteration in range(1, num_iterations + 1):
         print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
@@ -249,13 +262,32 @@ def main():
         except Exception as e:
             print(f"Error during iteration {iteration}: {e}")
             import traceback
+
             traceback.print_exc()
             # Decide if training should continue or break on error
             # For now, we break on error as it might indicate a deeper issue.
             break
 
         analyzer.on_iteration_end(cfr_trainer, iteration)
-    
+
+        current_time = time.time()
+        should_save = False
+        if (
+            save_model_every_minutes > 0
+            and current_time - last_save_time >= save_model_every_minutes * 60
+        ):
+            last_save_time = current_time
+            should_save = True
+        if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
+            should_save = True
+        if should_save:
+            os.makedirs("models", exist_ok=True)
+            model_path = f"models/{args.algorithm}_iter_{iteration}.pth"
+            try:
+                cfr_trainer.save_model(model_path)
+            except Exception as e:
+                print(f"Error saving model at iteration {iteration}: {e}")
+
     # Final save after the loop
     print("\n--- Training session finished ---")
     print("Saving final model...")
@@ -269,5 +301,6 @@ def main():
 
     print("\n--- Training Complete ---")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

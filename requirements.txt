@@ -1,5 +1,6 @@
 numpy
 torch
+eval7
 treys
 pyyaml
 Pillow
