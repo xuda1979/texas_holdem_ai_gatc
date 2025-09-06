@@ -35,8 +35,9 @@ target-version = ["py310", "py311"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E","F","W","I","UP","B","C90","N","ANN"]
-ignore = ["ANN101","ANN102"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["gatc_poker"]
