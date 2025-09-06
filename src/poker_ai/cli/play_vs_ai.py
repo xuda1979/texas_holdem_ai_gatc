@@ -19,7 +19,13 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 class AIStrategy(PlayerStrategy):
     """A strategy that uses a trained AdvantageNetwork to make decisions."""
 
-    def __init__(self, model_path: str, device: str, num_actions: int = 10):
+    def __init__(
+        self,
+        model_path: str,
+        device: str,
+        num_actions: int = 10,
+        use_all_npus: bool = False,
+    ):
         self.device = device
         self.num_actions = num_actions
 
@@ -35,6 +41,17 @@ class AIStrategy(PlayerStrategy):
         )
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         self.model.to(self.device)
+
+        if (
+            use_all_npus
+            and device == "npu"
+            and hasattr(torch, "npu")
+            and torch.npu.is_available()
+            and torch.npu.device_count() > 1
+        ):
+            # Wrap model for multi-NPU inference
+            self.model = torch.nn.DataParallel(self.model)
+
         self.model.eval()
 
     @property
@@ -98,6 +115,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Computation device. Defaults to CUDA if available, then NPU, then CPU.",
     )
+    parser.add_argument(
+        "--npu",
+        action="store_true",
+        help="Force NPU usage if available.",
+    )
+    parser.add_argument(
+        "--use-all-npus",
+        action="store_true",
+        help="Wrap the model with DataParallel to utilize all NPUs.",
+    )
     return parser.parse_args()
 
 
@@ -108,9 +135,17 @@ def main():
         print(f"Error: Model path not found at {args.model_path}")
         return
 
+    use_all_npus = False
+
     # Set device
     if args.device:
         device = args.device
+    elif args.npu:
+        if hasattr(torch, "npu") and torch.npu.is_available():
+            device = "npu"
+        else:
+            print("Warning: --npu specified but no NPUs available. Falling back to CPU.")
+            device = "cpu"
     else:
         if torch.cuda.is_available():
             device = "cuda"
@@ -118,11 +153,26 @@ def main():
             device = "npu"
         else:
             device = "cpu"
+
+    if (
+        device == "npu"
+        and args.use_all_npus
+        and hasattr(torch, "npu")
+        and torch.npu.is_available()
+        and torch.npu.device_count() > 1
+    ):
+        use_all_npus = True
+        print(f"Using all {torch.npu.device_count()} NPUs for inference.")
+
     print(f"Using device: {device}")
 
     # Instantiate strategies
     human_strategy = HumanStrategy()
-    ai_strategy = AIStrategy(model_path=args.model_path, device=device)
+    ai_strategy = AIStrategy(
+        model_path=args.model_path,
+        device=device,
+        use_all_npus=use_all_npus,
+    )
 
     # Set up the game
     # The game is for 2 players: one human, one AI

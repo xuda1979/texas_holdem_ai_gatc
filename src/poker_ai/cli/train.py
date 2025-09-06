@@ -2,12 +2,12 @@
 
 import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
-import time
 import torch
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
+from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 from typing import List, Dict
 
 # Configuration Loading
@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
         "--save-minutes",
         type=int,
         help="Save model every N minutes (overrides config)"
+    )
+    parser.add_argument(
+        "--save-samples",
+        type=int,
+        help="Save model every N samples/hands for performance analysis",
     )
     parser.add_argument(
         "--algorithm",
@@ -183,12 +188,9 @@ def main():
     num_iterations = (
         args.num_hands if args.num_hands is not None else training_params.get('num_training_hands', 10000)
     )
-    save_model_every_n_hands = (
-        args.save_model_every if args.save_model_every is not None else training_params.get('save_model_every_n_hands', 1000)
-    )
-    save_model_every_minutes = (
-        args.save_minutes if args.save_minutes is not None
-        else training_params.get('save_model_every_minutes', 10) # Default to 10 if not in config
+    save_model_every_samples = (
+        args.save_samples if args.save_samples is not None
+        else training_params.get('save_model_every_samples', 100000)
     )
     
     # Game Engine Parameters for SelfPlay
@@ -200,8 +202,7 @@ def main():
 
     print("\n--- Configuration ---")
     print(f"Total training iterations: {num_iterations}")
-    print(f"Save model every: {save_model_every_n_hands} hands (if >0)")
-    print(f"Save model every: {save_model_every_minutes} minutes (if >0)")
+    print(f"Save model every: {save_model_every_samples} samples")
     print(f"Players per hand: random {min_players}-{max_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
@@ -232,7 +233,12 @@ def main():
 
     # Training Loop
     print("\n--- Starting Training Loop ---")
-    last_save_time = time.time()
+    analyzer = ModelPerformanceAnalyzer(
+        models_dir="models",
+        save_every_samples=save_model_every_samples,
+        tournament_threshold=10,
+        device=device,
+    )
 
     for iteration in range(1, num_iterations + 1):
         print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
@@ -248,30 +254,7 @@ def main():
             # For now, we break on error as it might indicate a deeper issue.
             break
 
-        # Check conditions for saving model
-        current_time = time.time()
-        time_since_last_save_minutes = (current_time - last_save_time) / 60
-
-        hand_save_condition_met = (save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0)
-        time_save_condition_met = (save_model_every_minutes > 0 and time_since_last_save_minutes >= save_model_every_minutes)
-
-        if hand_save_condition_met or time_save_condition_met:
-            print(f"\n--- Saving model at iteration {iteration} ---")
-            if hand_save_condition_met:
-                print(f"Reason: Iteration count ({save_model_every_n_hands} iterations interval reached)")
-            if time_save_condition_met:
-                print(f"Reason: Time interval ({save_model_every_minutes} minutes interval reached)")
-
-            # The save_model method in the new trainer expects a path.
-            # We'll create a simple path based on the algorithm and iteration.
-            model_save_path = f"models/{args.algorithm}_iteration_{iteration}.pth"
-            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-            try:
-                cfr_trainer.save_model(model_save_path)
-                print(f"Model saved successfully to {model_save_path}")
-                last_save_time = current_time
-            except Exception as e:
-                print(f"Error saving model at iteration {iteration}: {e}")
+        analyzer.on_iteration_end(cfr_trainer, iteration)
     
     # Final save after the loop
     print("\n--- Training session finished ---")
