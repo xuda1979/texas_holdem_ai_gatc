@@ -142,4 +142,3 @@ Contributions are welcome! Before submitting a pull request, please:
    ```
 2. Ensure new code is formatted and linted.
 3. Update documentation and add tests for new features.
-
