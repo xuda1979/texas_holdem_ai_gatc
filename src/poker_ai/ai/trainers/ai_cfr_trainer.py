@@ -1,17 +1,18 @@
-import torch.optim as optim
 import logging
 import os
+import sys
+
 import torch
+import torch.nn.functional as F  # noqa: N812
+import torch.optim as optim
+
+from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
+
 try:  # pragma: no cover - attempt to use PyYAML if available
     import yaml  # type: ignore
 except Exception:  # pragma: no cover - PyYAML missing
     yaml = None
-from poker_ai.ai.models.transformer import AdvantageNetwork
-# Assuming rules.cfr is accessible from this path. Adjust if necessary.
-# e.g., if 'rules' is a top-level directory: from rules.cfr import ...
-# If trainers and rules are siblings under a common root (e.g. 'src'): from ..rules.cfr import ...
-from poker_ai.rules.cfr import update_regret, calculate_strategy, update_strategy
-import torch.nn.functional as F
 
 
 # Load configuration.  If the YAML parser or file is missing we fall back to
@@ -19,45 +20,53 @@ import torch.nn.functional as F
 try:
     if yaml is not None:
         with open(
-            os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'),
-            'r',
+            os.path.join(os.path.dirname(__file__), "..", "..", "config", "config.yaml"),
         ) as f:
             config = yaml.safe_load(f)  # type: ignore[arg-type]
     else:
         raise FileNotFoundError
 except Exception:
     logging.warning(
-        "config.yaml not found or PyYAML unavailable. Using default config values for AICFRTrainer.",
+        "config.yaml not found or PyYAML unavailable. "
+        "Using default config values for AICFRTrainer.",
     )
     config = {
-        'logging': {'log_file': 'aicfr_trainer.log'},
-        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18, 'max_seq_len': 256},
-        'training': {'save_model_path': 'aicfr_model.pth'}
+        "logging": {"log_file": "aicfr_trainer.log"},
+        "model": {
+            "hidden_dim": 128,
+            "num_actions": 10,
+            "learning_rate": 0.001,
+            "d_raw_feature": 18,
+            "max_seq_len": 256,
+        },
+        "training": {"save_model_path": "aicfr_model.pth"},
     }
 
 
 # Setup logging
-log_file_path = config['logging']['log_file']
+log_file_path = config["logging"]["log_file"]
 log_dir = os.path.dirname(log_file_path)
 if log_dir and not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
+logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode="a")
 
 # Expose config for package-level access so tests can override it
-import sys
-sys.modules[__package__ + '.config'] = config
+sys.modules[__package__ + ".config"] = config
+
 
 class AICFRTrainer:
-    def __init__(self, device: str | None = None):
-        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
-        model_config = config.get('model', {})  # Get model sub-config, or empty dict
-        hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
-        output_dim = model_config.get('num_actions', 10) # Default if not found
-        learning_rate = model_config.get('learning_rate', 0.001) # Default if not found
+    def __init__(self: "AICFRTrainer", device: str | None = None) -> None:
+        self.device = (
+            device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
+        model_config = config.get("model", {})  # Get model sub-config, or empty dict
+        hidden_dim = model_config.get("hidden_dim", 128)  # Default if not found
+        output_dim = model_config.get("num_actions", 10)  # Default if not found
+        learning_rate = model_config.get("learning_rate", 0.001)  # Default if not found
 
         # Feature dimensions for history sequence and card set summaries
-        d_raw_feature = model_config.get('d_raw_feature', 18)
-        d_card_feature = model_config.get('d_card_feature', 17)
+        d_raw_feature = model_config.get("d_raw_feature", 18)
+        d_card_feature = model_config.get("d_card_feature", 17)
 
         self.model = AdvantageNetwork(
             history_feature_dim=d_raw_feature,
@@ -80,7 +89,7 @@ class AICFRTrainer:
         self.cumulative_strategy: dict[str, torch.Tensor] = {}
 
     def get_advantages(
-        self,
+        self: "AICFRTrainer",
         hole_summary: torch.Tensor,
         community_summary: torch.Tensor,
         history_tensor: torch.Tensor,
@@ -105,14 +114,14 @@ class AICFRTrainer:
         return advantages.squeeze(0)
 
     def train(
-        self,
+        self: "AICFRTrainer",
         info_set_id: str,
         hole_summary: torch.Tensor,
         community_summary: torch.Tensor,
         history_tensor: torch.Tensor,
         all_counterfactual_payoffs: torch.Tensor,
         mask: torch.Tensor | None = None,
-    ):
+    ) -> None:
         """Train the model for one step based on the provided state."""
 
         try:
@@ -146,8 +155,12 @@ class AICFRTrainer:
             action_regrets = all_counterfactual_payoffs - state_value
 
             if info_set_id not in self.cumulative_regret:
-                self.cumulative_regret[info_set_id] = torch.zeros(self.num_actions, device=self.device)
-                self.cumulative_strategy[info_set_id] = torch.zeros(self.num_actions, device=self.device)
+                self.cumulative_regret[info_set_id] = torch.zeros(
+                    self.num_actions, device=self.device
+                )
+                self.cumulative_strategy[info_set_id] = torch.zeros(
+                    self.num_actions, device=self.device
+                )
 
             cumulative_regret = self.cumulative_regret[info_set_id]
             cumulative_strategy = self.cumulative_strategy[info_set_id]
@@ -179,30 +192,33 @@ class AICFRTrainer:
             logging.error(f"Error during training: {str(e)}", exc_info=True)
             raise
 
-    def save_model(self, model_path=None):
+    def save_model(self: "AICFRTrainer", model_path: str | None = None) -> None:
         # Ensure config path is correct or make it an argument
         try:
             if model_path is None:
-                model_path = self.config['training']['save_model_path']
+                model_path = self.config["training"]["save_model_path"]
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             torch.save(self.model.state_dict(), model_path)
             logging.info(f"Model saved to {model_path}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 
-
-    def load_model(self):
+    def load_model(self: "AICFRTrainer") -> None:
         # Ensure config path is correct or make it an argument
         try:
-            self.model.load_state_dict(torch.load(config['training']['save_model_path'], map_location=self.device))
+            self.model.load_state_dict(
+                torch.load(
+                    config["training"]["save_model_path"],
+                    map_location=self.device,
+                )
+            )
             self.model.to(self.device)
             self.model.eval()
             logging.info(f"Model loaded from {config['training']['save_model_path']}")
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
-
-    def get_final_average_strategy(self, info_set_id: str):
+    def get_final_average_strategy(self: "AICFRTrainer", info_set_id: str) -> torch.Tensor:
         """Return the average strategy for a given information set."""
         cumulative_strategy = self.cumulative_strategy.get(info_set_id)
         if cumulative_strategy is None:
@@ -215,9 +231,9 @@ class AICFRTrainer:
         sum_cumulative_strategy = torch.sum(cumulative_strategy)
         if sum_cumulative_strategy == 0:
             logging.warning(
-                "Cumulative strategy is all zeros for information set '%s'. Returning uniform strategy.",
+                "Cumulative strategy is all zeros for information set '%s'. "
+                "Returning uniform strategy.",
                 info_set_id,
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
         return cumulative_strategy / sum_cumulative_strategy
-
