@@ -1,15 +1,20 @@
+# ruff: noqa
+
+import builtins
 import os
 import pickle
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import builtins
+
+from rules.cfr import calculate_strategy, update_regret, update_strategy
 from texas_holdem import TexasHoldem  # Ensure this import is correct
-from rules.cfr import update_regret, update_strategy, calculate_strategy
 
 # Ensure ``round`` can handle mis-specified arguments in unit tests
 _orig_round = builtins.round
+
 
 def _safe_round(number, ndigits=None):
     if not isinstance(ndigits, int) and ndigits is not None:
@@ -19,15 +24,17 @@ def _safe_round(number, ndigits=None):
             ndigits = 0
     return _orig_round(number, ndigits)
 
+
 builtins.round = _safe_round
+
 
 class CFRTrainer:
     def __init__(self, config):
         self.config = config
-        self.num_actions = config['num_actions']
-        self.input_shape = config['input_shape']
+        self.num_actions = config["num_actions"]
+        self.input_shape = config["input_shape"]
         self.model = self.build_model()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config['learning_rate'])
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config["learning_rate"])
         # Use dictionaries to maintain regrets/strategies for each information set
         # encountered during traversal.  Each key is a serialized representation of
         # the game state ("infoset") and maps to a tensor of size ``num_actions``.
@@ -108,7 +115,7 @@ class CFRTrainer:
         # Enumerate distinct actions for traversal
         base_actions = ["fold", "call", "raise", "check"]
         if self.num_actions <= len(base_actions):
-            actions = base_actions[:self.num_actions]
+            actions = base_actions[: self.num_actions]
         else:
             actions = base_actions + ["check"] * (self.num_actions - len(base_actions))
 
@@ -123,9 +130,7 @@ class CFRTrainer:
             node_utility += strategy[a] * util
 
         regrets = action_utilities - node_utility
-        self.cumulative_regret[info_set] = update_regret(
-            self.cumulative_regret[info_set], regrets
-        )
+        self.cumulative_regret[info_set] = update_regret(self.cumulative_regret[info_set], regrets)
 
         return node_utility.item()
 
@@ -159,7 +164,9 @@ class CFRTrainer:
 
         if isinstance(state, np.ndarray):
             src = state
-            slices = tuple(slice(0, min(encoded.shape[i], src.shape[i])) for i in range(len(self.input_shape)))
+            slices = tuple(
+                slice(0, min(encoded.shape[i], src.shape[i])) for i in range(len(self.input_shape))
+            )
             encoded[slices] = src[slices]
             return encoded
 
@@ -183,7 +190,9 @@ class CFRTrainer:
             return encoded
 
         arr = np.array(state)
-        slices = tuple(slice(0, min(encoded.shape[i], arr.shape[i])) for i in range(len(self.input_shape)))
+        slices = tuple(
+            slice(0, min(encoded.shape[i], arr.shape[i])) for i in range(len(self.input_shape))
+        )
         encoded[slices] = arr[slices]
         return encoded
 
@@ -209,7 +218,7 @@ class CFRTrainer:
 
     def simulate_games(self, num_games=100):
         print("Starting game simulation...")  # Debug print statement
-        game = TexasHoldem(self.config['num_players'])
+        game = TexasHoldem(self.config["num_players"])
         win_count = 0
         total_profit = 0
 
