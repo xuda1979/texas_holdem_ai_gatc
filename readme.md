@@ -135,7 +135,8 @@ helper to map action indices to in-game actions.
 ## Contributing
 
 Contributions are welcome! Before submitting a pull request, ensure that the code
-passes the pre-commit hooks and the test suite:
+passes the pre-commit hooks and the test suite. Install the hooks once with
+`pre-commit install` and run the checks before committing:
 
 ```bash
 pre-commit run --files <changed_files>
