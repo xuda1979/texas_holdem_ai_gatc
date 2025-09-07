@@ -131,3 +131,13 @@ print(calculate_exploitability(strategy, matrix))
 Demonstration scripts are provided in the `examples` directory. For instance,
 `examples/action_mapping_demo.py` showcases how to use the `get_action_from_index`
 helper to map action indices to in-game actions.
+
+## Contributing
+
+Contributions are welcome! Before submitting a pull request, ensure that the code
+passes the pre-commit hooks and the test suite:
+
+```bash
+pre-commit run --files <changed_files>
+pytest -q
+```
