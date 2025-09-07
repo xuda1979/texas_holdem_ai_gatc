@@ -3,6 +3,7 @@
 import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
 import torch
+import time
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -192,6 +193,14 @@ def main():
         args.save_samples if args.save_samples is not None
         else training_params.get('save_model_every_samples', 100000)
     )
+    save_model_every_n_hands = (
+        args.save_model_every if args.save_model_every is not None
+        else training_params.get('save_model_every_n_hands', 0)
+    )
+    save_model_every_minutes = (
+        args.save_minutes if args.save_minutes is not None
+        else training_params.get('save_model_every_minutes', 10)
+    )
     
     # Game Engine Parameters for SelfPlay
     min_players = game_engine_config.get('min_players', 2)
@@ -239,6 +248,7 @@ def main():
         tournament_threshold=10,
         device=device,
     )
+    last_save_time = time.time()
 
     for iteration in range(1, num_iterations + 1):
         print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
@@ -255,6 +265,20 @@ def main():
             break
 
         analyzer.on_iteration_end(cfr_trainer, iteration)
+        should_save = False
+        current_time = time.time()
+        if save_model_every_minutes > 0 and current_time - last_save_time >= save_model_every_minutes * 60:
+            last_save_time = current_time
+            should_save = True
+        if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
+            should_save = True
+        if should_save:
+            os.makedirs("models", exist_ok=True)
+            try:
+                cfr_trainer.save_model(f"models/{args.algorithm}_iter_{iteration}.pth")
+                print("Model saved during training.")
+            except Exception as e:
+                print(f"Error saving model during training: {e}")
     
     # Final save after the loop
     print("\n--- Training session finished ---")
