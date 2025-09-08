@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 # Add parent directory to path for imports
 project_root = os.path.abspath(os.path.dirname(__file__))
-src_path = os.path.join(project_root, 'src')
+src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -23,10 +23,10 @@ def test_gui_initialization() -> None:
     """Test that GUI can be initialized without errors"""
     try:
         with (
-            patch('play.gui.tk') as mock_tk,
-            patch('play.gui.PokerGameGUI._load_card_images'),
-            patch('play.gui.PokerGameGUI.setup_gui'),
-            patch('play.gui.PokerGameGUI.start_game'),
+            patch("play.gui.tk") as mock_tk,
+            patch("play.gui.PokerGameGUI._load_card_images"),
+            patch("play.gui.PokerGameGUI.setup_gui"),
+            patch("play.gui.PokerGameGUI.start_game"),
         ):
             _gui = PokerGameGUI()
             mock_tk.Tk.assert_called_once()
@@ -35,6 +35,7 @@ def test_gui_initialization() -> None:
     except Exception as e:
         print(f"✗ GUI initialization failed: {e}")
         raise AssertionError() from e
+
 
 def test_strategy_imports() -> None:
     """Test that strategy imports work correctly"""
@@ -48,6 +49,7 @@ def test_strategy_imports() -> None:
     except Exception as e:
         print(f"✗ Strategy imports failed: {e}")
         raise AssertionError() from e
+
 
 def test_game_engine_creation() -> None:
     """Test that game engine can be created with strategies"""
@@ -77,14 +79,15 @@ def test_game_engine_creation() -> None:
         print(f"✗ Game engine creation failed: {e}")
         raise AssertionError() from e
 
+
 def test_gui_game_setup() -> None:
     """Test GUI's game setup method"""
     try:
         with (
-            patch('play.gui.tk') as mock_tk,
-            patch('play.gui.PokerGameGUI._load_card_images'),
-            patch('play.gui.PokerGameGUI.setup_gui'),
-            patch('play.gui.PokerGameGUI.start_game'),
+            patch("play.gui.tk") as mock_tk,
+            patch("play.gui.PokerGameGUI._load_card_images"),
+            patch("play.gui.PokerGameGUI.setup_gui"),
+            patch("play.gui.PokerGameGUI.start_game"),
         ):
             gui = PokerGameGUI()
 
@@ -102,6 +105,7 @@ def test_gui_game_setup() -> None:
         print(f"✗ GUI game setup failed: {e}")
         raise AssertionError() from e
 
+
 def main() -> None:
     """Run all tests"""
     print("Testing GUI Integration")
@@ -111,7 +115,7 @@ def main() -> None:
         test_strategy_imports,
         test_gui_initialization,
         test_game_engine_creation,
-        test_gui_game_setup
+        test_gui_game_setup,
     ]
 
     passed = 0
@@ -132,6 +136,7 @@ def main() -> None:
         print("🎉 All tests passed! GUI integration is working correctly.")
     else:
         print("❌ Some tests failed. Check the output above for details.")
+
 
 if __name__ == "__main__":
     main()

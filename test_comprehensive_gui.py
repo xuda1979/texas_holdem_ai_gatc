@@ -11,10 +11,11 @@ import pytest
 
 # Add project root to path
 project_root = os.path.abspath(os.path.dirname(__file__))
-src_path = os.path.join(project_root, 'src')
+src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
+
 
 def test_gui_imports() -> None:
     """Test that all GUI imports work correctly."""
@@ -23,16 +24,20 @@ def test_gui_imports() -> None:
 
         # Test individual imports
         from game_engine.texas_holdem import TexasHoldem  # noqa: F401
+
         print("✓ TexasHoldem import successful")
 
         from playStrategy import HumanStrategy, RandomAIStrategy  # noqa: F401
+
         print("✓ Strategy imports successful")
 
         from play.strategies import PlaceholderAIStrategy  # noqa: F401
+
         print("✓ PlaceholderAIStrategy import successful")
 
         # Test GUI classes (but don't create instances that start mainloop)
         from play.gui import GUIHumanStrategy, PokerGameGUI  # noqa: F401
+
         print("✓ GUI classes import successful")
 
         print("All imports successful!")
@@ -41,8 +46,10 @@ def test_gui_imports() -> None:
     except Exception as e:
         print(f"✗ Import error: {e}")
         import traceback
+
         traceback.print_exc()
         raise AssertionError() from e
+
 
 def test_game_logic() -> None:
     """Test basic game logic without GUI."""
@@ -65,8 +72,10 @@ def test_game_logic() -> None:
     except Exception as e:
         print(f"✗ Game logic error: {e}")
         import traceback
+
         traceback.print_exc()
         raise AssertionError() from e
+
 
 def test_card_images() -> None:
     """Test card image loading functionality."""
@@ -74,13 +83,14 @@ def test_card_images() -> None:
         print("\nTesting card image functionality...")
 
         import tkinter as tk
+
         try:
             from PIL import Image, ImageTk
         except Exception:
             pytest.skip("Pillow not installed")
 
         # Use a mocked root window to avoid display issues
-        with patch.object(tk, 'Tk', return_value=MagicMock()) as _mock_tk:
+        with patch.object(tk, "Tk", return_value=MagicMock()) as _mock_tk:
             root = tk.Tk()
             root.withdraw.return_value = None
 
@@ -105,8 +115,10 @@ def test_card_images() -> None:
     except Exception as e:
         print(f"✗ Card image error: {e}")
         import traceback
+
         traceback.print_exc()
         raise AssertionError() from e
+
 
 if __name__ == "__main__":
     print("=== Comprehensive GUI Testing ===")

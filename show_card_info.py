@@ -42,17 +42,19 @@ def show_card_info() -> None:
     except Exception as e:
         print(f"Error reading sample card: {e}")
 
+
 def list_card_organization() -> None:
     """Show how the cards are organized"""
     print("Card Organization:")
     print("=" * 30)
 
-    suits = [('h', 'Hearts ♥'), ('d', 'Diamonds ♦'), ('c', 'Clubs ♣'), ('s', 'Spades ♠')]
-    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+    suits = [("h", "Hearts ♥"), ("d", "Diamonds ♦"), ("c", "Clubs ♣"), ("s", "Spades ♠")]
+    ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 
     for suit_code, suit_name in suits:
         cards_in_suit = [f"{rank}{suit_code}" for rank in ranks]
         print(f"{suit_name}: {', '.join(cards_in_suit)}")
+
 
 if __name__ == "__main__":
     show_card_info()
