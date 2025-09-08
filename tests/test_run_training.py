@@ -25,12 +25,13 @@ class TestRunTraining(unittest.TestCase):
         save_interval_seconds = save_interval_minutes * 60
         num_hands_to_simulate = 3
 
-        # time.time() calls: 1 for init last_save_time, N for N hands
+        # time.time() calls: 1 for init last_save_time, N for N hands, +1 for each save
         mock_time_time.side_effect = [
             1000.0,  # Call 1: Initial last_save_time
             1000.0 + 30.0, # Call 2: Hand 1 check (30s elapsed from initial) -> no save
-            1000.0 + save_interval_seconds + 1.0, # Call 3: Hand 2 check (61s elapsed from initial) -> save. last_save_time becomes this.
-            1000.0 + save_interval_seconds + 1.0 + 30.0, # Call 4: Hand 3 check (30s elapsed from last_save_time) -> no save
+            1000.0 + save_interval_seconds + 1.0, # Call 3: Hand 2 check (61s elapsed from initial) -> save.
+            1000.0 + save_interval_seconds + 1.0, # Call 4: update last_save_time after save
+            1000.0 + save_interval_seconds + 1.0 + 30.0, # Call 5: Hand 3 check (30s elapsed from last_save_time) -> no save
         ]
 
         args_mock = MagicMock()
@@ -158,6 +159,7 @@ class TestRunTraining(unittest.TestCase):
         mock_time_time.side_effect = [
             1000.0,  # Initial last_save_time
             1000.0 + save_interval_seconds + 1.0, # Hand 1 check -> save
+            1000.0 + save_interval_seconds + 1.0, # update last_save_time after save
         ]
 
         args_mock = MagicMock()

@@ -3,3 +3,4 @@ torch
 treys
 pyyaml
 Pillow
+eval7
