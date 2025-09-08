@@ -3,6 +3,7 @@
 import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
 import torch
+import time
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -188,6 +189,15 @@ def main():
     num_iterations = (
         args.num_hands if args.num_hands is not None else training_params.get('num_training_hands', 10000)
     )
+    save_model_every_n_hands = (
+        args.save_model_every if args.save_model_every is not None
+        else training_params.get('save_model_every_n_hands', 0)
+    )
+    if args.save_minutes is not None:
+        save_model_every_minutes = args.save_minutes
+    else:
+        save_model_every_minutes = training_params.get('save_model_every_minutes', 10)
+
     save_model_every_samples = (
         args.save_samples if args.save_samples is not None
         else training_params.get('save_model_every_samples', 100000)
@@ -203,6 +213,10 @@ def main():
     print("\n--- Configuration ---")
     print(f"Total training iterations: {num_iterations}")
     print(f"Save model every: {save_model_every_samples} samples")
+    if save_model_every_n_hands > 0:
+        print(f"Save model every {save_model_every_n_hands} hands")
+    if save_model_every_minutes > 0:
+        print(f"Save model every {save_model_every_minutes} minutes")
     print(f"Players per hand: random {min_players}-{max_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
@@ -240,6 +254,7 @@ def main():
         device=device,
     )
 
+    last_save_time = time.time()
     for iteration in range(1, num_iterations + 1):
         print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
         try:
@@ -253,6 +268,20 @@ def main():
             # Decide if training should continue or break on error
             # For now, we break on error as it might indicate a deeper issue.
             break
+
+        # Conditional saving logic
+        if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
+            path = f"models/{args.algorithm}_hand_{iteration}.pth"
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            cfr_trainer.save_model(path)
+            print(f"Model saved to {path} at iteration {iteration}")
+
+        if save_model_every_minutes > 0 and (time.time() - last_save_time) >= save_model_every_minutes * 60:
+            path = f"models/{args.algorithm}_time_{iteration}.pth"
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            cfr_trainer.save_model(path)
+            print(f"Model saved to {path} due to time interval at iteration {iteration}")
+            last_save_time = time.time()
 
         analyzer.on_iteration_end(cfr_trainer, iteration)
     
