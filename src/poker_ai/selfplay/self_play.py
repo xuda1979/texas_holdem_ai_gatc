@@ -56,12 +56,14 @@ class SelfPlay:
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
-        _, _, history_tensor = prepare_transformer_input(
+        hole_summary, community_summary, history_tensor = prepare_transformer_input(
             game, player_id, max_seq_len, d_raw_feature
         )
 
         # b. Get advantages from the network
-        advantages = self.cfr_trainer.get_advantages(history_tensor)
+        advantages = self.cfr_trainer.get_advantages(
+            hole_summary, community_summary, history_tensor
+        )
 
         # c. Get a mask for legal actions
         legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)
@@ -107,6 +109,8 @@ class SelfPlay:
         # In this engine, chance events (dealing cards) are handled by advancing the stage
         if game.rules.betting_round_is_over():
             next_game = copy.deepcopy(game)
+            # Clear per-round bet state before dealing next street.
+            next_game.rules.end_betting_round_cleanup()
             if len(game.rules.community_cards) == 0:
                 next_game.play_stage("flop")
             elif len(game.rules.community_cards) == 3:
@@ -161,10 +165,12 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            _, _, state_tensor = prepare_transformer_input(
+            hole_summary, community_summary, history_tensor = prepare_transformer_input(
                 game, traverser_id, max_seq_len, d_raw_feature
             )
-            self.cfr_trainer.replay_buffer.push(state_tensor, weighted_regrets, iteration)
+            self.cfr_trainer.replay_buffer.push(
+                hole_summary, community_summary, history_tensor, weighted_regrets, iteration
+            )
 
             return node_value
         else:

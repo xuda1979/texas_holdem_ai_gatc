@@ -137,30 +137,39 @@ def get_action_from_index(action_index: int, game: TexasHoldem, player_id: int) 
         action_string = "call"
         amount = current_bet - player_bet_in_round
     elif action_index in raise_percentages:
-        # If there's no bet, this is a 'bet'. Otherwise, it's a 'raise'.
-        action_string = "raise" if current_bet > 0 else "bet"
-        # The amount is the total size of the new bet, not the increment.
-        # For a bet, it's % of pot. For a raise, it's current_bet + % of pot.
-        raise_increment = pot * raise_percentages[action_index]
-        amount = current_bet + raise_increment
+        # Pot-scaled sizing.
+        raise_increment = int(round(pot * raise_percentages[action_index]))
+        if current_bet > 0:
+            # Engine expects the *increment* over current_bet for raises.
+            action_string = "raise"
+            amount = max(0, raise_increment)
+        else:
+            # No bet yet => this is a bet and 'amount' is the bet size.
+            action_string = "bet"
+            amount = max(0, raise_increment)
     elif action_index == 9:
-        # Treat index 9 as an all-in raise regardless of current betting state.
-        action_string = "raise"
-        amount = player_stack + player_bet_in_round  # total commitment including prior bet
+        # All-in: return increment for raises; total bet size for opens.
+        if current_bet > 0:
+            action_string = "raise"
+            # increment = (total commit) - current_bet
+            amount = max(0, (player_stack + player_bet_in_round) - current_bet)
+        else:
+            action_string = "bet"
+            amount = player_stack
     else:
         raise ValueError(f"Invalid action_index: {action_index}. Must be 0-9.")
 
-    # Clamp the amount to be within the player's stack
+    # Clamp so commitment never exceeds the player's stack
     if amount is not None:
-        amount_to_commit = amount - player_bet_in_round if action_string == 'raise' else amount
-        if amount_to_commit > player_stack:
-            amount = player_stack + player_bet_in_round
+        if action_string == 'raise':
+            # 'amount' is the increment; it cannot exceed remaining stack.
+            amount = int(max(0, min(amount, player_stack)))
+        else:  # bet
+            amount = int(max(0, min(amount, player_stack)))
 
-        amount = int(round(amount)) if amount > 0 else 0
-
-    # The action string for 'call' should be the final amount to call
+    # For calls always return the exact amount needed to call
     if action_string == 'call':
-        amount = current_bet - player_bet_in_round
+        amount = max(0, current_bet - player_bet_in_round)
 
     return action_string, amount
 

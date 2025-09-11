@@ -20,7 +20,7 @@ class DummyTrainer:
     def __init__(self):
         self.model = AdvantageNetwork(
             history_feature_dim=18,
-            card_feature_dim=18,
+            card_feature_dim=17,
             hidden_dim=128,
             num_heads=4,
             num_layers=2,

@@ -21,7 +21,7 @@ class EvalStrategy(PlayerStrategy):
 
         self.model = AdvantageNetwork(
             history_feature_dim=18,
-            card_feature_dim=18,
+            card_feature_dim=17,
             hidden_dim=128,
             num_heads=4,
             num_layers=2,
@@ -71,15 +71,14 @@ def run_tournament(model_paths: List[str], games_per_match: int = 10, device: st
         for j, path_j in enumerate(model_paths[i + 1 :], start=i + 1):
             strat_i = EvalStrategy(path_i, device)
             strat_j = EvalStrategy(path_j, device)
-            game = TexasHoldem(
-                num_players=2,
-                starting_stack=1000,
-                player_strategies=[strat_i, strat_j],
-                verbose=False,
-            )
             for _ in range(games_per_match):
-                game.initialize_game()
-                game.play_hand()
+                game = TexasHoldem(
+                    num_players=2,
+                    starting_stack=1000,
+                    player_strategies=[strat_i, strat_j],
+                    verbose=False,
+                )
+                game.play_game()
                 chips = game.rules.player_chips
                 if chips[0] > chips[1]:
                     scores[path_i] += 1
