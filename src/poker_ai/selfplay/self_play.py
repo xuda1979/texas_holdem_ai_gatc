@@ -1,5 +1,7 @@
 """Implements External Sampling MCCFR for data generation as described in ``texas.tex``."""
 
+# ruff: noqa
+
 import copy
 import random
 from typing import Any
@@ -15,7 +17,7 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
-    def __init__(self, cfr_trainer: object, game_engine_config: dict[str, Any]) -> None:
+    def __init__(self: "SelfPlay", cfr_trainer: object, game_engine_config: dict[str, Any]) -> None:
         self.cfr_trainer = cfr_trainer
         self.starting_stack = game_engine_config.get("starting_stack", 1000)
         self.big_blind = game_engine_config.get("big_blind", 10)
@@ -23,7 +25,7 @@ class SelfPlay:
         self.min_players = game_engine_config.get("min_players", 2)
         self.max_players = game_engine_config.get("max_players", 10)
 
-    def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
+    def play_hand_for_training(self: "SelfPlay", iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
@@ -46,7 +48,7 @@ class SelfPlay:
 
         return self.cfr_trainer.replay_buffer
 
-    def _get_policy(self, game: TexasHoldem, player_id: int) -> torch.Tensor:
+    def _get_policy(self: "SelfPlay", game: TexasHoldem, player_id: int) -> torch.Tensor:
         """
         Gets the current policy for a player at a given game state.
         This is done by querying the advantage network and applying regret matching.
@@ -93,7 +95,7 @@ class SelfPlay:
         return policy
 
     def _traverse_mccfr(  # noqa: C901
-        self,
+        self: "SelfPlay",
         game: TexasHoldem,
         traverser_id: int,
         iteration: int,

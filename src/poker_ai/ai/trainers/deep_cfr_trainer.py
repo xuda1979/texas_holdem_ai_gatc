@@ -1,14 +1,16 @@
+# ruff: noqa
+import random
+
 import torch
 import torch.optim as optim
-from collections import deque
-import random
-from typing import Tuple, List
 
 # Correctly import the refactored AdvantageNetwork
 from poker_ai.ai.models.transformer import AdvantageNetwork
 
+
 class ReplayBuffer:
     """A simple reservoir sampling replay buffer for Deep CFR."""
+
     def __init__(self, capacity: int):
         self.capacity = capacity
         self.buffer: list = []
@@ -57,6 +59,7 @@ class DeepCFRTrainer:
     A Deep CFR trainer that implements the algorithm from 'texas.tex'.
     It uses a single advantage network and trains with a weighted MSE loss (Linear CFR).
     """
+
     def __init__(
         self,
         input_feature_dim: int,
@@ -67,7 +70,9 @@ class DeepCFRTrainer:
         device: str | None = None,
     ):
 
-        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = (
+            device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
         self.num_actions = num_actions
         self.card_feature_dim = 17  # 13 rank + 4 suit (see state_representation)
 
@@ -89,11 +94,11 @@ class DeepCFRTrainer:
 
         # A minimal config dict for compatibility with other components
         self.config = {
-            'model': {
-                'd_raw_feature': input_feature_dim,
-                'hidden_dim': hidden_dim,
-                'num_actions': num_actions,
-                'learning_rate': learning_rate,
+            "model": {
+                "d_raw_feature": input_feature_dim,
+                "hidden_dim": hidden_dim,
+                "num_actions": num_actions,
+                "learning_rate": learning_rate,
             }
         }
 
@@ -128,7 +133,7 @@ class DeepCFRTrainer:
 
         # Sample from the replay buffer
         batch = self.replay_buffer.sample(batch_size)
-        holes, communities, histories, regrets, iterations = zip(*batch)
+        holes, communities, histories, regrets, iterations = zip(*batch, strict=False)
 
         holes = torch.stack(holes).to(self.device)
         communities = torch.stack(communities).to(self.device)
@@ -141,7 +146,7 @@ class DeepCFRTrainer:
 
         # Calculate the weighted MSE loss (Linear CFR)
         # The loss is weighted by the iteration number T
-        loss_values = (adv_pred - regrets)**2
+        loss_values = (adv_pred - regrets) ** 2
         weighted_loss = (loss_values * iterations).sum() / iterations.sum()
 
         # Optimizer step

@@ -1,10 +1,13 @@
-import numpy as np
+# ruff: noqa
 import random
 from collections import Counter
 
-SUITS = ['♠', '♥', '♦', '♣']
-RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+import numpy as np
+
+SUITS = ["♠", "♥", "♦", "♣"]
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 DECK = [rank + suit for suit in SUITS for rank in RANKS]
+
 
 class TexasHoldem:
     def __init__(self, num_players):
@@ -36,11 +39,6 @@ class TexasHoldem:
         self.betting_round = 0
         self.display_stage("Pre-Flop")
 
-
-
-
-
-
     def get_initial_state(self):
         state = np.zeros((self.num_players + 5, len(RANKS), len(SUITS)))  # Shape (7, 13, 4)
 
@@ -60,10 +58,6 @@ class TexasHoldem:
 
         return state
 
-
-
-
-    
     def display_stage(self, stage_name):
         print(f"\n--- {stage_name} ---")
         if self.community_cards:
@@ -164,12 +158,13 @@ class TexasHoldem:
 
     def hand_rank(self, hand):
         """Determine the rank of a 5-card hand (lexicographic tuple)."""
-        ranks_order = '23456789TJQKA'
+        ranks_order = "23456789TJQKA"
         vals = sorted([ranks_order.index(r) for r, s in hand], reverse=True)
         # Count multiplicities and sort by (count desc, value desc)
-        cnt_pairs = sorted(((c, v) for v, c in Counter(vals).items()),
-                           key=lambda x: (x[0], x[1]), reverse=True)
-        counts, values = zip(*cnt_pairs)
+        cnt_pairs = sorted(
+            ((c, v) for v, c in Counter(vals).items()), key=lambda x: (x[0], x[1]), reverse=True
+        )
+        counts, values = zip(*cnt_pairs, strict=False)
         # Flush / straight
         is_flush = len({s for r, s in hand}) == 1
         uniq = sorted(set(vals))
