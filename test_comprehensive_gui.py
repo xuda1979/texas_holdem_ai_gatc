@@ -41,7 +41,7 @@ def test_gui_imports() -> None:
         print(f"✗ Import error: {e}")
         import traceback
         traceback.print_exc()
-        assert False
+        raise AssertionError() from e
 
 def test_game_logic() -> None:
     """Test basic game logic without GUI."""
@@ -65,7 +65,7 @@ def test_game_logic() -> None:
         print(f"✗ Game logic error: {e}")
         import traceback
         traceback.print_exc()
-        assert False
+        raise AssertionError() from e
 
 def test_card_images() -> None:
     """Test card image loading functionality."""
@@ -105,7 +105,7 @@ def test_card_images() -> None:
         print(f"✗ Card image error: {e}")
         import traceback
         traceback.print_exc()
-        assert False
+        raise AssertionError() from e
 
 if __name__ == "__main__":
     print("=== Comprehensive GUI Testing ===")

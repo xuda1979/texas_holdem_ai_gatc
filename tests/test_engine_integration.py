@@ -10,7 +10,7 @@ for p in (src_path, project_root):
 from poker_ai.engine.texas_holdem import TexasHoldem
 
 
-def test_engine_initialization():
+def test_engine_initialization() -> None:
     game = TexasHoldem(num_players=2, starting_stack=100, verbose=False)
     game.initialize_game()
     assert len(game.rules.hands[0]) == 2

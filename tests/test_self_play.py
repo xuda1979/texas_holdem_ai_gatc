@@ -21,23 +21,23 @@ class DummyModel:
 
 class DummyTrainer:
     class Buffer(list):
-        def push(self, *args):
+        def push(self, *args) -> None:
             self.append(args)
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.model = DummyModel()
         self.config = {"model": {"max_seq_len": 10, "d_raw_feature": 2}}
         self.num_actions = 2
         self.replay_buffer = self.Buffer()
 
-    def get_advantages(self, state_tensor):
+    def get_advantages(self, state_tensor) -> torch.Tensor:
         return torch.zeros(self.num_actions)
 
-    def train(self, state_tensor=None, cf_payoffs=None, batch_size=None):
+    def train(self, state_tensor=None, cf_payoffs=None, batch_size=None) -> None:
         return None
 
 
-def test_play_hand_for_training_runs():
+def test_play_hand_for_training_runs() -> None:
     trainer = DummyTrainer()
     sp = SelfPlay(trainer, {"num_players": 2, "starting_stack": 50})
     with patch.object(SelfPlay, "_get_policy", return_value=torch.ones(trainer.num_actions) / trainer.num_actions), \

@@ -13,25 +13,25 @@ from poker_ai.ai.models.cfr import calculate_strategy, update_regret, update_str
 
 class TestCFR(unittest.TestCase):
     
-    def test_calculate_strategy(self):
+    def test_calculate_strategy(self) -> None:
         cumulative_regret = torch.tensor([1.0, 2.0, 3.0])
         num_actions = 3
         strategy = calculate_strategy(cumulative_regret, num_actions)
         self.assertAlmostEqual(torch.sum(strategy).item(), 1.0, places=4, msg="Strategy should sum to 1")
 
-    def test_update_regret(self):
+    def test_update_regret(self) -> None:
         cumulative_regret = torch.tensor([1.0, 2.0, 3.0])
         regrets = torch.tensor([0.5, -0.5, 1.0])
         updated_regret = update_regret(cumulative_regret, regrets)
         self.assertTrue(torch.equal(updated_regret, torch.tensor([1.5, 1.5, 4.0])), "Regret update should be correct")
 
-    def test_update_strategy(self):
+    def test_update_strategy(self) -> None:
         cumulative_strategy = torch.tensor([1.0, 1.0, 1.0])
         current_strategy = torch.tensor([0.2, 0.3, 0.5])
         updated_strategy = update_strategy(cumulative_strategy, current_strategy)
         self.assertTrue(torch.equal(updated_strategy, torch.tensor([1.2, 1.3, 1.5])), "Strategy update should be correct")
 
-    def test_compute_regrets(self):
+    def test_compute_regrets(self) -> None:
         action_values = torch.tensor([2.0, 3.0, 4.0])
         state_value = torch.tensor(3.0)
         regrets = compute_regrets(action_values, state_value)

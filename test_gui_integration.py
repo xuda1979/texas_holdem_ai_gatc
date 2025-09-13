@@ -31,7 +31,7 @@ def test_gui_initialization() -> None:
         assert True
     except Exception as e:
         print(f"✗ GUI initialization failed: {e}")
-        assert False
+        raise AssertionError() from e
 
 def test_strategy_imports() -> None:
     """Test that strategy imports work correctly"""
@@ -44,7 +44,7 @@ def test_strategy_imports() -> None:
         assert True
     except Exception as e:
         print(f"✗ Strategy imports failed: {e}")
-        assert False
+        raise AssertionError() from e
 
 def test_game_engine_creation() -> None:
     """Test that game engine can be created with strategies"""
@@ -71,7 +71,7 @@ def test_game_engine_creation() -> None:
         assert True
     except Exception as e:
         print(f"✗ Game engine creation failed: {e}")
-        assert False
+        raise AssertionError() from e
 
 def test_gui_game_setup() -> None:
     """Test GUI's game setup method"""
@@ -94,7 +94,7 @@ def test_gui_game_setup() -> None:
         assert True
     except Exception as e:
         print(f"✗ GUI game setup failed: {e}")
-        assert False
+        raise AssertionError() from e
 
 def main() -> None:
     """Run all tests"""

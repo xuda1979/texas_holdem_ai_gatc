@@ -11,7 +11,7 @@ for p in (src_path, project_root):
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 
-def test_advantage_network_forward_pass():
+def test_advantage_network_forward_pass() -> None:
     print("Running AdvantageNetwork Forward Pass Test...")
 
     # Define model parameters

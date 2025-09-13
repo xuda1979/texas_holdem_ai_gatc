@@ -13,12 +13,12 @@ from poker_ai.engine.game_state import GameState
 
 
 class DummyGameState:
-    def __init__(self, pot: int, current_bet: int):
+    def __init__(self, pot: int, current_bet: int) -> None:
         self.pot = pot
         self.current_bet = current_bet
 
 
-def test_all_indices_no_current_bet():
+def test_all_indices_no_current_bet() -> None:
     gs = DummyGameState(pot=100, current_bet=0)
     for idx in range(10):
         action, amount = get_action_from_index(idx, gs, 50)
@@ -34,7 +34,7 @@ def test_all_indices_no_current_bet():
             assert action == "raise" and amount == 50
 
 
-def test_invalid_index():
+def test_invalid_index() -> None:
     gs = DummyGameState(pot=10, current_bet=0)
     with pytest.raises(ValueError):
         get_action_from_index(10, gs, 10)
