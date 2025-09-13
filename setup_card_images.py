@@ -3,6 +3,7 @@
 Download and create poker card images for the Texas Hold'em AI
 """
 import os
+import subprocess
 import sys
 import zipfile
 
@@ -204,7 +205,7 @@ def main():
         print("✓ PIL (Pillow) is available")
     except ImportError:
         print("Installing Pillow for image creation...")
-        os.system(f"{sys.executable} -m pip install Pillow")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
 
     try:
         import requests
@@ -212,7 +213,7 @@ def main():
         print("✓ requests is available")
     except ImportError:
         print("Installing requests for downloading...")
-        os.system(f"{sys.executable} -m pip install requests")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "requests"])
 
     # Try to download fancy cards first
     success = False

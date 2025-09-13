@@ -5,6 +5,7 @@ Tests all core components and provides a summary.
 """
 
 import os
+import shlex
 import subprocess
 import sys
 import traceback
@@ -24,8 +25,9 @@ def run_test_suite(test_name, test_command):
     """Run a test suite and return result."""
     try:
         print(f"\n--- Testing {test_name} ---")
+        command_list = shlex.split(test_command)
         result = subprocess.run(
-            test_command, shell=True, capture_output=True, text=True, timeout=30
+            command_list, capture_output=True, text=True, timeout=30
         )
 
         if result.returncode == 0:
