@@ -6,7 +6,7 @@
 - ✅ **All 52 poker cards** are now available as PNG images
 - ✅ **Proper naming convention**: [rank][suit].png (e.g., As.png, Kh.png, 2d.png)
 - ✅ **High-quality images** with good dimensions (120x180 - 223x324 pixels)
-- ✅ **Organized in correct directory**: `play/card_images/`
+- ✅ **Organized in correct directory**: `src/poker_ai/gui/card_images/`
 
 ### 2. **Card Format Details**
 - **Ranks**: 2, 3, 4, 5, 6, 7, 8, 9, T (Ten), J (Jack), Q (Queen), K (King), A (Ace)
@@ -18,7 +18,7 @@
 
 ### 3. **Assets Summary**
 ```
-play/
+src/poker_ai/gui/
 ├── card_images/           # 52 poker card images
 │   ├── 2h.png, 2d.png, 2c.png, 2s.png
 │   ├── 3h.png, 3d.png, 3c.png, 3s.png
@@ -30,7 +30,7 @@ play/
 ```
 
 ### 4. **Integration with GUI**
-- ✅ **GUI automatically loads** all card images from `play/card_images/`
+- ✅ **GUI automatically loads** all card images from `poker_ai/gui/card_images/`
 - ✅ **Fallback system**: If images don't load, displays text instead
 - ✅ **Automatic resizing**: Images are scaled appropriately for the interface
 - ✅ **No more "Image not found" messages** in the console
@@ -94,7 +94,7 @@ python verify_images.py
 2. **Play poker with visual cards** - No more text representations!
 
 3. **Customize card appearance** (if desired):
-   - Replace any card image in `play/card_images/`
+    - Replace any card image in `src/poker_ai/gui/card_images/`
    - Keep the same naming convention: `[rank][suit].png`
 
 The Texas Hold'em AI project now has a complete, professional-looking card set! 🃏✨
