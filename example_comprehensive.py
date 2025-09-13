@@ -25,7 +25,7 @@ def test_imports() -> bool:
 
         print("✓ GUI imports successful")
 
-        from self_play.self_play import SelfPlayTrainer
+        from poker_ai.selfplay.self_play import SelfPlay
 
         print("✓ Self-play imports successful")
 
@@ -72,12 +72,11 @@ def test_config_loading() -> bool:
     print("\nTesting configuration...")
 
     try:
-        from config import Config
+        from poker_ai.config import load_config
 
-        config = Config()
+        config = load_config()
         print("✓ Configuration loaded successfully")
-        print(f"  - Training iterations: {config.training_iterations}")
-        print(f"  - Learning rate: {config.learning_rate}")
+        print(f"  - Available sections: {list(config.keys())}")
         return True
     except Exception as e:
         print(f"✗ Configuration test failed: {e}")
@@ -89,17 +88,14 @@ def test_trainer() -> bool:
     print("\nTesting trainer creation...")
 
     try:
-        from trainers.ai_cfr_trainer import AICFRTrainer
+        from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
-        from config import Config
-
-        config = Config()
-        trainer = AICFRTrainer(config)
+        trainer = AICFRTrainer()
         print("✓ Trainer creation successful")
 
         # Check trainer has required attributes
-        if hasattr(trainer, "config") and hasattr(trainer, "model"):
-            print("✓ Trainer has required attributes")
+        if hasattr(trainer, "model"):
+            print("✓ Trainer has model attribute")
             return True
         else:
             print("✗ Trainer missing required attributes")

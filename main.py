@@ -1,7 +1,9 @@
 import argparse
 
-from cfr_trainer import CFRTrainer
-from texas_holdem import TexasHoldem
+import argparse
+
+from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer as CFRTrainer
+from poker_ai.engine.texas_holdem_simple import TexasHoldem
 
 
 def train_model(config, iterations, model_save_path) -> None:

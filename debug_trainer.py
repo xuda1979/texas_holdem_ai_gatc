@@ -3,7 +3,7 @@
 
 try:
     print("1. Testing AICFRTrainer import...")
-    from trainers.ai_cfr_trainer import AICFRTrainer
+    from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
     print("   ✓ AICFRTrainer imported successfully")
 

@@ -11,7 +11,7 @@ sys.path.insert(0, project_root)
 print("Testing self-play imports...")
 
 try:
-    from self_play.self_play import SelfPlay
+    from poker_ai.selfplay.self_play import SelfPlay
 
     print("✓ SelfPlay imported successfully")
 
