@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 # Add project root to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -18,9 +18,10 @@ except Exception:
     sys.modules['tkinter.messagebox'] = MagicMock()
     sys.modules['tkinter.simpledialog'] = MagicMock()
 
-from poker_ai.gui.gui import PokerGameGUI, GUIHumanStrategy
 from poker_ai.engine.texas_holdem import TexasHoldem
+from poker_ai.gui.gui import GUIHumanStrategy, PokerGameGUI
 from poker_ai.gui.playStrategy import RandomAIStrategy
+
 
 class TestPokerGameGUIFunctionality(unittest.TestCase):
 
@@ -29,11 +30,11 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         # Patch the entire tkinter module
         self.patcher_tk = patch('poker_ai.gui.gui.tk')
         self.mock_tk = self.patcher_tk.start()
-        
+
         # Patch Pillow
         self.patcher_pil = patch('poker_ai.gui.gui.Image', autospec=True)
         self.mock_image = self.patcher_pil.start()
-        
+
         # Prevent the main loop from running
         self.patcher_mainloop = patch.object(self.mock_tk.Tk.return_value, 'mainloop')
         self.mock_mainloop = self.patcher_mainloop.start()
@@ -79,7 +80,7 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         with patch('poker_ai.gui.gui.TexasHoldem') as MockTexasHoldem, \
              patch.object(self.gui, 'setup_game_gui') as mock_setup_game_gui, \
              patch.object(self.gui, 'play_hand') as mock_play_hand:
-            
+
             self.gui.start_new_game()
 
             # Verify game creation
@@ -90,7 +91,7 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
             self.assertEqual(len(args[2]), 3)
             self.assertIsInstance(args[2][0], GUIHumanStrategy)
             self.assertIsInstance(args[2][1], RandomAIStrategy)
-            
+
             # Verify GUI and game loop start
             mock_setup_game_gui.assert_called_once()
             mock_play_hand.assert_called_once()
@@ -132,7 +133,7 @@ class TestPokerGameGUIFunctionality(unittest.TestCase):
         print("\nRunning test_04_human_action_raise...")
         self.gui.game = MagicMock(spec=TexasHoldem)
         self.gui.human_strategy = MagicMock(spec=GUIHumanStrategy)
-        
+
         with patch('poker_ai.gui.gui.simpledialog.askinteger') as mock_askinteger:
             mock_askinteger.return_value = 200
             self.gui.game.get_min_raise_amount.return_value = 100

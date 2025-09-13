@@ -1,4 +1,5 @@
 import tkinter as tk
+
 try:
     print(f"Tkinter version: {tk.Tcl().eval('info patchlevel')}")
     root = tk.Tk()

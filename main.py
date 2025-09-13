@@ -1,6 +1,8 @@
 import argparse
+
 from cfr_trainer import CFRTrainer
 from texas_holdem import TexasHoldem
+
 
 def train_model(config, iterations, model_save_path):
     trainer = CFRTrainer(config)
@@ -11,10 +13,10 @@ def train_model(config, iterations, model_save_path):
 def play_game(config, model_path, num_players=2):
     trainer = CFRTrainer(config)
     trainer.load_model(model_path)
-    
+
     game = TexasHoldem(num_players=num_players)
     game.play_round()
-    
+
     winner, best_hand = game.determine_winner()
     print(f"The winner is Player {winner} with the hand: {best_hand}")
 

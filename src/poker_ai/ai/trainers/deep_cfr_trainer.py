@@ -1,11 +1,11 @@
+import random
+
 import torch
 import torch.optim as optim
-from collections import deque
-import random
-from typing import Tuple, List
 
 # Correctly import the refactored AdvantageNetwork
 from poker_ai.ai.models.transformer import AdvantageNetwork
+
 
 class ReplayBuffer:
     """A simple reservoir sampling replay buffer for Deep CFR."""
@@ -118,7 +118,7 @@ class DeepCFRTrainer:
             return
         # Sample from the replay buffer
         batch = self.replay_buffer.sample(batch_size)
-        holes, communities, histories, regrets, iterations = zip(*batch)
+        holes, communities, histories, regrets, iterations = zip(*batch, strict=False)
         holes = torch.stack(holes).to(self.device)
         communities = torch.stack(communities).to(self.device)
         histories = torch.stack(histories).to(self.device)

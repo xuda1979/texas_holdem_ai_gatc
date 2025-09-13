@@ -1,15 +1,16 @@
 """Main command-line interface for training models via self-play."""
 
-import os  # For path manipulation if needed, e.g. for robust config loading
 import argparse
-import torch
+import os  # For path manipulation if needed, e.g. for robust config loading
 import time
+
+import torch
+
+from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
-from typing import List, Dict
 
 # Configuration Loading
 # Robustly locate config.yaml assuming it's in the project root
@@ -30,7 +31,7 @@ def load_configuration(config_path: str) -> dict:
         return {}
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config_data = yaml.safe_load(f)
         if config_data is None:
             print(
@@ -179,10 +180,10 @@ def main():
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
     # We don't directly use model_config here, but AICFRTrainer does.
-    
+
     game_engine_config = config.get('game_engine', {})
     training_params = config.get('training', {})
-    curriculum_stages: List[Dict] = config.get('curriculum', {}).get('stages', [])
+    curriculum_stages: list[dict] = config.get('curriculum', {}).get('stages', [])
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
@@ -202,7 +203,7 @@ def main():
         args.save_samples if args.save_samples is not None
         else training_params.get('save_model_every_samples', 100000)
     )
-    
+
     # Game Engine Parameters for SelfPlay
     min_players = game_engine_config.get('min_players', 2)
     max_players = game_engine_config.get('max_players', 10)
@@ -284,7 +285,7 @@ def main():
             last_save_time = time.time()
 
         analyzer.on_iteration_end(cfr_trainer, iteration)
-    
+
     # Final save after the loop
     print("\n--- Training session finished ---")
     print("Saving final model...")

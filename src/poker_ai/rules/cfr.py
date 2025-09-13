@@ -1,5 +1,6 @@
 import torch
 
+
 def calculate_strategy(cumulative_regret, num_actions):
     """
     Calculate the strategy for the current iteration based on cumulative regret.
@@ -10,7 +11,7 @@ def calculate_strategy(cumulative_regret, num_actions):
     """
     positive_regret = torch.clamp(cumulative_regret, min=0)
     sum_positive_regret = torch.sum(positive_regret)
-    
+
     if sum_positive_regret > 0:
         return positive_regret / sum_positive_regret
     else:
@@ -127,7 +128,7 @@ def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num
     for _ in range(num_iterations):
         current_strategy = calculate_strategy(cumulative_regret, num_actions)
         action_values = torch.zeros(num_actions)
-        
+
         # Simulate action values based on game state and strategy
         for action in range(num_actions):
             action_values[action] = game.simulate_action(action)

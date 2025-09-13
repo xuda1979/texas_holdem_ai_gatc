@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -18,9 +18,9 @@ class GameState:
     street: str  # "preflop","flop","turn","river"
     current_bet_to: int = 0
     last_raise_size: int = 0
-    last_aggressor: Optional[int] = None
-    players: List[PlayerState] = field(default_factory=list)
-    pots: List[Tuple[int, Tuple[int, ...]]] = field(
+    last_aggressor: int | None = None
+    players: list[PlayerState] = field(default_factory=list)
+    pots: list[tuple[int, tuple[int, ...]]] = field(
         default_factory=list
     )  # (amount, eligible)
 

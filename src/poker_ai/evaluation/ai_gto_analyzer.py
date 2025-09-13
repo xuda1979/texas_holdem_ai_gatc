@@ -8,8 +8,9 @@ try:  # pragma: no cover - executed when PyYAML is present
 except Exception:  # pragma: no cover - PyYAML missing
     yaml = None
 
-from cfr_trainer import CFRTrainer  # Assuming cfr_trainer.py is in PYTHONPATH or same directory
 from utils.action_mapping import get_action_from_index
+
+from cfr_trainer import CFRTrainer  # Assuming cfr_trainer.py is in PYTHONPATH or same directory
 
 # We need access to game_engine.texas_holdem.TexasHoldem for type hinting
 # if game_state is passed directly. However, CFRTrainer.encode_state and

@@ -11,8 +11,8 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from poker_ai.cli.play_vs_ai import AIStrategy
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.cli.play_vs_ai import AIStrategy
 
 
 class TestInferenceMultiNPU(unittest.TestCase):

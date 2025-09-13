@@ -5,7 +5,7 @@ import sys
 def parse_losses(log_file: str):
     pattern = re.compile(r"Loss: ([0-9.eE+-]+)")
     losses = []
-    with open(log_file, "r") as f:
+    with open(log_file) as f:
         for line in f:
             m = pattern.search(line)
             if m:

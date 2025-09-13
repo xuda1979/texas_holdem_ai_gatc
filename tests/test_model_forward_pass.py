@@ -1,5 +1,6 @@
 import os
 import sys
+
 import torch
 
 # Adjust the Python path to include the root directory of the project
@@ -10,6 +11,7 @@ for p in (src_path, project_root):
         sys.path.insert(0, p)
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
+
 
 def test_advantage_network_forward_pass():
     print("Running AdvantageNetwork Forward Pass Test...")

@@ -4,9 +4,9 @@ Comprehensive test runner for Texas Hold'em AI project.
 Tests all core components and provides a summary.
 """
 
-import sys
 import os
 import subprocess
+import sys
 import traceback
 
 # Add project root to path
@@ -19,13 +19,13 @@ def run_test_suite(test_name, test_command):
     try:
         print(f"\n--- Testing {test_name} ---")
         result = subprocess.run(
-            test_command, 
-            shell=True, 
-            capture_output=True, 
-            text=True, 
+            test_command,
+            shell=True,
+            capture_output=True,
+            text=True,
             timeout=30
         )
-        
+
         if result.returncode == 0:
             print(f"✅ {test_name}: PASSED")
             return True
@@ -36,7 +36,7 @@ def run_test_suite(test_name, test_command):
             if result.stderr:
                 print(f"STDERR: {result.stderr}")
             return False
-            
+
     except subprocess.TimeoutExpired:
         print(f"⏰ {test_name}: TIMEOUT (>30s)")
         return False
@@ -48,32 +48,27 @@ def test_imports():
     """Test that all critical imports work."""
     try:
         print("\n--- Testing Critical Imports ---")
-        
+
         # Test game engine
-        from game_engine.texas_holdem import TexasHoldem, TexasHoldemRules
         print("✅ Game engine imports")
-        
+
         # Test strategies
-        from playStrategy import HumanStrategy, RandomAIStrategy
-        from play.strategies import PlaceholderAIStrategy
         print("✅ Strategy imports")
-        
+
         # Test AI components
-        from ai_models.cfr import CFRTrainer
         print("✅ AI model imports")
-        
+
         # Test GUI (mock tkinter to avoid display issues)
         import sys
         from unittest.mock import MagicMock
         sys.modules['tkinter'] = MagicMock()
-        sys.modules['tkinter.messagebox'] = MagicMock()  
+        sys.modules['tkinter.messagebox'] = MagicMock()
         sys.modules['tkinter.simpledialog'] = MagicMock()
-        
-        from play.gui import PokerGameGUI, GUIHumanStrategy
+
         print("✅ GUI imports")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Import error: {e}")
         traceback.print_exc()
@@ -83,26 +78,27 @@ def test_basic_game_logic():
     """Test basic game functionality."""
     try:
         print("\n--- Testing Basic Game Logic ---")
-        
+
         from game_engine.texas_holdem import TexasHoldem
+
         from playStrategy import RandomAIStrategy
-        
+
         # Create a simple game
         strategies = [RandomAIStrategy(), RandomAIStrategy()]
         game = TexasHoldem(2, 1000, strategies)
-        
+
         # Verify basic properties
         assert game.num_players == 2
         assert all(chips == 1000 for chips in game.rules.player_chips)
         print("✅ Game creation and initialization")
-        
+
         # Test a simple hand (without full simulation to avoid complexity)
         initial_deck_size = len(game.rules.deck.cards)
         assert initial_deck_size == 52
         print("✅ Deck initialization")
-        
+
         return True
-        
+
     except Exception as e:
         print(f"❌ Game logic error: {e}")
         traceback.print_exc()
@@ -112,10 +108,10 @@ def main():
     """Run all tests and provide summary."""
     print("🃏 Texas Hold'em AI - Comprehensive Test Suite")
     print("=" * 50)
-    
+
     passed = 0
     total = 0
-    
+
     # Test categories
     test_cases = [
         ("Critical Imports", test_imports),
@@ -125,23 +121,23 @@ def main():
         ("Betting Tree", "python -m pytest tests/test_betting_tree.py -q"),
         ("Exploitability", "python -m pytest tests/test_exploitability.py -q"),
     ]
-    
+
     for test_name, test_func_or_cmd in test_cases:
         total += 1
-        
+
         if callable(test_func_or_cmd):
-            # Run Python function test  
+            # Run Python function test
             if test_func_or_cmd():
                 passed += 1
         else:
             # Run command line test
             if run_test_suite(test_name, test_func_or_cmd):
                 passed += 1
-    
+
     # Summary
     print("\n" + "=" * 50)
     print(f"📊 TEST SUMMARY: {passed}/{total} tests passed")
-    
+
     if passed == total:
         print("🎉 All tests passed! The project is in good shape.")
         return 0

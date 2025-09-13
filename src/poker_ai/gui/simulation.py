@@ -1,7 +1,8 @@
+import json
 import os
 import time
-import json
 from datetime import datetime
+
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 from poker_ai.engine.texas_holdem import TexasHoldemRules
 
@@ -12,10 +13,10 @@ SIMULATION_INTERVAL = 3600  # 1 hour
 def load_best_model():
     weights_path = os.path.join(MODEL_DIR, 'model_best_weights.h5')
     config_path = os.path.join(MODEL_DIR, 'model_best_config.json')
-    
+
     if not os.path.exists(weights_path) or not os.path.exists(config_path):
         raise FileNotFoundError("Best model files not found.")
-    
+
     trainer = AICFRTrainer()
     trainer.load_model(weights_path, config_path)
     return trainer

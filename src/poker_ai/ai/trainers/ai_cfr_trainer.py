@@ -1,17 +1,17 @@
-import torch.optim as optim
 import logging
 import os
+import sys
+
 import torch
+import torch.nn.functional as functional
+import torch.optim as optim
 try:  # pragma: no cover - attempt to use PyYAML if available
     import yaml  # type: ignore
 except Exception:  # pragma: no cover - PyYAML missing
     yaml = None
+
 from poker_ai.ai.models.transformer import AdvantageNetwork
-# Assuming rules.cfr is accessible from this path. Adjust if necessary.
-# e.g., if 'rules' is a top-level directory: from rules.cfr import ...
-# If trainers and rules are siblings under a common root (e.g. 'src'): from ..rules.cfr import ...
-from poker_ai.rules.cfr import update_regret, calculate_strategy, update_strategy
-import torch.nn.functional as F
+from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
 
 # Load configuration.  If the YAML parser or file is missing we fall back to
@@ -20,18 +20,24 @@ try:
     if yaml is not None:
         with open(
             os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml'),
-            'r',
         ) as f:
             config = yaml.safe_load(f)  # type: ignore[arg-type]
     else:
         raise FileNotFoundError
 except Exception:
     logging.warning(
-        "config.yaml not found or PyYAML unavailable. Using default config values for AICFRTrainer.",
+        "config.yaml not found or PyYAML unavailable. "
+        "Using default config values for AICFRTrainer.",
     )
     config = {
         'logging': {'log_file': 'aicfr_trainer.log'},
-        'model': {'hidden_dim': 128, 'num_actions': 10, 'learning_rate': 0.001, 'd_raw_feature': 18, 'max_seq_len': 256},
+        'model': {
+            'hidden_dim': 128,
+            'num_actions': 10,
+            'learning_rate': 0.001,
+            'd_raw_feature': 18,
+            'max_seq_len': 256
+        },
         'training': {'save_model_path': 'aicfr_model.pth'}
     }
 
@@ -44,12 +50,14 @@ if log_dir and not os.path.exists(log_dir):
 logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode='a')
 
 # Expose config for package-level access so tests can override it
-import sys
 sys.modules[__package__ + '.config'] = config
 
 class AICFRTrainer:
-    def __init__(self, device: str | None = None):
-        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    def __init__(self, device: str | None = None) -> None:
+        self.device = (
+            device if device is not None
+            else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
         model_config = config.get('model', {})  # Get model sub-config, or empty dict
         hidden_dim = model_config.get('hidden_dim', 128) # Default if not found
         output_dim = model_config.get('num_actions', 10) # Default if not found
@@ -112,7 +120,7 @@ class AICFRTrainer:
         history_tensor: torch.Tensor,
         all_counterfactual_payoffs: torch.Tensor,
         mask: torch.Tensor | None = None,
-    ):
+    ) -> None:
         """Train the model for one step based on the provided state."""
 
         try:
@@ -146,8 +154,12 @@ class AICFRTrainer:
             action_regrets = all_counterfactual_payoffs - state_value
 
             if info_set_id not in self.cumulative_regret:
-                self.cumulative_regret[info_set_id] = torch.zeros(self.num_actions, device=self.device)
-                self.cumulative_strategy[info_set_id] = torch.zeros(self.num_actions, device=self.device)
+                self.cumulative_regret[info_set_id] = torch.zeros(
+                    self.num_actions, device=self.device
+                )
+                self.cumulative_strategy[info_set_id] = torch.zeros(
+                    self.num_actions, device=self.device
+                )
 
             cumulative_regret = self.cumulative_regret[info_set_id]
             cumulative_strategy = self.cumulative_strategy[info_set_id]
@@ -167,7 +179,7 @@ class AICFRTrainer:
             self.cumulative_strategy[info_set_id] = cumulative_strategy
 
             # h. Loss: train model output to match regret-matched policy
-            loss = F.mse_loss(strategy_pred, current_regret_matched_policy.detach())
+            loss = functional.mse_loss(strategy_pred, current_regret_matched_policy.detach())
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -179,7 +191,7 @@ class AICFRTrainer:
             logging.error(f"Error during training: {str(e)}", exc_info=True)
             raise
 
-    def save_model(self, model_path=None):
+    def save_model(self, model_path: str | None = None) -> None:
         # Ensure config path is correct or make it an argument
         try:
             if model_path is None:
@@ -191,23 +203,27 @@ class AICFRTrainer:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 
 
-    def load_model(self):
+    def load_model(self) -> None:
         # Ensure config path is correct or make it an argument
         try:
-            self.model.load_state_dict(torch.load(config['training']['save_model_path'], map_location=self.device))
+            model_path = config['training']['save_model_path']
+            self.model.load_state_dict(
+                torch.load(model_path, map_location=self.device)
+            )
             self.model.to(self.device)
             self.model.eval()
-            logging.info(f"Model loaded from {config['training']['save_model_path']}")
+            logging.info(f"Model loaded from {model_path}")
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
 
-    def get_final_average_strategy(self, info_set_id: str):
+    def get_final_average_strategy(self, info_set_id: str) -> torch.Tensor:
         """Return the average strategy for a given information set."""
         cumulative_strategy = self.cumulative_strategy.get(info_set_id)
         if cumulative_strategy is None:
             logging.warning(
-                "Requested average strategy for unknown information set '%s'. Returning uniform.",
+                "Requested average strategy for unknown information set '%s'. "
+                "Returning uniform.",
                 info_set_id,
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
@@ -215,9 +231,9 @@ class AICFRTrainer:
         sum_cumulative_strategy = torch.sum(cumulative_strategy)
         if sum_cumulative_strategy == 0:
             logging.warning(
-                "Cumulative strategy is all zeros for information set '%s'. Returning uniform strategy.",
+                "Cumulative strategy is all zeros for information set '%s'. "
+                "Returning uniform strategy.",
                 info_set_id,
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
         return cumulative_strategy / sum_cumulative_strategy
-

@@ -1,5 +1,6 @@
 import os
 import sys
+
 import pytest
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -9,7 +10,6 @@ for p in (src_path, project_root):
         sys.path.insert(0, p)
 
 from poker_ai.utils.action_mapping import get_action_from_index
-from poker_ai.engine.game_state import GameState
 
 
 class DummyGameState:

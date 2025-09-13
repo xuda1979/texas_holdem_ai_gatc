@@ -1,8 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
-import time
+from unittest.mock import MagicMock, patch
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
@@ -11,6 +10,7 @@ for p in (src_path, project_root):
         sys.path.insert(0, p)
 
 from poker_ai.cli import train as run_training
+
 
 class TestRunTraining(unittest.TestCase):
 

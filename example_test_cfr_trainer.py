@@ -1,7 +1,10 @@
 import unittest
+
 import numpy as np
-from cfr_trainer import CFRTrainer
 from game_engine.texas_holdem import TexasHoldem
+
+from cfr_trainer import CFRTrainer
+
 
 class TestCFRTrainer(unittest.TestCase):
 

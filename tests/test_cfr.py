@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+
 import torch
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -9,10 +10,16 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from poker_ai.ai.models.cfr import calculate_strategy, update_regret, update_strategy, compute_regrets
+from poker_ai.ai.models.cfr import (
+    calculate_strategy,
+    compute_regrets,
+    update_regret,
+    update_strategy,
+)
+
 
 class TestCFR(unittest.TestCase):
-    
+
     def test_calculate_strategy(self):
         cumulative_regret = torch.tensor([1.0, 2.0, 3.0])
         num_actions = 3

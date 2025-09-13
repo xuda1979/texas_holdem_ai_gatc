@@ -8,13 +8,13 @@ class PlaceholderAIStrategy:
         rules = game_state.rules
         current_bet = rules.current_bet
         player_bet = rules.bets[player_index]
-        
+
         can_check = (current_bet == player_bet)
-        
+
         if can_check:
             # print(f"AI (Player {player_index+1}) checks.")
             return 'check', 0 # Amount is irrelevant for check
-        
+
         # If not able to check, means there's a bet to respond to
         amount_to_call = current_bet - player_bet
         if rules.player_chips[player_index] >= amount_to_call:
@@ -25,7 +25,7 @@ class PlaceholderAIStrategy:
             # Not enough chips to call the full amount, but can call all-in.
             # print(f"AI (Player {player_index+1}) calls all-in.")
              return 'call', 0 # Still a 'call' action, process_action will handle all-in logic.
-        
+
         # This part should ideally not be reached if AI always calls/checks or folds.
         # However, if rules.player_chips[player_index] < amount_to_call (and not 0 for all-in call)
         # it must fold if it cannot call. The logic above covers all-in call.

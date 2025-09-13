@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import torch
 
@@ -12,8 +12,8 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 
 class DummyTrainer:

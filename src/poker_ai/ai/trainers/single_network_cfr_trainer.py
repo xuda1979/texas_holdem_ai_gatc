@@ -5,6 +5,7 @@ import torch.optim as optim
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
+
 class SingleNetworkCFRTrainer:
     """CFR trainer that predicts regret and strategy with a single network."""
     def __init__(self, input_feature_dim: int, hidden_dim: int, num_actions: int, lr: float = 1e-3,

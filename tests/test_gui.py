@@ -1,7 +1,7 @@
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
@@ -20,7 +20,6 @@ except Exception:
     sys.modules['tkinter.messagebox'] = MagicMock()
 
 from poker_ai.gui.gui import PokerGameGUI
-from poker_ai.gui.strategies import PlaceholderAIStrategy # Used by PokerGameGUI
 
 # Mock game_engine.texas_holdem before PokerGameGUI tries to import it at class level or __init__
 # This is a common pattern if the import itself needs to be mocked early.
@@ -39,25 +38,25 @@ class TestPokerGameGUI(unittest.TestCase):
 
     @patch('poker_ai.gui.gui.PokerGameGUI.start_game') # Patch start_game to prevent its execution
     @patch('poker_ai.gui.gui.PokerGameGUI.setup_gui') # Patch setup_gui to prevent its execution
-    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True) 
-    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images') 
-    @patch('poker_ai.gui.gui.tk') 
+    @patch('poker_ai.gui.gui.TexasHoldem', autospec=True)
+    @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images')
+    @patch('poker_ai.gui.gui.tk')
     def test_gui_initialization(self, mock_tk, mock_load_images, MockTexasHoldem, mock_setup_gui, mock_start_game):
         """Test PokerGameGUI __init__ method."""
         print("\nRunning test_gui_initialization...")
-        
+
         mock_engine_instance = MockTexasHoldem.return_value
         mock_engine_instance.rules = MagicMock()
-        mock_engine_instance.rules.player_chips = [1000, 1000] 
+        mock_engine_instance.rules.player_chips = [1000, 1000]
         mock_engine_instance.num_players = 2
-        
+
         mock_root_instance = mock_tk.Tk.return_value # Get the mock root from mock_tk
 
         gui = PokerGameGUI()
 
         self.assertIsNotNone(gui.root)
-        mock_tk.Tk.assert_called_once() 
-        
+        mock_tk.Tk.assert_called_once()
+
         # Game engine should be initialized lazily; start_game is patched
         MockTexasHoldem.assert_not_called()
 
@@ -66,11 +65,11 @@ class TestPokerGameGUI(unittest.TestCase):
         mock_load_images.assert_called_once()
         mock_setup_gui.assert_called_once() # Verify setup_gui was called
         mock_start_game.assert_called_once() # Verify start_game was called
-        
+
         mock_root_instance.mainloop.assert_called_once()
-        
-        if hasattr(gui.root, 'destroy'): 
-            gui.root.destroy() 
+
+        if hasattr(gui.root, 'destroy'):
+            gui.root.destroy()
         print("test_gui_initialization finished.")
 
 
@@ -80,7 +79,7 @@ class TestPokerGameGUI(unittest.TestCase):
     def test_get_card_image_key(self, mock_tk, mock_load_images, MockTexasHoldem):
         """Test the _get_card_image_key method."""
         print("\nRunning test_get_card_image_key...")
-        
+
         # Prevent __init__ from running real setup_gui/start_game for this unit test
         with patch.object(PokerGameGUI, 'setup_gui', MagicMock()), \
              patch.object(PokerGameGUI, 'start_game', MagicMock()):
@@ -93,7 +92,7 @@ class TestPokerGameGUI(unittest.TestCase):
             mock_engine_instance.end_game_early = False # Define this attribute
 
             gui = PokerGameGUI()
-        
+
         self.assertEqual(gui._get_card_image_key("A♠"), "As")
         self.assertEqual(gui._get_card_image_key("K♦"), "Kd")
         self.assertEqual(gui._get_card_image_key("Q♥"), "Qh")
@@ -101,10 +100,10 @@ class TestPokerGameGUI(unittest.TestCase):
         self.assertEqual(gui._get_card_image_key("T♠"), "Ts") # Assuming 'T' for Ten
         self.assertEqual(gui._get_card_image_key("9d"), "9d")
         self.assertEqual(gui._get_card_image_key("2c"), "2c")
-        
+
         self.assertEqual(gui._get_card_image_key("New Card"), "placeholder")
         self.assertEqual(gui._get_card_image_key("Card"), "placeholder")
-        
+
         self.assertIsNone(gui._get_card_image_key("Xy")) # Invalid format
         self.assertIsNone(gui._get_card_image_key("A")) # Too short
         self.assertIsNone(gui._get_card_image_key("A_")) # Invalid suit
@@ -117,24 +116,24 @@ class TestPokerGameGUI(unittest.TestCase):
 
     @patch('poker_ai.gui.gui.TexasHoldem', autospec=True)
     @patch('poker_ai.gui.gui.PokerGameGUI._load_card_images')
-    @patch('poker_ai.gui.gui.tk') 
-    @patch('poker_ai.gui.gui.messagebox') 
+    @patch('poker_ai.gui.gui.tk')
+    @patch('poker_ai.gui.gui.messagebox')
     def test_handle_player_actions(self, mock_messagebox, mock_tk, mock_load_images, MockTexasHoldem):
         """Test _handle_player_action for various actions."""
         print("\nRunning test_handle_player_actions...")
-        
+
         # To prevent __init__ from running real setup_gui/start_game
         with patch.object(PokerGameGUI, 'setup_gui', MagicMock()), \
              patch.object(PokerGameGUI, 'start_game', MagicMock()):
-            
+
             mock_engine_instance = MockTexasHoldem.return_value
             mock_engine_instance.rules = MagicMock()
             mock_engine_instance.rules.player_chips = [1000, 1000]
             mock_engine_instance.num_players = 2
-            
-            gui = PokerGameGUI() 
-            gui.game_engine = mock_engine_instance 
-            
+
+            gui = PokerGameGUI()
+            gui.game_engine = mock_engine_instance
+
             gui._sync_gui_with_engine_state = MagicMock()
             gui._handle_game_progression = MagicMock()
 
@@ -177,7 +176,7 @@ class TestPokerGameGUI(unittest.TestCase):
             gui.game_engine.process_action.reset_mock()
             gui._sync_gui_with_engine_state.reset_mock()
             gui._handle_game_progression.reset_mock()
-            
+
             # --- Test action when not player's turn ---
             gui.game_engine.rules.current_player = 1 # AI's turn
             gui._handle_player_action('bet', 50) # Try to bet
@@ -206,8 +205,8 @@ class TestPokerGameGUI(unittest.TestCase):
             mock_engine_instance.rules.community_cards = ['2s', '3s', '4s']
             mock_engine_instance.rules.pot = 500
             # Define attributes expected by other parts if start_game was real
-            mock_engine_instance.end_game_early = False 
-            
+            mock_engine_instance.end_game_early = False
+
             gui = PokerGameGUI()
             gui.game_engine = mock_engine_instance # Assign the fully configured mock engine
 
@@ -223,7 +222,7 @@ class TestPokerGameGUI(unittest.TestCase):
         self.assertEqual(gui.ai_money, 800)
         gui.update_display.assert_called_once()
         gui._update_action_buttons_state.assert_called_once()
-        
+
         if hasattr(gui.root, 'destroy'): gui.root.destroy()
         print("test_sync_gui_with_engine_state finished.")
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple, Dict
 
 
 def min_bet(big_blind: int) -> int:
@@ -42,10 +42,10 @@ def raise_reopens_action(
 @dataclass(frozen=True)
 class Pot:
     amount: int
-    eligible: Tuple[int, ...]  # player indices eligible to win this pot
+    eligible: tuple[int, ...]  # player indices eligible to win this pot
 
 
-def build_side_pots(contributions: List[int], in_hand: List[bool]) -> List[Pot]:
+def build_side_pots(contributions: list[int], in_hand: list[bool]) -> list[Pot]:
     """Build main/side pots given each player's final *street* contributions.
 
     Args:
@@ -75,7 +75,7 @@ def build_side_pots(contributions: List[int], in_hand: List[bool]) -> List[Pot]:
     if not levels:
         return []
 
-    pots: List[Pot] = []
+    pots: list[Pot] = []
     prev = 0
     for level in levels:
         delta = level - prev
@@ -88,8 +88,8 @@ def build_side_pots(contributions: List[int], in_hand: List[bool]) -> List[Pot]:
 
 
 def split_winnings_with_odd_chips(
-    pot_amount: int, winners: List[int], dealer_index: int
-) -> Dict[int, int]:
+    pot_amount: int, winners: list[int], dealer_index: int
+) -> dict[int, int]:
     """Split a pot evenly; award odd chip(s) starting left of the button.
 
     Args:

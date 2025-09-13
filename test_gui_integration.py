@@ -5,7 +5,7 @@ Test script to verify GUI integration with game logic
 
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Add parent directory to path for imports
 project_root = os.path.abspath(os.path.dirname(__file__))
@@ -14,9 +14,11 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
+from game_engine.texas_holdem import TexasHoldem
+
 from play.gui import PokerGameGUI
 from playStrategy import HumanStrategy, RandomAIStrategy
-from game_engine.texas_holdem import TexasHoldem
+
 
 def test_gui_initialization():
     """Test that GUI can be initialized without errors"""
@@ -31,7 +33,7 @@ def test_gui_initialization():
         assert True
     except Exception as e:
         print(f"✗ GUI initialization failed: {e}")
-        assert False
+        raise AssertionError()
 
 def test_strategy_imports():
     """Test that strategy imports work correctly"""
@@ -44,7 +46,7 @@ def test_strategy_imports():
         assert True
     except Exception as e:
         print(f"✗ Strategy imports failed: {e}")
-        assert False
+        raise AssertionError()
 
 def test_game_engine_creation():
     """Test that game engine can be created with strategies"""
@@ -52,7 +54,7 @@ def test_game_engine_creation():
         # Test the same configuration that GUI would use
         total_players = 3  # 1 human + 2 AI
         starting_stack = 1000
-        
+
         # Create strategies like the GUI does
         player_strategies = [HumanStrategy()]  # Human player
         for i in range(2):  # 2 AI players
@@ -63,7 +65,7 @@ def test_game_engine_creation():
             starting_stack=starting_stack,
             player_strategies=player_strategies
         )
-        
+
         print("✓ Game engine creation successful")
         print(f"  - Players: {total_players}")
         print(f"  - Starting stack: {starting_stack}")
@@ -71,7 +73,7 @@ def test_game_engine_creation():
         assert True
     except Exception as e:
         print(f"✗ Game engine creation failed: {e}")
-        assert False
+        raise AssertionError()
 
 def test_gui_game_setup():
     """Test GUI's game setup method"""
@@ -94,23 +96,23 @@ def test_gui_game_setup():
         assert True
     except Exception as e:
         print(f"✗ GUI game setup failed: {e}")
-        assert False
+        raise AssertionError()
 
 def main():
     """Run all tests"""
     print("Testing GUI Integration")
     print("=" * 50)
-    
+
     tests = [
         test_strategy_imports,
         test_gui_initialization,
         test_game_engine_creation,
         test_gui_game_setup
     ]
-    
+
     passed = 0
     total = len(tests)
-    
+
     for test in tests:
         try:
             if test():
@@ -118,10 +120,10 @@ def main():
         except Exception as e:
             print(f"✗ Test {test.__name__} failed with exception: {e}")
         print()
-    
+
     print("=" * 50)
     print(f"Tests passed: {passed}/{total}")
-    
+
     if passed == total:
         print("🎉 All tests passed! GUI integration is working correctly.")
     else:

@@ -1,6 +1,7 @@
-import numpy as np
 import random
 from collections import Counter
+
+import numpy as np
 
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
@@ -63,7 +64,7 @@ class TexasHoldem:
 
 
 
-    
+
     def display_stage(self, stage_name):
         print(f"\n--- {stage_name} ---")
         if self.community_cards:
@@ -169,7 +170,7 @@ class TexasHoldem:
         # Count multiplicities and sort by (count desc, value desc)
         cnt_pairs = sorted(((c, v) for v, c in Counter(vals).items()),
                            key=lambda x: (x[0], x[1]), reverse=True)
-        counts, values = zip(*cnt_pairs)
+        counts, values = zip(*cnt_pairs, strict=False)
         # Flush / straight
         is_flush = len({s for r, s in hand}) == 1
         uniq = sorted(set(vals))
