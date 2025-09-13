@@ -2,8 +2,8 @@
 
 import argparse
 
-from self_play.self_play import SelfPlay
-from trainers.ai_cfr_trainer import AICFRTrainer
+from poker_ai.selfplay.self_play import SelfPlay
+from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
 
 def parse_args() -> argparse.Namespace:

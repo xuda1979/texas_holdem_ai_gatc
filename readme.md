@@ -122,7 +122,7 @@ python -m poker_ai.cli.train --num-hands 1000
 The `evaluation` package offers a lightweight exploitability calculator. Example:
 
 ```python
-from evaluation.exploitability import calculate_exploitability
+from poker_ai.evaluation.exploitability import calculate_exploitability
 strategy = [0.5, 0.5]
 matrix = [[1, -1], [-1, 1]]
 print(calculate_exploitability(strategy, matrix))

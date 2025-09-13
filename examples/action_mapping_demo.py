@@ -1,4 +1,4 @@
-from utils.action_mapping import get_action_from_index
+from poker_ai.utils.action_mapping import get_action_from_index
 
 
 # Mock GameState for testing/demo purposes

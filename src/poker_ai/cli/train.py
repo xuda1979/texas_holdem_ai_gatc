@@ -54,6 +54,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_configuration(path: str | None = None) -> dict:
+    """Wrapper for :func:`poker_ai.config.load_config` used in tests.
+
+    Providing a dedicated function allows unit tests to patch configuration
+    loading without importing the heavier dependency chain inside
+    :mod:`poker_ai.config` at import time.
+    """
+
+    return load_config(path)
+
+
 def initialize_trainer(
     algorithm: str, config: dict, device: str, use_all_npus: bool = False
 ) -> object:
@@ -140,7 +151,7 @@ def main() -> None:  # noqa: C901
             device = "cuda"
 
     # Load configuration
-    config = load_config(args.config)
+    config = load_configuration(args.config)
 
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
