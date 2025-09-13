@@ -105,4 +105,4 @@ The Texas Hold'em AI project now has a complete, professional-looking card set! 
 - GUI tests are marked with `gui` and will be skipped automatically when images or a display are missing.
 - Run `pytest -m 'not gui'` to execute only non-GUI tests in CI.
 - Use `xvfb-run -a pytest -m gui` to run GUI tests headlessly in CI environments.
-- Install Xvfb on CI machines to enable the `xvfb-run` command.
+- Install Xvfb on CI machines to enable the `xvfb-run` command (e.g., `apt-get install -y xvfb`).
