@@ -1,0 +1,27 @@
+name: build-container
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t answers .
+      - name: Run container and test health
+        run: |
+          docker run -d --rm -p 8000:8000 --name answers answers
+          for i in {1..10}; do
+            if curl --fail http://localhost:8000/healthz; then
+              success=1
+              break
+            fi
+            sleep 1
+          done
+          docker stop answers
+          test "$success" = "1"
