@@ -27,18 +27,14 @@ self-play = "poker_ai.cli.self_play:main"
 dev = [
     "pytest>=8.2",
     "hypothesis>=6.112",
-    "black>=24.8",
     "ruff>=0.6",
     "mypy>=1.10",
+    "bandit>=1.7",
     "pre-commit>=3.7",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.black]
-line-length = 100
-target-version = ["py310", "py311"]
 
 [tool.ruff]
 line-length = 100
@@ -48,6 +44,10 @@ select = ["E","F","W","I","UP","B","C90","N","ANN"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["gatc_poker"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-q"
