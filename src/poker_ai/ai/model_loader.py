@@ -21,15 +21,6 @@ def load_model_strategy(
     available, otherwise ``CPU``.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    if not os.path.exists(model_path):
-        warnings.warn(
-            f"Model file not found at {model_path}. Falling back to RandomAIStrategy.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return RandomAIStrategy(), device
-
     config_path = os.path.splitext(model_path)[0] + ".config.json"
     try:
         with open(config_path) as f:
@@ -46,9 +37,17 @@ def load_model_strategy(
         state_dict = torch.load(model_path, map_location=device)
         model.load_state_dict(state_dict)
         return ModelAIStrategy(model, config, device), device
-    except Exception as exc:  # pragma: no cover - exercised in tests
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
         warnings.warn(
             f"Failed to load model from {model_path}: {exc}. Falling back to RandomAIStrategy.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return RandomAIStrategy(), device
+    except Exception as exc:  # pragma: no cover - unexpected error
+        warnings.warn(
+            f"Unexpected error loading model from {model_path}: {exc}. "
+            "Falling back to RandomAIStrategy.",
             RuntimeWarning,
             stacklevel=2,
         )
