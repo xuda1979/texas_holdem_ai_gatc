@@ -8,7 +8,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
-def test_imports():
+def test_imports() -> bool:
     """Test that all major imports work correctly"""
     print("Testing imports...")
 
@@ -35,7 +35,7 @@ def test_imports():
         return False
 
 
-def test_game_engine():
+def test_game_engine() -> bool:
     """Test that game engine works without deck exhaustion"""
     print("\nTesting game engine...")
 
@@ -67,7 +67,7 @@ def test_game_engine():
         return False
 
 
-def test_config_loading():
+def test_config_loading() -> bool:
     """Test that configuration loading works"""
     print("\nTesting configuration...")
 
@@ -84,7 +84,7 @@ def test_config_loading():
         return False
 
 
-def test_trainer():
+def test_trainer() -> bool:
     """Test that trainer can be created"""
     print("\nTesting trainer creation...")
 
@@ -110,7 +110,7 @@ def test_trainer():
         return False
 
 
-def main():
+def main() -> None:
     """Run all tests"""
     print("Running comprehensive test suite...\n")
 

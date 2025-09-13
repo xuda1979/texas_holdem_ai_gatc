@@ -4,14 +4,14 @@ from cfr_trainer import CFRTrainer
 from texas_holdem import TexasHoldem
 
 
-def train_model(config, iterations, model_save_path):
+def train_model(config, iterations, model_save_path) -> None:
     trainer = CFRTrainer(config)
     trainer.train(iterations=iterations)
     trainer.save_model(model_save_path)
     print(f"Model trained and saved to {model_save_path}")
 
 
-def play_game(config, model_path, num_players=2):
+def play_game(config, model_path, num_players=2) -> None:
     trainer = CFRTrainer(config)
     trainer.load_model(model_path)
 
@@ -22,7 +22,7 @@ def play_game(config, model_path, num_players=2):
     print(f"The winner is Player {winner} with the hand: {best_hand}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Train or play Texas Hold'em using CFR and deep learning."
     )
