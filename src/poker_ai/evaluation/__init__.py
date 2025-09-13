@@ -1,5 +1,15 @@
 from .exploitability import calculate_exploitability, compute_best_response
-from .performance_analysis import ModelPerformanceAnalyzer, run_tournament
+# ``performance_analysis`` pulls in a large portion of the training stack which
+# is optional for many lightweight environments.  Import it lazily so basic
+# helpers like ``calculate_exploitability`` remain usable even when the full
+# dependency tree is unavailable.
+try:  # pragma: no cover - executed only when optional deps are installed
+    from .performance_analysis import ModelPerformanceAnalyzer, run_tournament
+except Exception:  # pragma: no cover - optional feature missing
+    ModelPerformanceAnalyzer = None
+
+    def run_tournament(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError("performance analysis utilities unavailable")
 
 # ``ai_gto_analyzer`` depends on optional packages (e.g., PyYAML).  Import it
 # lazily so that basic evaluation utilities remain available in minimal test
