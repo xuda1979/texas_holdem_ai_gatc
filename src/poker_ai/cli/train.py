@@ -3,6 +3,7 @@
 import argparse
 import os
 import time
+from typing import Any, cast
 
 import torch
 
@@ -44,15 +45,20 @@ def parse_args() -> argparse.Namespace:
         "--device",
         choices=["cpu", "cuda"],
         default=None,
-        help="Computation device. Defaults to CUDA if available, then CPU. Use --npu for NPU support.",
+        help=(
+            "Computation device. Defaults to CUDA if available, then CPU."
+            " Use --npu for NPU support."
+        ),
     )
     parser.add_argument("--npu", action="store_true", help="Enable training on all available NPUs.")
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False):
+def initialize_trainer(
+    algorithm: str, config: dict, device: str, use_all_npus: bool = False
+) -> object:
     """Return a trainer instance based on selected algorithm."""
-    trainer = None
+    trainer: object | None = None
     if algorithm == "ai_cfr":
         from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
@@ -105,11 +111,11 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     return trainer
 
 
-def main():
+def main() -> None:  # noqa: C901
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
-    device = None
+    device: str = "cpu"
     use_all_npus = False
 
     if args.npu:
@@ -123,7 +129,8 @@ def main():
                 print("NPU training enabled. Found 1 NPU.")
         else:
             print(
-                "Warning: --npu flag was specified, but no NPU devices are available. Falling back to CPU."
+                "Warning: --npu flag was specified, but no NPU devices are "
+                "available. Falling back to CPU."
             )
             device = "cpu"
     elif args.device:
@@ -131,8 +138,6 @@ def main():
     else:
         if torch.cuda.is_available():
             device = "cuda"
-        else:
-            device = "cpu"
 
     # Load configuration
     config = load_config(args.config)
@@ -143,7 +148,7 @@ def main():
 
     game_engine_config = config.get("game_engine", {})
     training_params = config.get("training", {})
-    curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
+    _curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
@@ -198,7 +203,10 @@ def main():
     }
 
     try:
-        cfr_trainer = initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus)
+        cfr_trainer = cast(
+            Any,
+            initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus),
+        )
         print(f"{args.algorithm} trainer initialized.")
     except Exception as e:
         print(f"Error initializing trainer: {e}")

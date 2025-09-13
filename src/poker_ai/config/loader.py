@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
@@ -7,12 +8,12 @@ ENV_CONFIG_PATH = "POKER_AI_CONFIG"
 ENV_PREFIX = "POKER_AI__"
 
 
-def _import_yaml():
+def _import_yaml() -> ModuleType | None:
     try:
         import yaml
     except ImportError:  # pragma: no cover - handled in loader
         print("Warning: PyYAML is not installed. Using default configurations.")
-        yaml = None
+        return None
     return yaml
 
 
@@ -34,7 +35,7 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> None:
                 target[keys[-1]] = value
 
 
-def load_config(path: str | os.PathLike | None = None) -> dict[str, Any]:
+def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     """Load configuration from YAML and apply environment overrides.
 
     Parameters
@@ -45,7 +46,8 @@ def load_config(path: str | os.PathLike | None = None) -> dict[str, Any]:
         ``config.yaml`` bundled with the package.
     """
     yaml = _import_yaml()
-    config_path = Path(path or os.environ.get(ENV_CONFIG_PATH, DEFAULT_CONFIG_PATH))
+    path_str = path or os.environ.get(ENV_CONFIG_PATH)
+    config_path = Path(path_str) if path_str else DEFAULT_CONFIG_PATH
     data: dict[str, Any] = {}
     if yaml is None:
         _apply_env_overrides(data)

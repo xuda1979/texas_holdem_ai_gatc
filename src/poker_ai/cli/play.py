@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 import torch
 
@@ -116,7 +117,7 @@ def main() -> None:  # noqa: C901
             starting_stack = 10000
 
     # Create player strategies
-    player_strategies = []
+    player_strategies: list[Any] = []
     for _ in range(num_humans):
         player_strategies.append(HumanStrategy())
     for _ in range(num_ai):
@@ -126,7 +127,7 @@ def main() -> None:  # noqa: C901
             player_strategies.append(RandomAIStrategy())
 
     # Instantiate the game with chosen starting stack
-    game = TexasHoldem(total_players, starting_stack, player_strategies)
+    game = TexasHoldem(total_players, starting_stack, cast(list[Any], player_strategies))
 
     # Play the game indefinitely
     try:

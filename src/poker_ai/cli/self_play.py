@@ -1,4 +1,4 @@
-# ruff: noqa: ANN001,ANN201,ANN204
+# ruff: noqa: ANN001,ANN101,ANN201,ANN204
 import argparse
 import json
 import os
@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from typing import Any, cast
 
 import torch
 
@@ -39,7 +40,11 @@ class TransformerStrategy:
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
         hole, community, history = prepare_transformer_input(
-            game, player_index, max_seq_len, d_raw_feature
+            cast(Any, game),
+            player_index,
+            max_seq_len,
+            d_raw_feature,
+            return_mask=False,
         )
         advantages = (
             self.model(

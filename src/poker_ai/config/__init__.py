@@ -1,4 +1,4 @@
-from .config import *
+from .config import BASE_DATA_DIR, MODEL_DIR, SIMULATED_DATA_DIR
 from .loader import DEFAULT_CONFIG_PATH, load_config
 
 __all__ = [
