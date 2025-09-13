@@ -1,6 +1,6 @@
 # Texas Hold'em AI GATC Project
 
-[![CI](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/ci.yml)
+[![CI](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml)
 
 ## Overview
 

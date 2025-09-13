@@ -1,49 +1,18 @@
 """Main command-line interface for training models via self-play."""
 
 import argparse
-import os  # For path manipulation if needed, e.g. for robust config loading
+import os
 import time
+from typing import Any, cast
 
 import torch
 
+from poker_ai.config import load_config
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
-
-# Configuration Loading
-# Robustly locate config.yaml assuming it's in the project root
-CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
-# If script is not in root, adjust path:
-# CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "config.yaml") # If config is with script
-# Or an absolute path, or environment variable. For now, assume it's in CWD.
-
-
-def load_configuration(config_path: str) -> dict:
-    """Loads YAML configuration from the given path.
-
-    Falls back to an empty configuration if PyYAML is missing or the file cannot
-    be parsed so that training can still run with default values."""
-    try:
-        import yaml
-    except ImportError:
-        print("Warning: PyYAML is not installed. Using default configurations.")
-        return {}
-
-    try:
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-        if config_data is None:
-            print(f"Warning: {config_path} is empty or invalid. Using default configurations.")
-            return {}
-        return config_data
-    except FileNotFoundError:
-        print(f"Warning: {config_path} not found. Using default configurations.")
-        return {}
-    except yaml.YAMLError as e:
-        print(f"Error parsing {config_path}: {e}. Using default configurations.")
-        return {}
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,21 +37,28 @@ def parse_args() -> argparse.Namespace:
         help="Training algorithm to use",
     )
     parser.add_argument(
-        "--config", default=CONFIG_FILE_PATH, help="Path to configuration YAML file"
+        "--config",
+        default=None,
+        help="Path to configuration YAML file",
     )
     parser.add_argument(
         "--device",
         choices=["cpu", "cuda"],
         default=None,
-        help="Computation device. Defaults to CUDA if available, then CPU. Use --npu for NPU support.",
+        help=(
+            "Computation device. Defaults to CUDA if available, then CPU."
+            " Use --npu for NPU support."
+        ),
     )
     parser.add_argument("--npu", action="store_true", help="Enable training on all available NPUs.")
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False):
+def initialize_trainer(
+    algorithm: str, config: dict, device: str, use_all_npus: bool = False
+) -> object:
     """Return a trainer instance based on selected algorithm."""
-    trainer = None
+    trainer: object | None = None
     if algorithm == "ai_cfr":
         from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 
@@ -135,11 +111,11 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     return trainer
 
 
-def main():
+def main() -> None:  # noqa: C901
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
-    device = None
+    device: str = "cpu"
     use_all_npus = False
 
     if args.npu:
@@ -153,7 +129,8 @@ def main():
                 print("NPU training enabled. Found 1 NPU.")
         else:
             print(
-                "Warning: --npu flag was specified, but no NPU devices are available. Falling back to CPU."
+                "Warning: --npu flag was specified, but no NPU devices are "
+                "available. Falling back to CPU."
             )
             device = "cpu"
     elif args.device:
@@ -161,11 +138,9 @@ def main():
     else:
         if torch.cuda.is_available():
             device = "cuda"
-        else:
-            device = "cpu"
 
     # Load configuration
-    config = load_configuration(args.config)
+    config = load_config(args.config)
 
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
@@ -173,7 +148,7 @@ def main():
 
     game_engine_config = config.get("game_engine", {})
     training_params = config.get("training", {})
-    curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
+    _curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
@@ -228,7 +203,10 @@ def main():
     }
 
     try:
-        cfr_trainer = initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus)
+        cfr_trainer = cast(
+            Any,
+            initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus),
+        )
         print(f"{args.algorithm} trainer initialized.")
     except Exception as e:
         print(f"Error initializing trainer: {e}")
