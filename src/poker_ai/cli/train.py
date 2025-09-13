@@ -1,49 +1,17 @@
 """Main command-line interface for training models via self-play."""
 
 import argparse
-import os  # For path manipulation if needed, e.g. for robust config loading
+import os
 import time
 
 import torch
 
+from poker_ai.config import load_config
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
-
-# Configuration Loading
-# Robustly locate config.yaml assuming it's in the project root
-CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
-# If script is not in root, adjust path:
-# CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "config.yaml") # If config is with script
-# Or an absolute path, or environment variable. For now, assume it's in CWD.
-
-
-def load_configuration(config_path: str) -> dict:
-    """Loads YAML configuration from the given path.
-
-    Falls back to an empty configuration if PyYAML is missing or the file cannot
-    be parsed so that training can still run with default values."""
-    try:
-        import yaml
-    except ImportError:
-        print("Warning: PyYAML is not installed. Using default configurations.")
-        return {}
-
-    try:
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-        if config_data is None:
-            print(f"Warning: {config_path} is empty or invalid. Using default configurations.")
-            return {}
-        return config_data
-    except FileNotFoundError:
-        print(f"Warning: {config_path} not found. Using default configurations.")
-        return {}
-    except yaml.YAMLError as e:
-        print(f"Error parsing {config_path}: {e}. Using default configurations.")
-        return {}
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,7 +36,9 @@ def parse_args() -> argparse.Namespace:
         help="Training algorithm to use",
     )
     parser.add_argument(
-        "--config", default=CONFIG_FILE_PATH, help="Path to configuration YAML file"
+        "--config",
+        default=None,
+        help="Path to configuration YAML file",
     )
     parser.add_argument(
         "--device",
@@ -165,7 +135,7 @@ def main():
             device = "cpu"
 
     # Load configuration
-    config = load_configuration(args.config)
+    config = load_config(args.config)
 
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
