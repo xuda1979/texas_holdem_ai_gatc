@@ -18,14 +18,14 @@ from play.gui import PokerGameGUI
 from playStrategy import HumanStrategy, RandomAIStrategy
 from game_engine.texas_holdem import TexasHoldem
 
-def test_gui_initialization():
+def test_gui_initialization() -> None:
     """Test that GUI can be initialized without errors"""
     try:
         with patch('play.gui.tk') as mock_tk, \
              patch('play.gui.PokerGameGUI._load_card_images'), \
              patch('play.gui.PokerGameGUI.setup_gui'), \
              patch('play.gui.PokerGameGUI.start_game'):
-            gui = PokerGameGUI()
+            PokerGameGUI()  # Test instantiation without assigning to unused variable
             mock_tk.Tk.assert_called_once()
         print("✓ GUI initialization successful")
         assert True
@@ -33,7 +33,7 @@ def test_gui_initialization():
         print(f"✗ GUI initialization failed: {e}")
         assert False
 
-def test_strategy_imports():
+def test_strategy_imports() -> None:
     """Test that strategy imports work correctly"""
     try:
         human_strategy = HumanStrategy()
@@ -46,7 +46,7 @@ def test_strategy_imports():
         print(f"✗ Strategy imports failed: {e}")
         assert False
 
-def test_game_engine_creation():
+def test_game_engine_creation() -> None:
     """Test that game engine can be created with strategies"""
     try:
         # Test the same configuration that GUI would use
@@ -58,7 +58,7 @@ def test_game_engine_creation():
         for i in range(2):  # 2 AI players
             player_strategies.append(RandomAIStrategy())
           # Create game engine
-        engine = TexasHoldem(
+        TexasHoldem(  # Test creation without assigning to unused variable
             num_players=total_players,
             starting_stack=starting_stack,
             player_strategies=player_strategies
@@ -73,7 +73,7 @@ def test_game_engine_creation():
         print(f"✗ Game engine creation failed: {e}")
         assert False
 
-def test_gui_game_setup():
+def test_gui_game_setup() -> None:
     """Test GUI's game setup method"""
     try:
         with patch('play.gui.tk') as mock_tk, \
@@ -96,7 +96,7 @@ def test_gui_game_setup():
         print(f"✗ GUI game setup failed: {e}")
         assert False
 
-def main():
+def main() -> None:
     """Run all tests"""
     print("Testing GUI Integration")
     print("=" * 50)

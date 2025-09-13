@@ -15,7 +15,7 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-def test_gui_imports():
+def test_gui_imports() -> None:
     """Test that all GUI imports work correctly."""
     try:
         print("Testing GUI imports...")
@@ -43,7 +43,7 @@ def test_gui_imports():
         traceback.print_exc()
         assert False
 
-def test_game_logic():
+def test_game_logic() -> None:
     """Test basic game logic without GUI."""
     try:
         print("\nTesting game logic...")
@@ -67,7 +67,7 @@ def test_game_logic():
         traceback.print_exc()
         assert False
 
-def test_card_images():
+def test_card_images() -> None:
     """Test card image loading functionality."""
     try:
         print("\nTesting card image functionality...")
@@ -79,7 +79,7 @@ def test_card_images():
             pytest.skip("Pillow not installed")
 
         # Use a mocked root window to avoid display issues
-        with patch.object(tk, 'Tk', return_value=MagicMock()) as mock_tk:
+        with patch.object(tk, 'Tk', return_value=MagicMock()):
             root = tk.Tk()
             root.withdraw.return_value = None
 
@@ -90,7 +90,7 @@ def test_card_images():
                 if os.path.exists(test_image_path):
                     img = Image.open(test_image_path)
                     img = img.resize((100, 140), Image.Resampling.LANCZOS)
-                    photo = ImageTk.PhotoImage(img)
+                    _ = ImageTk.PhotoImage(img)  # Test image creation but don't assign to unused variable
                     print("✓ Card image loading successful")
                 else:
                     print("✗ Test card image not found")

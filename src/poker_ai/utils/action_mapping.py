@@ -80,7 +80,9 @@ def get_legal_actions_mask(game: TexasHoldem, player_id: int, num_actions: int) 
     Returns a boolean tensor indicating which of the abstract actions are legal.
     """
     mask = torch.zeros(num_actions, dtype=torch.bool)
-    player_stack = game.rules.player_chips[player_id]
+    # Player stack is available but not currently used in the logic below
+    # It could be used for additional validation in the future
+    _ = game.rules.player_chips[player_id]
 
     for action_idx in range(num_actions):
         action_str, amount = get_action_from_index(action_idx, game, player_id)

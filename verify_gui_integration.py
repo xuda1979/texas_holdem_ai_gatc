@@ -9,7 +9,7 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def test_cli_setup():
+def test_cli_setup() -> bool:
     """Test the same setup that CLI uses"""
     try:
         from game_engine.texas_holdem import TexasHoldem
@@ -29,7 +29,7 @@ def test_cli_setup():
             player_strategies.append(RandomAIStrategy())
             
         # Create game like CLI does
-        game = TexasHoldem(total_players, starting_stack, player_strategies)
+        TexasHoldem(total_players, starting_stack, player_strategies)  # Test creation without assigning to unused variable
         
         print("✓ CLI-style setup successful")
         print(f"  - Total players: {total_players}")
@@ -42,7 +42,7 @@ def test_cli_setup():
         print(f"✗ CLI-style setup failed: {e}")
         return False
 
-def test_gui_setup():
+def test_gui_setup() -> bool:
     """Test the same setup that GUI uses"""
     try:
         from game_engine.texas_holdem import TexasHoldem
@@ -59,7 +59,7 @@ def test_gui_setup():
             player_strategies.append(RandomAIStrategy())
             
         # Create game like GUI does
-        game = TexasHoldem(
+        TexasHoldem(  # Test creation without assigning to unused variable
             num_players=total_players,
             starting_stack=starting_stack,
             player_strategies=player_strategies
@@ -75,7 +75,7 @@ def test_gui_setup():
         print(f"✗ GUI-style setup failed: {e}")
         return False
 
-def compare_setups():
+def compare_setups() -> bool:
     """Compare CLI and GUI setups to ensure they're equivalent"""
     print("Comparing CLI and GUI game setups:")
     print("=" * 50)

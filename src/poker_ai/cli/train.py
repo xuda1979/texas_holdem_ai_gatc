@@ -9,7 +9,7 @@ import time
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 
 # Configuration Loading
 # Robustly locate config.yaml assuming it's in the project root
@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False):
+def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: bool = False) -> Optional[object]:
     """Return a trainer instance based on selected algorithm."""
     trainer = None
     if algorithm == "ai_cfr":
@@ -146,7 +146,7 @@ def initialize_trainer(algorithm: str, config: dict, device: str, use_all_npus: 
     return trainer
 
 
-def main():
+def main() -> None:
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
@@ -182,7 +182,8 @@ def main():
     
     game_engine_config = config.get('game_engine', {})
     training_params = config.get('training', {})
-    curriculum_stages: List[Dict] = config.get('curriculum', {}).get('stages', [])
+    # Curriculum stages are loaded but not used in current implementation
+    _ = config.get('curriculum', {}).get('stages', [])
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.

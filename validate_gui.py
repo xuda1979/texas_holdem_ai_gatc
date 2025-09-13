@@ -12,7 +12,7 @@ project_root = os.path.abspath(os.path.dirname(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-def test_gui_without_mainloop():
+def test_gui_without_mainloop() -> bool:
     """Test GUI creation without running mainloop."""
     
     # Mock tkinter to prevent window creation
@@ -24,9 +24,9 @@ def test_gui_without_mainloop():
         mock_root.mainloop = Mock()
         
         # Also mock the GUI setup methods to prevent them from running
-        with patch('play.gui.PokerGameGUI.setup_gui') as mock_setup_gui, \
-             patch('play.gui.PokerGameGUI.start_game') as mock_start_game, \
-             patch('play.gui.PokerGameGUI._load_card_images') as mock_load_images:
+        with patch('play.gui.PokerGameGUI.setup_gui'), \
+             patch('play.gui.PokerGameGUI.start_game'), \
+             patch('play.gui.PokerGameGUI._load_card_images'):
             
             # Now we can safely import and create the GUI
             from play.gui import PokerGameGUI, GUIHumanStrategy
@@ -35,7 +35,7 @@ def test_gui_without_mainloop():
             
             # Test GUIHumanStrategy
             mock_gui = Mock()
-            strategy = GUIHumanStrategy(mock_gui)
+            GUIHumanStrategy(mock_gui)  # Test creation without assigning to unused variable
             print("✅ GUIHumanStrategy created successfully")
             
             # Test card image key conversion

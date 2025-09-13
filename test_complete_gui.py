@@ -14,7 +14,7 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-def test_gui_with_game():
+def test_gui_with_game() -> None:
     """Test GUI with actual game state including cards."""
     try:
         from play.gui import PokerGameGUI
@@ -48,14 +48,14 @@ def test_gui_with_game():
         
         test_cards = ['As', 'Kh', 'Qd', 'Jc', 'Ts']
         for card in test_cards:
-            card_label = gui.create_card_label(test_frame, card)
+            gui.create_card_label(test_frame, card)  # Test creation without assigning to unused variable
             if card in gui.card_images:
                 print(f"  ✓ {card} label created with image")
             else:
                 print(f"  ✗ {card} label created without image")
         
         # Test card back creation
-        back_label = gui.create_card_label(test_frame, 'As', show_back=True)
+        gui.create_card_label(test_frame, 'As', show_back=True)  # Test creation without assigning to unused variable
         print("  ✓ Card back label created")
         
         # Cleanup
