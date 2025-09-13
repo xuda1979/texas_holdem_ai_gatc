@@ -29,6 +29,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help="Path to saved AdvantageNetwork weights (.pth) to control AI players",
     )
+    parser.add_argument(
+        "--num-hands",
+        type=int,
+        default=1,
+        help="Number of hands to play before exiting (0 for infinite play)",
+    )
     return parser.parse_args()
 
 
@@ -120,11 +126,20 @@ def main() -> None:  # noqa: C901
     # Instantiate the game with chosen starting stack
     game = TexasHoldem(total_players, starting_stack, player_strategies)
 
-    # Play the game indefinitely
+    hands_to_play = args.num_hands
+    hands_played = 0
+
     try:
-        while True:
+        while hands_to_play == 0 or hands_played < hands_to_play:
             game.play_game()
+            if game.winner is not None:
+                print(f"Hand Summary: Player {game.winner + 1} wins!")
+            else:
+                print("Hand Summary: No winner determined.")
             print("\n--- Hand Completed ---")
+            hands_played += 1
+            if hands_to_play != 0 and hands_played >= hands_to_play:
+                break
             print("Resetting chips and starting a new hand.\n")
             game.reset_for_next_hand()
     except KeyboardInterrupt:
