@@ -98,9 +98,14 @@ class HumanStrategy(PlayerStrategy):
     def choose_action(self, game, player_index):  # noqa: C901
         # Display AI-derived GTO stats before prompting for action.
         # The import is delayed to keep GUI dependencies optional.
-        from ai_gto_analyzer import display_ai_gto_stats
+        # ``display_ai_gto_stats`` lives in the optional evaluation package and
+        # may be unavailable in lightweight environments.  Import through the
+        # package namespace so the function is ``None`` rather than raising a
+        # ``ModuleNotFoundError`` when the dependency tree is incomplete.
+        from poker_ai.evaluation import display_ai_gto_stats
 
-        display_ai_gto_stats(game, player_index)
+        if display_ai_gto_stats:
+            display_ai_gto_stats(game, player_index)
 
         while True:
             print(f"\n--- Player {player_index + 1}'s Turn ---")
