@@ -1,6 +1,5 @@
 import glob
 import os
-from typing import Dict, List
 
 import torch
 
@@ -58,12 +57,14 @@ class EvalStrategy(PlayerStrategy):
         return get_action_from_index(action_idx, game, player_id=player_index)
 
 
-def run_tournament(model_paths: List[str], games_per_match: int = 10, device: str = "cpu") -> Dict[str, int]:
+def run_tournament(
+    model_paths: list[str], games_per_match: int = 10, device: str = "cpu"
+) -> dict[str, int]:
     """Run a simple round-robin tournament between models.
 
     Returns a mapping of model path to number of games won."""
 
-    scores: Dict[str, int] = {p: 0 for p in model_paths}
+    scores: dict[str, int] = {p: 0 for p in model_paths}
     if len(model_paths) < 2:
         return scores
 

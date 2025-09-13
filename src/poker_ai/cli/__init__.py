@@ -12,16 +12,19 @@ from typing import Any
 
 def train_main(*args: Any, **kwargs: Any) -> Any:
     from .train import main as _main
+
     return _main(*args, **kwargs)
 
 
 def play_main(*args: Any, **kwargs: Any) -> Any:
     from .play import main as _main
+
     return _main(*args, **kwargs)
 
 
 def self_play_main(*args: Any, **kwargs: Any) -> Any:
     from .self_play import main as _main
+
     return _main(*args, **kwargs)
 
 

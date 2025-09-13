@@ -9,10 +9,10 @@ module only on demand.
 """
 
 from .playStrategy import (
-    PlayerStrategy,
-    RandomAIStrategy,
     HumanStrategy,
     ModelAIStrategy,
+    PlayerStrategy,
+    RandomAIStrategy,
 )
 
 

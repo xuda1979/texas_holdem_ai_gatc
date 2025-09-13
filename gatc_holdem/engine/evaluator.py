@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import List, Tuple, Any
+
+from typing import Any
 
 """
 Evaluator adapter.
@@ -15,12 +16,12 @@ except Exception:  # pragma: no cover - fallback path
     eval7 = None
 
 
-def _cards_to_eval7(cards: List[str]) -> Any:
+def _cards_to_eval7(cards: list[str]) -> Any:
     assert eval7 is not None
     return [eval7.Card(c) for c in cards]
 
 
-def best5_rank_key(hand: List[str], board: List[str]) -> Tuple[int, int]:
+def best5_rank_key(hand: list[str], board: list[str]) -> tuple[int, int]:
     """Return a comparable rank key; higher is better.
 
     If eval7 is present, we use its 7-card ranking. Otherwise, a naive

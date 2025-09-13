@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pytest
+
 from gatc_holdem.engine.rules import min_bet, min_raise_to, raise_reopens_action
 
 

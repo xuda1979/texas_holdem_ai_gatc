@@ -1,6 +1,7 @@
 """Thin wrapper exposing key GUI classes for tests and examples."""
 
 import tkinter as tk
+
 import poker_ai.gui.gui as _gui
 
 

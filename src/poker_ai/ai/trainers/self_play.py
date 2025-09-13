@@ -1,6 +1,6 @@
-import torch
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 from poker_ai.engine.texas_holdem import TexasHoldem
+
 
 def simulate_self_play(trainer: AICFRTrainer, num_games: int):
     for _ in range(num_games):
@@ -8,6 +8,7 @@ def simulate_self_play(trainer: AICFRTrainer, num_games: int):
         game_state_sequence = game.start()
         # Simulate the game using the AI model and update strategies
         trainer.train(game_state_sequence)
+
 
 if __name__ == "__main__":
     trainer = AICFRTrainer()

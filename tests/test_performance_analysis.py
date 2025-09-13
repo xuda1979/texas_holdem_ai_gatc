@@ -2,18 +2,18 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import torch
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-src_path = os.path.join(project_root, 'src')
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
 
 class DummyTrainer:
@@ -41,9 +41,11 @@ class TestPerformanceAnalyzer(unittest.TestCase):
                 tournament_threshold=2,
                 tournament_size=2,
                 games_per_match=0,
-                device='cpu',
+                device="cpu",
             )
-            with patch('poker_ai.evaluation.performance_analysis.run_tournament', return_value={}) as mock_tourn:
+            with patch(
+                "poker_ai.evaluation.performance_analysis.run_tournament", return_value={}
+            ) as mock_tourn:
                 analyzer.on_iteration_end(trainer, 1)
                 self.assertEqual(len(os.listdir(tmpdir)), 1)
                 mock_tourn.assert_not_called()
@@ -52,5 +54,5 @@ class TestPerformanceAnalyzer(unittest.TestCase):
                 mock_tourn.assert_called_once()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

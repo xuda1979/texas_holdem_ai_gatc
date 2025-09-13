@@ -1,9 +1,10 @@
 import os
 import sys
+
 import torch
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-src_path = os.path.join(project_root, 'src')
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
@@ -15,9 +16,9 @@ def test_training_logs_loss(tmp_path):
     log_file = tmp_path / "train.log"
     model_path = tmp_path / "model.pth"
     config = {
-        'logging': {'log_file': str(log_file)},
-        'model': {'hidden_dim': 8, 'num_actions': 2, 'learning_rate': 0.001, 'd_raw_feature': 3},
-        'training': {'save_model_path': str(model_path)}
+        "logging": {"log_file": str(log_file)},
+        "model": {"hidden_dim": 8, "num_actions": 2, "learning_rate": 0.001, "d_raw_feature": 3},
+        "training": {"save_model_path": str(model_path)},
     }
 
     original_config_pkg = ai_cfr_trainer.config
