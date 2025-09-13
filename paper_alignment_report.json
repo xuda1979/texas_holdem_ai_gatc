@@ -1,0 +1,37 @@
+{
+  "implementations_found": {
+    "CFR": [
+      "cfr_algorithm/__init__.py",
+      "src/poker_ai/ai/models/cfr.py",
+      "src/poker_ai/ai/trainers/ai_cfr_trainer.py",
+      "src/poker_ai/ai/trainers/deep_cfr_trainer.py",
+      "src/poker_ai/ai/trainers/single_network_cfr_trainer.py",
+      "src/poker_ai/evaluation/kuhn_cfr.py",
+      "src/poker_ai/rules/cfr.py",
+      "tests/cfr/test_cfr_plus.py",
+      "tests/test_cfr.py",
+      "tests/test_cfr_plus.py",
+      "tests/test_kuhn_cfr.py"
+    ],
+    "CFR+": [
+      "tests/cfr/test_cfr_plus.py",
+      "tests/test_cfr_plus.py"
+    ],
+    "Deep CFR": [
+      "src/poker_ai/ai/trainers/deep_cfr_trainer.py"
+    ],
+    "Transformer": [
+      "ai_models/__init__.py",
+      "models/__init__.py",
+      "models/opponent_model.py",
+      "src/poker_ai/ai/models/transformer.py"
+    ]
+  },
+  "keywords_in_paper": {
+    "CFR": false,
+    "CFR+": false,
+    "Deep CFR": false,
+    "Transformer": false
+  },
+  "paper_present": true
+}
