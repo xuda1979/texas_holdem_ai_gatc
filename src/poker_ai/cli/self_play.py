@@ -1,4 +1,5 @@
-# ruff: noqa: ANN001,ANN201,ANN204
+# ruff: noqa: ANN001,ANN101,ANN201,ANN204
+import argparse
 import json
 import os
 import random
@@ -7,11 +8,12 @@ import sys
 import threading
 import time
 from datetime import datetime
+from typing import Any, cast
 
 import torch
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
-from poker_ai.config import config
+from poker_ai.config import config, load_config
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.utils.action_mapping import (
     get_action_from_index,
@@ -38,7 +40,11 @@ class TransformerStrategy:
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
         hole, community, history = prepare_transformer_input(
-            game, player_index, max_seq_len, d_raw_feature
+            cast(Any, game),
+            player_index,
+            max_seq_len,
+            d_raw_feature,
+            return_mask=False,
         )
         advantages = (
             self.model(
@@ -68,8 +74,14 @@ class TransformerStrategy:
 COMMON_ACTIONS = ["talk", "move"]
 
 
-def load_transformer_model():
-    model_name = "texas_holdem_transformer_ai"
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run self-play simulation")
+    parser.add_argument("--config", default=None, help="Path to configuration YAML file")
+    return parser.parse_args()
+
+
+def load_transformer_model(cfg):
+    model_name = cfg.get("model", {}).get("name", "texas_holdem_transformer_ai")
     weights_path, config_path = get_model_paths(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model_exists(weights_path, config_path):
@@ -265,8 +277,11 @@ def terminate_gracefully(transformer_strategy):
 
 
 def main():
-    transformer_strategy, weights_path, last_mtime = load_transformer_model()
-    periodic_save(transformer_strategy, interval=1800)
+    args = parse_args()
+    cfg = load_config(args.config)
+    transformer_strategy, weights_path, last_mtime = load_transformer_model(cfg)
+    interval = cfg.get("self_play", {}).get("save_interval", 1800)
+    periodic_save(transformer_strategy, interval=interval)
     handle_termination(transformer_strategy)
 
     print("Starting self-play simulation. Press Ctrl+C to terminate.")

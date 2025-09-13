@@ -6,10 +6,12 @@ import argparse
 import json
 import os
 import sys
+from typing import Any, cast
 
 import torch
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.config import load_config
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import (
     HumanStrategy,
@@ -23,12 +25,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Play Texas Hold'em against simple AI players")
     parser.add_argument("--total-players", type=int, help="Total number of players (2-10)")
     parser.add_argument("--num-humans", type=int, help="Number of human players")
-    parser.add_argument("--starting-stack", type=int, default=10000, help="Starting chip count")
+    parser.add_argument("--starting-stack", type=int, help="Starting chip count")
     parser.add_argument(
         "--model-path",
         type=str,
         help="Path to saved AdvantageNetwork weights (.pth) to control AI players",
     )
+    parser.add_argument("--config", default=None, help="Path to configuration YAML file")
     return parser.parse_args()
 
 
@@ -55,6 +58,8 @@ def load_model(model_path: str) -> ModelAIStrategy:
 def main() -> None:  # noqa: C901
     args = parse_args()
     print("=== Welcome to Texas Hold'em Poker Simulation ===\n")
+
+    cfg = load_config(args.config)
 
     model_strategy = load_model(args.model_path) if args.model_path else None
 
@@ -96,7 +101,11 @@ def main() -> None:  # noqa: C901
     num_ai = total_players - num_humans
 
     # Choose tournament type and set starting stack
-    starting_stack = args.starting_stack
+    starting_stack = (
+        args.starting_stack
+        if args.starting_stack is not None
+        else cfg.get("game_engine", {}).get("starting_stack", 10000)
+    )
     if starting_stack is None:
         print("\nChoose tournament type:")
         print("1. Standard Tournament (10,000 chips)")
@@ -108,7 +117,7 @@ def main() -> None:  # noqa: C901
             starting_stack = 10000
 
     # Create player strategies
-    player_strategies = []
+    player_strategies: list[Any] = []
     for _ in range(num_humans):
         player_strategies.append(HumanStrategy())
     for _ in range(num_ai):
@@ -118,7 +127,7 @@ def main() -> None:  # noqa: C901
             player_strategies.append(RandomAIStrategy())
 
     # Instantiate the game with chosen starting stack
-    game = TexasHoldem(total_players, starting_stack, player_strategies)
+    game = TexasHoldem(total_players, starting_stack, cast(list[Any], player_strategies))
 
     # Play the game indefinitely
     try:
