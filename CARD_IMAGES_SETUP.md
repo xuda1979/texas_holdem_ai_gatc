@@ -103,4 +103,5 @@ The Texas Hold'em AI project now has a complete, professional-looking card set! 
 
 - Card image assets are bundled with the package under `src/poker_ai/gui/card_images`.
 - GUI tests are marked with `gui` and will be skipped automatically when images or a display are missing.
+- Run `pytest -m 'not gui'` to execute only non-GUI tests in CI.
 - Use `xvfb-run -a pytest -m gui` to run GUI tests headlessly in CI environments.
