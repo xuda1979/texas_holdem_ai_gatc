@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
+import pytest
+
+yaml = pytest.importorskip("yaml")
 
 from poker_ai.config import load_config
 

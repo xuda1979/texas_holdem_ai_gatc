@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("eval7")
+
 from gatc_poker.pots import SidePot, compute_side_pots
 
 

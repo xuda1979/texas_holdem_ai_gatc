@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("eval7")
+
 from gatc_poker.handeval import best_of
 
 

@@ -3,6 +3,8 @@ import sys
 
 import pytest
 
+pytest.importorskip("eval7")
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 for p in (project_root, src_path):
