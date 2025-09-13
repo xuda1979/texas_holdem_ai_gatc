@@ -1,15 +1,17 @@
 import os
 import sys
+
 import torch
 
 # Adjust the Python path to include the root directory of the project
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-src_path = os.path.join(project_root, 'src')
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
+
 
 def test_advantage_network_forward_pass():
     print("Running AdvantageNetwork Forward Pass Test...")
@@ -65,13 +67,17 @@ def test_advantage_network_forward_pass():
 
     # Assert the output shape is correct
     expected_output_shape = (batch_size, num_actions)
-    assert output_advantages.shape == expected_output_shape, \
-        f"Output shape mismatch. Expected {expected_output_shape}, got {output_advantages.shape}"
-    print(f"Assertion for output shape PASSED. Expected {expected_output_shape}, got {output_advantages.shape}")
+    assert (
+        output_advantages.shape == expected_output_shape
+    ), f"Output shape mismatch. Expected {expected_output_shape}, got {output_advantages.shape}"
+    print(
+        f"Assertion for output shape PASSED. Expected {expected_output_shape}, got {output_advantages.shape}"
+    )
 
     print("AdvantageNetwork forward pass test completed successfully!")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     try:
         test_advantage_network_forward_pass()
         print("\nAll tests in test_model_forward_pass.py PASSED.")
@@ -80,4 +86,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\nAn unexpected error occurred during testing: {e}")
         import traceback
+
         traceback.print_exc()

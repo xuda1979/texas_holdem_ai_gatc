@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
+
 from ai_models.transformer import TransformerAverageStrategy
+
 
 class OpponentModel(nn.Module):
     """Simple Transformer encoder predicting opponent action probabilities."""

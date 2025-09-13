@@ -1,5 +1,4 @@
 """Simple action and hand abstraction utilities."""
-from typing import List, Tuple
 
 HAND_BUCKETS = [
     {"ranks": ["A", "K"], "bucket": 0},
@@ -7,7 +6,7 @@ HAND_BUCKETS = [
 ]
 
 
-def bucket_hand(hand: Tuple[str, str]) -> int:
+def bucket_hand(hand: tuple[str, str]) -> int:
     """Return a bucket index for the given hand based on high card."""
     ranks = [card[0] for card in hand]
     for mapping in HAND_BUCKETS:

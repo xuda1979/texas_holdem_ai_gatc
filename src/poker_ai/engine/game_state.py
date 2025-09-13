@@ -5,7 +5,7 @@ class GameState:
         self.player_hands = {}
         self.betting_history = []
         self.current_bet = 0
-        self.current_round = 'pre-flop'
+        self.current_round = "pre-flop"
         self.players = []
         # Keep track of player ordering for feature encoding
         self.player_order = []
@@ -24,7 +24,7 @@ class GameState:
     def get_player(self, player_id):
         """Return player object by id if available."""
         for p in self.players:
-            if getattr(p, 'player_id', None) == player_id or str(p) == str(player_id):
+            if getattr(p, "player_id", None) == player_id or str(p) == str(player_id):
                 return p
         return None
 

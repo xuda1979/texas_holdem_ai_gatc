@@ -1,3 +1,3 @@
-from .actions import ActionType, Action
+from .actions import Action, ActionType
 
 __all__ = ["ActionType", "Action"]

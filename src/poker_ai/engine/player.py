@@ -1,4 +1,3 @@
-
 class Player:
     def __init__(self, player_id, stack_size):
         self.player_id = player_id

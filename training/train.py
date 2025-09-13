@@ -1,7 +1,9 @@
 """Command-line entry for basic training loop using self-play."""
+
 import argparse
-from trainers.ai_cfr_trainer import AICFRTrainer
+
 from self_play.self_play import SelfPlay
+from trainers.ai_cfr_trainer import AICFRTrainer
 
 
 def parse_args() -> argparse.Namespace:

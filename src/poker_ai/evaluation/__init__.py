@@ -10,9 +10,9 @@ except Exception:  # pragma: no cover - optional feature missing
     display_ai_gto_stats = None
 
 __all__ = [
-    'calculate_exploitability',
-    'compute_best_response',
-    'ModelPerformanceAnalyzer',
-    'run_tournament',
-    'display_ai_gto_stats'
+    "calculate_exploitability",
+    "compute_best_response",
+    "ModelPerformanceAnalyzer",
+    "run_tournament",
+    "display_ai_gto_stats",
 ]

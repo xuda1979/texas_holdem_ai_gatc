@@ -1,5 +1,5 @@
+from .cfr import calculate_strategy, compute_regrets, update_regret, update_strategy
 from .transformer import AdvantageNetwork
-from .cfr import calculate_strategy, update_regret, update_strategy, compute_regrets
 
 __all__ = [
     'AdvantageNetwork',

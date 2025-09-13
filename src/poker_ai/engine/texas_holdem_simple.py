@@ -1,10 +1,12 @@
-import numpy as np
 import random
 from collections import Counter
 
-SUITS = ['♠', '♥', '♦', '♣']
-RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+import numpy as np
+
+SUITS = ["♠", "♥", "♦", "♣"]
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 DECK = [rank + suit for suit in SUITS for rank in RANKS]
+
 
 class TexasHoldem:
     def __init__(self, num_players):
@@ -22,18 +24,13 @@ class TexasHoldem:
     def reset(self):
         random.shuffle(self.deck)
         self.community_cards = []
-        self.players_hands = [self.deck[i*2:(i+1)*2] for i in range(self.num_players)]
+        self.players_hands = [self.deck[i * 2 : (i + 1) * 2] for i in range(self.num_players)]
         self.players_active = [True] * self.num_players
         self.bets = [0] * self.num_players
         self.current_bet = 0
         self.pot = 0
         self.betting_round = 0
         self.display_stage("Pre-Flop")
-
-
-
-
-
 
     def get_initial_state(self):
         state = np.zeros((self.num_players + 5, len(RANKS), len(SUITS)))  # Shape (7, 13, 4)
@@ -54,10 +51,6 @@ class TexasHoldem:
 
         return state
 
-
-
-
-    
     def display_stage(self, stage_name):
         print(f"\n--- {stage_name} ---")
         if self.community_cards:
@@ -154,9 +147,9 @@ class TexasHoldem:
 
     def hand_rank(self, hand):
         """Determine the rank of a hand."""
-        ranks = '23456789TJQKA'
+        ranks = "23456789TJQKA"
         rank_count = Counter([ranks.index(r) for r, s in hand])
-        counts, values = zip(*sorted((cnt, rank) for rank, cnt in rank_count.items()))
+        counts, values = zip(*sorted((cnt, rank) for rank, cnt in rank_count.items()), strict=False)
         is_straight = len(counts) == 5 and (max(values) - min(values) == 4)
         is_flush = len(set(s for r, s in hand)) == 1
         if is_straight and is_flush:

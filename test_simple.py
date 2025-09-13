@@ -42,6 +42,7 @@ def test_game_creation() -> None:
     """Test creating a game with strategies"""
     try:
         from game_engine.texas_holdem import TexasHoldem
+
         from playStrategy import HumanStrategy, RandomAIStrategy
 
         # Create strategies (1 human + 2 AI)

@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class ActionType(str, Enum):
@@ -24,7 +24,7 @@ class Action:
     """
 
     type: ActionType
-    amount_to: Optional[int] = None  # total commitment target (chips)
+    amount_to: int | None = None  # total commitment target (chips)
 
     def __post_init__(self) -> None:
         if self.type in (ActionType.BET, ActionType.RAISE, ActionType.ALL_IN):
