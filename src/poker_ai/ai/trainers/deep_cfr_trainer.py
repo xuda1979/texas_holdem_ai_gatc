@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 from collections import deque
 import random
-from typing import Tuple
+from typing import Tuple, List
 
 # Correctly import the refactored AdvantageNetwork
 from poker_ai.ai.models.transformer import AdvantageNetwork
@@ -13,15 +13,25 @@ class ReplayBuffer:
         self.capacity = capacity
         self.buffer: list = []
         self.position = 0
-
-    def push(self, state: torch.Tensor, regrets: torch.Tensor, iteration: int):
-        """Adds an experience to the buffer using reservoir sampling."""
+    def push(
+        self,
+        hole: torch.Tensor,
+        community: torch.Tensor,
+        history: torch.Tensor,
+        regrets: torch.Tensor,
+        iteration: int,
+    ):
+        """Adds an experience (full infoset) using reservoir sampling."""
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
-
-        # The tuple stored in the buffer
-        experience = (state.detach().cpu(), regrets.detach().cpu(), iteration)
-
+        # Store (hole, community, history, regrets, iteration)
+        experience = (
+            hole.detach().cpu(),
+            community.detach().cpu(),
+            history.detach().cpu(),
+            regrets.detach().cpu(),
+            iteration,
+        )
         # Reservoir sampling logic
         if self.position < self.capacity:
             self.buffer[self.position] = experience
@@ -53,10 +63,9 @@ class DeepCFRTrainer:
         buffer_capacity: int = 1_000_000,
         device: str | None = None,
     ):
-
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         self.num_actions = num_actions
-        self.card_feature_dim = input_feature_dim  # placeholder dimension
+        self.card_feature_dim = 17  # 13 rank + 4 suit (see state_representation)
 
         # Use the new AdvantageNetwork; this trainer treats card summaries as zeros
         self.advantage_net = AdvantageNetwork(
@@ -80,43 +89,43 @@ class DeepCFRTrainer:
                 'd_raw_feature': input_feature_dim,
                 'hidden_dim': hidden_dim,
                 'num_actions': num_actions,
-                'learning_rate': learning_rate,
-            }
+            },
+            'learning_rate': learning_rate,
         }
 
     @torch.no_grad()
-    def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
-        """Inference helper using zero card summaries (for compatibility)."""
-
-        if state_tensor.ndim == 2:
-            state_tensor = state_tensor.unsqueeze(0)
-        state_tensor = state_tensor.to(self.device)
-        batch = state_tensor.size(0)
-        zeros = torch.zeros(batch, self.card_feature_dim, device=self.device)
-        advantages = self.advantage_net(zeros, zeros, state_tensor)
+    def get_advantages(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+    ) -> torch.Tensor:
+        """Inference on full infoset (hole, community, history)."""
+        if history_tensor.ndim == 2:
+            history_tensor = history_tensor.unsqueeze(0)
+        hole_summary = hole_summary.unsqueeze(0) if hole_summary.ndim == 1 else hole_summary
+        community_summary = community_summary.unsqueeze(0) if community_summary.ndim == 1 else community_summary
+        advantages = self.advantage_net(
+            hole_summary.to(self.device), community_summary.to(self.device), history_tensor.to(self.device)
+        )
         return advantages.squeeze(0).cpu()
 
     def train(self, batch_size: int = 256):
-        """
-        Performs one training step on a batch from the replay buffer.
+        """ Performs one training step on a batch from the replay buffer.
         This implements the weighted loss function from Linear CFR.
         """
         if len(self.replay_buffer) < batch_size:
             return
-
         # Sample from the replay buffer
         batch = self.replay_buffer.sample(batch_size)
-        states, regrets, iterations = zip(*batch)
-
-        states = torch.stack(states).to(self.device)
+        holes, communities, histories, regrets, iterations = zip(*batch)
+        holes = torch.stack(holes).to(self.device)
+        communities = torch.stack(communities).to(self.device)
+        histories = torch.stack(histories).to(self.device)
         regrets = torch.stack(regrets).to(self.device)
         iterations = torch.tensor(iterations, dtype=torch.float32, device=self.device).view(-1, 1)
-
-        batch_size = states.size(0)
-        zeros = torch.zeros(batch_size, self.card_feature_dim, device=self.device)
-
-        # Get network predictions using zero card summaries
-        adv_pred = self.advantage_net(zeros, zeros, states)
+        # Predict advantages on full infosets
+        adv_pred = self.advantage_net(holes, communities, histories)
 
         # Calculate the weighted MSE loss (Linear CFR)
         # The loss is weighted by the iteration number T

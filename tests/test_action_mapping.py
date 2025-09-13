@@ -31,7 +31,7 @@ def test_all_indices_no_current_bet():
         if idx == 2:
             assert action == "call" and amount == 0
         if idx == 9:
-            assert action == "raise" and amount == 50
+            assert action == "bet" and amount == 50
 
 
 def test_invalid_index():

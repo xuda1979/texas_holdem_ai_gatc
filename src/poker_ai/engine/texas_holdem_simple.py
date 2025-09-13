@@ -22,7 +22,13 @@ class TexasHoldem:
     def reset(self):
         random.shuffle(self.deck)
         self.community_cards = []
-        self.players_hands = [self.deck[i*2:(i+1)*2] for i in range(self.num_players)]
+        self.players_hands = []
+        # Deal two cards to each player by popping from the top
+        for _ in range(2):
+            for i in range(self.num_players):
+                if len(self.players_hands) < self.num_players:
+                    self.players_hands.append([])
+                self.players_hands[i].append(self.deck.pop(0))
         self.players_active = [True] * self.num_players
         self.bets = [0] * self.num_players
         self.current_bet = 0
@@ -71,17 +77,21 @@ class TexasHoldem:
         print(f"Pot: {self.pot}")
 
     def deal_flop(self):
-        self.community_cards.extend(self.deck[1:4])  # Burn 1 card, deal 3
+        self.deck.pop(0)  # burn
+        for _ in range(3):
+            self.community_cards.append(self.deck.pop(0))
         self.betting_round += 1
         self.display_stage("Flop")
 
     def deal_turn(self):
-        self.community_cards.append(self.deck[5])  # Burn 1 card, deal 1
+        self.deck.pop(0)  # burn
+        self.community_cards.append(self.deck.pop(0))
         self.betting_round += 1
         self.display_stage("Turn")
 
     def deal_river(self):
-        self.community_cards.append(self.deck[7])  # Burn 1 card, deal 1
+        self.deck.pop(0)  # burn
+        self.community_cards.append(self.deck.pop(0))
         self.betting_round += 1
         self.display_stage("River")
 
@@ -153,29 +163,37 @@ class TexasHoldem:
         return combinations
 
     def hand_rank(self, hand):
-        """Determine the rank of a hand."""
-        ranks = '23456789TJQKA'
-        rank_count = Counter([ranks.index(r) for r, s in hand])
-        counts, values = zip(*sorted((cnt, rank) for rank, cnt in rank_count.items()))
-        is_straight = len(counts) == 5 and (max(values) - min(values) == 4)
-        is_flush = len(set(s for r, s in hand)) == 1
+        """Determine the rank of a 5-card hand (lexicographic tuple)."""
+        ranks_order = '23456789TJQKA'
+        vals = sorted([ranks_order.index(r) for r, s in hand], reverse=True)
+        # Count multiplicities and sort by (count desc, value desc)
+        cnt_pairs = sorted(((c, v) for v, c in Counter(vals).items()),
+                           key=lambda x: (x[0], x[1]), reverse=True)
+        counts, values = zip(*cnt_pairs)
+        # Flush / straight
+        is_flush = len({s for r, s in hand}) == 1
+        uniq = sorted(set(vals))
+        is_wheel = uniq == [0, 1, 2, 3, 12]  # A-2-3-4-5
+        is_straight = len(uniq) == 5 and ((max(uniq) - min(uniq) == 4) or is_wheel)
+        straight_high = 3 if is_wheel else max(vals)
+        # Hand classes
         if is_straight and is_flush:
-            return (9, max(values)) if max(values) != 12 else (10,)
+            return (10 if straight_high == 12 else 9, straight_high)
         if counts == (4, 1):
             return (8, values[0], values[1])
         if counts == (3, 2):
             return (7, values[0], values[1])
         if is_flush:
-            return (6, values)
+            return (6, tuple(vals))
         if is_straight:
-            return (5, max(values))
+            return (5, straight_high)
         if counts == (3, 1, 1):
-            return (4, values)
+            return (4, tuple(values))
         if counts == (2, 2, 1):
-            return (3, values)
+            return (3, tuple(values))
         if counts == (2, 1, 1, 1):
-            return (2, values)
-        return (1, values)
+            return (2, tuple(values))
+        return (1, tuple(vals))
 
     def get_winner(self):
         """Determine the winner of the game."""
