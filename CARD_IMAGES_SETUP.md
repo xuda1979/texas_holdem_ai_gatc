@@ -10,9 +10,9 @@
 
 ### 2. **Card Format Details**
 - **Ranks**: 2, 3, 4, 5, 6, 7, 8, 9, T (Ten), J (Jack), Q (Queen), K (King), A (Ace)
-- **Suits**: 
+- **Suits**:
   - h = Hearts ♥ (red)
-  - d = Diamonds ♦ (red)  
+  - d = Diamonds ♦ (red)
   - c = Clubs ♣ (black)
   - s = Spades ♠ (black)
 
@@ -94,7 +94,7 @@ python verify_images.py
 2. **Play poker with visual cards** - No more text representations!
 
 3. **Customize card appearance** (if desired):
-   - Replace any card image in `play/card_images/` 
+   - Replace any card image in `play/card_images/`
    - Keep the same naming convention: `[rank][suit].png`
 
 The Texas Hold'em AI project now has a complete, professional-looking card set! 🃏✨

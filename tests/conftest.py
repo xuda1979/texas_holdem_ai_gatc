@@ -1,14 +1,17 @@
 """Pytest configuration for GUI-related tests."""
+
 import os
 from pathlib import Path
 
 import pytest
 
 # Directory containing bundled card images
-CARD_IMAGES_DIR = Path(__file__).resolve().parent.parent / "src" / "poker_ai" / "gui" / "card_images"
+CARD_IMAGES_DIR = (
+    Path(__file__).resolve().parent.parent / "src" / "poker_ai" / "gui" / "card_images"
+)
 
 
-def pytest_runtest_setup(item):
+def pytest_runtest_setup(item: pytest.Item) -> None:
     """Skip GUI tests when prerequisites are missing."""
     if "gui" in item.keywords:
         # Ensure card images are available

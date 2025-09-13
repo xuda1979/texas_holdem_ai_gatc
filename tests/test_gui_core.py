@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""
-Test script for Texas Hold'em GUI - focuses on critical functionality.
-"""
+# ruff: noqa
+"""Test script for Texas Hold'em GUI - focuses on critical functionality."""
 
 import os
 import sys
@@ -79,7 +78,6 @@ class TestGUICore(unittest.TestCase):
     def test_game_logic_imports(self):
         """Test that all required game logic imports work."""
         from game_engine.texas_holdem import TexasHoldem
-
         from play.strategies import PlaceholderAIStrategy
         from playStrategy import HumanStrategy, RandomAIStrategy
 
