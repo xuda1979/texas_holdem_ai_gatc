@@ -106,7 +106,9 @@ def split_winnings_with_odd_chips(
     base = pot_amount // k
     remainder = pot_amount % k
     # Order winners starting from first seat left of the button
-    ordered = sorted(winners, key=lambda i: (i - dealer_index) % 1000000)
+    # Start from the seat immediately left of the button.  We subtract one
+    # before taking the modulo so that ``dealer_index + 1`` has key ``0``.
+    ordered = sorted(winners, key=lambda i: (i - dealer_index - 1) % 1000000)
     payout = {w: base for w in winners}
     for i in range(remainder):
         payout[ordered[i]] += 1
