@@ -50,6 +50,13 @@ python -m poker_ai.cli.train --num-hands 500 --algorithm deep_cfr --save-model-e
 
 During training each hand uses a random number of players (between 2 and 10).
 
+To control the computation device you can use:
+
+- `--device cpu` to force CPU execution.
+- `--device npu` to target a single NPU.
+- `--npu` to utilize all available NPUs via `DataParallel`.
+
+
 3. **Run tests**:
    ```bash
    pytest -q
