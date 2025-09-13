@@ -3,12 +3,16 @@ import sys
 import unittest
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
 # Add project root to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+pytestmark = pytest.mark.gui
 
 # Mock tkinter before importing GUI
 try:

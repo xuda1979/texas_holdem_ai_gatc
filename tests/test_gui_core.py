@@ -8,12 +8,16 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+import pytest
+
 # Add project root to path
-project_root = os.path.abspath(os.path.dirname(__file__))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+pytestmark = pytest.mark.gui
 
 
 class TestGUICore(unittest.TestCase):

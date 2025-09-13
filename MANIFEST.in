@@ -1,0 +1,1 @@
+recursive-include src/poker_ai/gui/card_images *.png

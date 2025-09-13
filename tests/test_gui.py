@@ -3,11 +3,15 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+pytestmark = pytest.mark.gui
 
 # Conditional import of PokerGameGUI for testing
 # This allows the test file to be parsed even if tkinter is not available in the environment

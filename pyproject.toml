@@ -45,3 +45,6 @@ known-first-party = ["gatc_poker"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+    "gui: tests that require a graphical display",
+]

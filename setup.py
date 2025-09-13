@@ -5,6 +5,8 @@ setup(
     version="1.0",
     packages=find_packages("src"),
     package_dir={"": "src"},
+    include_package_data=True,
+    package_data={"poker_ai.gui": ["card_images/*.png"]},
     install_requires=[
         "numpy",
         "torch",
