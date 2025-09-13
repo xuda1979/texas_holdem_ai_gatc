@@ -8,6 +8,9 @@ import json
 import logging
 import os
 import random
+from typing import cast
+
+from gatc_holdem.engine.rules import min_raise_to
 
 # ``treys`` provides fast poker hand evaluation but is optional in our test
 # environment.  To keep the engine lightweight, we attempt to import the real
@@ -23,7 +26,7 @@ try:  # pragma: no cover - exercised implicitly when treys is installed
     from treys import Card, Evaluator  # type: ignore
 except Exception:  # pragma: no cover - treys missing
 
-    class Evaluator:  # minimal stub
+    class _Evaluator:  # minimal stub
         def evaluate(self, community_cards, hole_cards):
             return 0
 
@@ -33,10 +36,13 @@ except Exception:  # pragma: no cover - treys missing
         def class_to_string(self, rank_class):
             return "High Card"
 
-    class Card:  # minimal stub
+    class _Card:  # minimal stub
         @staticmethod
         def new(card_str):
             return card_str
+
+    Evaluator = _Evaluator
+    Card = _Card
 
 
 class CardDeck(list):
@@ -143,9 +149,9 @@ class TexasHoldemRules:
             self._log(f"Player {player_index + 1} raises to {amount} chips.")
 
         self.pot += bet_difference
-        self.total_bets_this_hand[
-            player_index
-        ] += bet_difference  # Accumulate total bet for the hand
+        self.total_bets_this_hand[player_index] += (
+            bet_difference  # Accumulate total bet for the hand
+        )
         self.bets[player_index] = amount  # This is total bet for the current round
 
         if amount > self.current_bet:
@@ -655,26 +661,18 @@ class TexasHoldem:
             self.rules.end_betting_round_cleanup()
 
     def get_min_raise_amount(self, player_index):
-        """
-        Calculates the minimum valid raise amount for the current player.
-        WSOP Rule: A raise must be at least the size of the previous bet or raise.
-        If BB is 10, first player (UTG) bets 20 (a raise of 10 from BB).
-        Next raise must be at least 20 more (total 40 from their perspective, making current total bet 40).
-        self.rules.previous_raise_amount stores the *amount* of the last raise.
-        """
-        if self.rules.current_bet == 0:  # No bet yet, so min bet is Big Blind
-            return self.rules.big_blind
+        """Return the minimum additional chips required to raise.
 
-        # There is a current bet. A raise must be at least the amount of the last bet/raise.
-        # The "previous_raise_amount" is the actual delta of the last raise.
-        # So, if current bet is 50, and previous raise was 25 (e.g. someone bet 25, then raised to 50),
-        # the min raise is an additional 25, making total bet 75.
-        min_additional_raise = (
-            self.rules.previous_raise_amount
-            if self.rules.previous_raise_amount > 0
-            else self.rules.big_blind
+        The calculation mirrors official WSOP rules: a raise must be at least the
+        size of the previous bet or raise.  We reuse ``min_raise_to`` from the
+        reference rules module to ensure consistency.
+        """
+        min_total = min_raise_to(
+            self.rules.current_bet,
+            self.rules.previous_raise_amount,
+            self.rules.big_blind,
         )
-        return min_additional_raise
+        return min_total - self.rules.current_bet
 
     def get_payoff(self, player_id):
         if not self.is_hand_over():
@@ -741,7 +739,9 @@ class TexasHoldem:
                 pots.append({"amount": layer, "eligible": elig})
             prev = t
         for p in pots:
-            p["eligible"] = {i for i in p["eligible"] if self.rules.active_players[i]}
+            p["eligible"] = {
+                i for i in cast(set[int], p["eligible"]) if self.rules.active_players[i]
+            }
         return pots
 
     def perform_showdown(self) -> dict[int, int]:
@@ -953,9 +953,9 @@ class TexasHoldem:
                 self.rules.player_chips[w_idx] += split_amount
 
             self.historical_actions[-1]["winner"] = [f"Player {w_idx + 1}" for w_idx in winner]
-            self.historical_actions[-1][
-                "pot_won"
-            ] = pot_to_split  # Total pot split among these winners
+            self.historical_actions[-1]["pot_won"] = (
+                pot_to_split  # Total pot split among these winners
+            )
             # Note: Remainder of self.rules.pot if pot_to_split < self.rules.pot is not handled.
         else:  # Single winner
             winner_player_index = winner
