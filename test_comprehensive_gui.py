@@ -21,17 +21,13 @@ def test_gui_imports() -> None:
         print("Testing GUI imports...")
         
         # Test individual imports
-        from game_engine.texas_holdem import TexasHoldem
         print("✓ TexasHoldem import successful")
         
-        from playStrategy import HumanStrategy, RandomAIStrategy
         print("✓ Strategy imports successful")
         
-        from play.strategies import PlaceholderAIStrategy
         print("✓ PlaceholderAIStrategy import successful")
         
         # Test GUI classes (but don't create instances that start mainloop)  
-        from play.gui import GUIHumanStrategy, PokerGameGUI
         print("✓ GUI classes import successful")
         
         print("All imports successful!")

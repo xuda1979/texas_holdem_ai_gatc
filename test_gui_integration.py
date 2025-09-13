@@ -5,7 +5,7 @@ Test script to verify GUI integration with game logic
 
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 # Add parent directory to path for imports
 project_root = os.path.abspath(os.path.dirname(__file__))
