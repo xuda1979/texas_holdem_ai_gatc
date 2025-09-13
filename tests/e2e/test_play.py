@@ -13,5 +13,3 @@ def test_play_endpoint_creates_transcript():
     resp.raise_for_status()
     data = resp.json()
     assert sum(data["final_stacks"]) == 200
-    with open("transcript.json", "w", encoding="utf-8") as fh:
-        json.dump(data, fh)

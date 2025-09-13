@@ -79,5 +79,4 @@ def play() -> dict:
     """Simulate a short hand and persist its transcript to disk."""
 
     transcript = _simulate_hand()
-    Path("transcript.json").write_text(json.dumps(transcript))
     return transcript
