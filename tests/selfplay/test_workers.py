@@ -22,7 +22,7 @@ class DummyTrainer:
         self.num_actions = 2
         self.replay_buffer = DummyBuffer()
 
-    def get_advantages(self, state_tensor):
+    def get_advantages(self, hole, community, history):
         return torch.zeros(self.num_actions)
 
     def train(self, batch_size=None):

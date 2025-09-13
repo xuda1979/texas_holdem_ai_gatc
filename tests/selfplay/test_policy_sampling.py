@@ -25,7 +25,7 @@ class DummyTrainer:
         self.num_actions = 4
         self.replay_buffer = DummyBuffer()
 
-    def get_advantages(self, state_tensor):
+    def get_advantages(self, hole, community, history):
         # return zero advantages for deterministic uniform policy
         return torch.zeros(self.num_actions)
 
