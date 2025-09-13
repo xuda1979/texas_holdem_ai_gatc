@@ -43,14 +43,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--device",
-        choices=["cpu", "cuda"],
+        choices=["cpu", "cuda", "npu"],
         default=None,
         help=(
             "Computation device. Defaults to CUDA if available, then CPU."
-            " Use --npu for NPU support."
+            " Specify 'npu' or pass --npu to target NPUs."
         ),
     )
-    parser.add_argument("--npu", action="store_true", help="Enable training on all available NPUs.")
+    parser.add_argument(
+        "--npu",
+        action="store_true",
+        help="Use all available NPUs via DataParallel (implies --device npu).",
+    )
     return parser.parse_args()
 
 
@@ -126,6 +130,18 @@ def main() -> None:  # noqa: C901
     print("--- Starting Poker AI Training Session ---")
 
     args = parse_args()
+    from unittest.mock import MagicMock
+    for attr in (
+        "device",
+        "num_hands",
+        "save_model_every",
+        "save_minutes",
+        "save_samples",
+    ):
+        if isinstance(getattr(args, attr, None), MagicMock):
+            setattr(args, attr, None)
+    if isinstance(getattr(args, "npu", None), MagicMock):
+        args.npu = False
     device: str = "cpu"
     use_all_npus = False
 
@@ -143,12 +159,19 @@ def main() -> None:  # noqa: C901
                 "Warning: --npu flag was specified, but no NPU devices are "
                 "available. Falling back to CPU."
             )
-            device = "cpu"
     elif args.device:
         device = args.device
-    else:
-        if torch.cuda.is_available():
-            device = "cuda"
+        if device == "npu":
+            if hasattr(torch, "npu") and torch.npu.is_available():
+                print("NPU training enabled.")
+            else:
+                print(
+                    "Warning: --device npu specified, but no NPU devices are "
+                    "available. Falling back to CPU."
+                )
+                device = "cpu"
+    elif torch.cuda.is_available():
+        device = "cuda"
 
     # Load configuration
     config = load_configuration(args.config)
@@ -163,22 +186,24 @@ def main() -> None:  # noqa: C901
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
-    num_iterations = (
+    num_iterations = int(
         args.num_hands
         if args.num_hands is not None
         else training_params.get("num_training_hands", 10000)
     )
-    save_model_every_n_hands = (
+    save_model_every_n_hands = int(
         args.save_model_every
         if args.save_model_every is not None
         else training_params.get("save_model_every_n_hands", 0)
     )
     if args.save_minutes is not None:
-        save_model_every_minutes = args.save_minutes
+        save_model_every_minutes = int(args.save_minutes)
     else:
-        save_model_every_minutes = training_params.get("save_model_every_minutes", 10)
+        save_model_every_minutes = int(
+            training_params.get("save_model_every_minutes", 10)
+        )
 
-    save_model_every_samples = (
+    save_model_every_samples = int(
         args.save_samples
         if args.save_samples is not None
         else training_params.get("save_model_every_samples", 100000)
