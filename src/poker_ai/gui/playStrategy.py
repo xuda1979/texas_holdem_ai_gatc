@@ -4,10 +4,13 @@
 import random
 
 import torch
+from typing import TYPE_CHECKING
 
-from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
 from poker_ai.utils.state_representation import prepare_transformer_input
+
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
+    from poker_ai.ai.models.transformer import AdvantageNetwork
 
 # Import the new AI GTO display function lazily inside HumanStrategy to avoid
 # pulling heavy GUI dependencies when simply importing this module.
@@ -50,7 +53,13 @@ class RandomAIStrategy(PlayerStrategy):
 class ModelAIStrategy(PlayerStrategy):
     """Strategy driven by a trained :class:`AdvantageNetwork`."""
 
-    def __init__(self, model: AdvantageNetwork, config: dict, device: torch.device):
+    def __init__(self, model: "AdvantageNetwork", config: dict, device: torch.device):
+        # Import locally to avoid circular dependency during module import
+        from poker_ai.ai.models.transformer import AdvantageNetwork
+
+        if not isinstance(model, AdvantageNetwork):  # pragma: no cover - simple type check
+            raise TypeError("model must be an AdvantageNetwork instance")
+
         self.model = model.to(device)
         self.model.eval()
         self.config = config
