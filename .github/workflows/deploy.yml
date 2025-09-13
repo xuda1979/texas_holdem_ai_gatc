@@ -1,0 +1,43 @@
+name: deploy
+on:
+  push:
+    branches:
+      - 'release/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      SERVICE: answers
+      REGION: ${{ secrets.GCP_REGION }}
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      REPO: ${{ secrets.GCP_AR_REPOSITORY }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v1
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Build and push image
+        run: |
+          IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${GITHUB_SHA}
+          gcloud builds submit --tag $IMAGE
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+        id: build
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE --image ${BUILD_IMAGE} --region $REGION --platform managed --quiet --allow-unauthenticated --min-instances=0 --max-instances=1 --concurrency=80
+        env:
+          BUILD_IMAGE: ${{ steps.build.outputs.image }}
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe $SERVICE --region $REGION --format='value(status.url)')
+          curl -fsSL "$URL/healthz"
