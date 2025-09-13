@@ -9,10 +9,15 @@ import subprocess
 import sys
 import traceback
 
-# Add project root to path
+# Add project root and source directory to path
 project_root = os.path.abspath(os.path.dirname(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
+
+# Ensure the src directory is available for imports
+src_path = os.path.join(project_root, "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 
 def run_test_suite(test_name, test_command):
