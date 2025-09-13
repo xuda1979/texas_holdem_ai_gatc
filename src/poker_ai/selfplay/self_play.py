@@ -56,12 +56,12 @@ class SelfPlay:
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
-        _, _, history_tensor = prepare_transformer_input(
+        hole, community, history_tensor = prepare_transformer_input(
             game, player_id, max_seq_len, d_raw_feature
         )
 
         # b. Get advantages from the network
-        advantages = self.cfr_trainer.get_advantages(history_tensor)
+        advantages = self.cfr_trainer.get_advantages(hole, community, history_tensor)
 
         # c. Get a mask for legal actions
         legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)

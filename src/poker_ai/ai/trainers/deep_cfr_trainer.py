@@ -13,24 +13,18 @@ class ReplayBuffer:
     def __init__(self, capacity: int):
         self.capacity = capacity
         self.buffer: list = []
-        self.position = 0
+        self.n_seen = 0
 
     def push(self, state: torch.Tensor, regrets: torch.Tensor, iteration: int):
         """Adds an experience to the buffer using reservoir sampling."""
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-
-        # The tuple stored in the buffer
         experience = (state.detach().cpu(), regrets.detach().cpu(), iteration)
-
-        # Reservoir sampling logic
-        if self.position < self.capacity:
-            self.buffer[self.position] = experience
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(experience)
         else:
-            j = random.randint(0, self.position)
+            j = random.randint(0, self.n_seen)
             if j < self.capacity:
                 self.buffer[j] = experience
-        self.position += 1
+        self.n_seen += 1
 
     def sample(self, batch_size: int) -> list:
         """Samples a batch of experiences from the buffer."""
@@ -89,16 +83,16 @@ class DeepCFRTrainer:
         }
 
     @torch.no_grad()
-    def get_advantages(self, state_tensor: torch.Tensor) -> torch.Tensor:
-        """Inference helper using zero card summaries (for compatibility)."""
+    def get_advantages(
+        self, hole: torch.Tensor, community: torch.Tensor, history: torch.Tensor
+    ) -> torch.Tensor:
+        """Return advantages conditioned on hole cards, community cards and history."""
 
-        if state_tensor.ndim == 2:
-            state_tensor = state_tensor.unsqueeze(0)
-        state_tensor = state_tensor.to(self.device)
-        batch = state_tensor.size(0)
-        zeros = torch.zeros(batch, self.card_feature_dim, device=self.device)
-        advantages = self.advantage_net(zeros, zeros, state_tensor)
-        return advantages.squeeze(0).cpu()
+        hole, community, history = (
+            t.unsqueeze(0).to(self.device) if t.ndim == 1 else t.to(self.device)
+            for t in (hole, community, history)
+        )
+        return self.advantage_net(hole, community, history).squeeze(0).cpu()
 
     def train(self, batch_size: int = 256):
         """

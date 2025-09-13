@@ -3,7 +3,9 @@ from __future__ import annotations
 import itertools
 import random
 
-import eval7
+import pytest
+
+eval7 = pytest.importorskip("eval7")
 
 from gatc_poker.handeval import best_of, evaluate_hand
 

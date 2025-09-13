@@ -4,7 +4,10 @@ import random
 from collections import Counter
 
 import numpy as np
-from scipy.stats import chisquare
+import pytest
+
+stats = pytest.importorskip("scipy.stats")
+chisquare = stats.chisquare
 
 # ensure src is on path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

@@ -1,7 +1,9 @@
 import json
 import os
+
 import pytest
-import requests
+
+requests = pytest.importorskip("requests")
 
 BASE_URL = os.environ.get("E2E_BASE_URL")
 

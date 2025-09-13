@@ -3,7 +3,9 @@ import sys
 import random
 import time
 
-import eval7
+import pytest
+
+eval7 = pytest.importorskip("eval7")
 
 # ensure src on path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
