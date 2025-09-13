@@ -1,0 +1,38 @@
+name: perf-smoke
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t answers .
+      - name: Run container
+        run: docker run -d --rm -p 8000:8000 --name answers answers
+      - name: Install k6
+        run: |
+          curl -sSL https://github.com/grafana/k6/releases/download/v0.45.0/k6-v0.45.0-linux-amd64.tar.gz | tar xz
+      - name: Run k6 smoke
+        env:
+          BASE_URL: http://localhost:8000
+        run: |
+          ./k6-v0.45.0-linux-amd64/k6 run perf/move.js --summary-export=perf-summary.json
+      - name: Extract summary
+        run: |
+          jq '{rps: .metrics.http_reqs.rate, p95: .metrics.http_req_duration["p(95)"]}' perf-summary.json > perf-summary.txt
+          echo 'SLO: p95 < 100ms' >> perf-summary.txt
+      - name: Upload perf artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-smoke
+          path: |
+            perf-summary.json
+            perf-summary.txt
+      - name: Stop container
+        if: always()
+        run: docker stop answers
