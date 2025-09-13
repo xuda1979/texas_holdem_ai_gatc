@@ -6,15 +6,22 @@ build-backend = "setuptools.build_meta"
 name = "texas-holdem-ai-gatc"
 version = "0.1.0"
 description = "Texas Hold'em AI utilities (rules-safe side pots and hand evaluation wrappers)."
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.12"
 dependencies = [
-    "numpy>=1.25",
     "eval7>=0.1.10",
-    "typer>=0.12.3",
+    "numpy>=1.25",
+    "pillow>=10.0",
     "pydantic>=2.7",
     "pyyaml>=6.0.1",
     "rich>=13.7",
+    "torch>=2.2",
+    "typer>=0.12.3",
 ]
+
+[project.scripts]
+play-poker = "poker_ai.cli.play:main"
+train-poker = "poker_ai.cli.train:main"
+self-play = "poker_ai.cli.self_play:main"
 
 [project.optional-dependencies]
 dev = [
