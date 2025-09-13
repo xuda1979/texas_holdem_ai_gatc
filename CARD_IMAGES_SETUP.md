@@ -98,3 +98,9 @@ python verify_images.py
    - Keep the same naming convention: `[rank][suit].png`
 
 The Texas Hold'em AI project now has a complete, professional-looking card set! 🃏✨
+
+## Continuous Integration
+
+- Card image assets are bundled with the package under `src/poker_ai/gui/card_images`.
+- GUI tests are marked with `gui` and will be skipped automatically when images or a display are missing.
+- Use `xvfb-run -a pytest -m gui` to run GUI tests headlessly in CI environments.
