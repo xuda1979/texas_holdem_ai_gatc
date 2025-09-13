@@ -1,5 +1,7 @@
 # Texas Hold'em AI GATC Project
 
+[![CI](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/ci.yml)
+
 ## Overview
 
 This project implements a Texas Hold'em AI using Counterfactual Regret Minimization (CFR) and neural networks built with **PyTorch**. It includes Transformer-based strategies and supports human vs. AI gameplay through a graphical user interface (GUI).
