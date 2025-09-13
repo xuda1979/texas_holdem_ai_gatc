@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: texas_holdem_project
-Version: 1.0
-Requires-Dist: numpy
-Requires-Dist: torch
-Requires-Dist: treys
-Requires-Dist: pyyaml
-Dynamic: requires-dist

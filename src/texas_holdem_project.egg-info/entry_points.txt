@@ -1,4 +1,0 @@
-[console_scripts]
-play-poker = poker_ai.cli.play:main
-self-play = poker_ai.cli.self_play:main
-train-poker = poker_ai.cli.train:main
