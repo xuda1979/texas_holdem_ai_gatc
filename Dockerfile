@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 RUN useradd --create-home appuser
 COPY --from=builder /wheels /wheels
 RUN pip install --no-cache /wheels/*
+
+# Copy the minimal runtime code so ``app.py`` can import ``poker_ai``.
+COPY src/poker_ai /app/poker_ai
 COPY app.py .
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD curl --fail http://localhost:8000/healthz || exit 1
