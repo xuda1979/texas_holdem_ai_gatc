@@ -8,7 +8,11 @@ import torch
 
 # Assuming these imports are correct relative to the project structure
 from poker_ai.engine.texas_holdem import TexasHoldem
-from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.action_mapping import (
+    action_to_tuple,
+    get_action_from_index,
+    get_legal_actions_mask,
+)
 from poker_ai.utils.state_representation import prepare_transformer_input
 
 
@@ -60,8 +64,11 @@ class SelfPlay:
             game, player_id, max_seq_len, d_raw_feature
         )
 
-        # b. Get advantages from the network
-        advantages = self.cfr_trainer.get_advantages(hole, community, history_tensor)
+        # b. Get advantages from the network (support older trainer signatures)
+        try:
+            advantages = self.cfr_trainer.get_advantages(hole, community, history_tensor)
+        except TypeError:  # pragma: no cover - backwards compat
+            advantages = self.cfr_trainer.get_advantages(history_tensor)
 
         # c. Get a mask for legal actions
         legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)
@@ -134,9 +141,8 @@ class SelfPlay:
 
                 # Create a new game state for this action
                 next_game = copy.deepcopy(game)
-                action_str, amount = get_action_from_index(
-                    action_idx, next_game, player_id=current_player
-                )
+                action = get_action_from_index(action_idx, next_game, player_id=current_player)
+                action_str, amount = action_to_tuple(action)
                 next_game.process_action(current_player, action_str, amount)
                 next_game.rules.advance_turn()
 
@@ -161,14 +167,13 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            _, _, state_tensor = prepare_transformer_input(
+            hole_s, community_s, state_tensor = prepare_transformer_input(
                 game, traverser_id, max_seq_len, d_raw_feature
             )
-            # Some trainer implementations (e.g. AICFRTrainer) do not expose a replay buffer.
-            # Guard access so that lightweight trainers can still be used for basic training
-            # without requiring a replay buffer implementation.
             if hasattr(self.cfr_trainer, "replay_buffer"):
-                self.cfr_trainer.replay_buffer.push(state_tensor, weighted_regrets, iteration)
+                self.cfr_trainer.replay_buffer.push(
+                    hole_s, community_s, state_tensor, weighted_regrets, iteration
+                )
 
             return node_value
         else:
@@ -178,9 +183,8 @@ class SelfPlay:
 
             # Create the next game state
             next_game = copy.deepcopy(game)
-            action_str, amount = get_action_from_index(
-                action_idx, next_game, player_id=current_player
-            )
+            action = get_action_from_index(action_idx, next_game, player_id=current_player)
+            action_str, amount = action_to_tuple(action)
             next_game.process_action(current_player, action_str, amount)
             next_game.rules.advance_turn()
 

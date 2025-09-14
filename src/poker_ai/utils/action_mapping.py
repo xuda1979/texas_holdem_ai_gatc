@@ -1,173 +1,218 @@
+"""Map abstract action indices to concrete poker actions.
+
+This module provides a state-dependent mapping from discrete action indices to
+``Action`` objects compatible with the :mod:`gatc_holdem` engine.  For legacy
+components that expect a ``(action_str, amount)`` tuple, the helper
+``action_to_tuple`` performs the conversion.
 """
-Maps action indices to game actions and amounts, and provides legality checks.
-"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Tuple
 
 import torch
 
-from poker_ai.engine.texas_holdem import TexasHoldem
+try:  # pragma: no cover - engine available in most environments
+    from gatc_holdem.core.actions import Action, ActionType
+except Exception:  # pragma: no cover - fallback for lightweight test envs
+    class ActionType(str, Enum):  # type: ignore[override]
+        FOLD = "FOLD"
+        CHECK = "CHECK"
+        CALL = "CALL"
+        BET = "BET"
+        RAISE = "RAISE"
+        ALL_IN = "ALL_IN"
+
+    @dataclass(frozen=True)
+    class Action:  # type: ignore[override]
+        type: ActionType
+        amount_to: int | None = None
+
+        def is_bet_like(self) -> bool:
+            return self.type in {ActionType.BET, ActionType.RAISE, ActionType.ALL_IN}
 
 
-def _is_action_valid(
-    game: TexasHoldem, player_id: int, action_str: str, amount: int | None
-) -> bool:
+def _call_amount(game, player_id: int) -> int:
+    rules = getattr(game, "rules", None)
+    if hasattr(rules, "call_amount"):
+        return int(rules.call_amount(player_id))
+    if hasattr(game, "get_call_amount"):
+        return int(game.get_call_amount(player_id))
+    if hasattr(game, "current_bet") and hasattr(game, "bets"):
+        return int(max(0, game.current_bet - game.bets[player_id]))
+    if rules is not None and hasattr(rules, "current_bet") and hasattr(rules, "bets"):
+        return int(max(0, rules.current_bet - rules.bets[player_id]))
+    return int(getattr(game, "current_bet", getattr(rules, "current_bet", 0)))
+
+
+def _raise_bounds(game, player_id: int) -> Tuple[int, int]:
+    """Return ``(min_raise_to, max_raise_to)`` for the given state."""
+
+    rules = getattr(game, "rules", None)
+    if rules is not None:
+        if hasattr(rules, "legal_raise_to_range"):
+            lo, hi = rules.legal_raise_to_range(player_id)
+            return int(lo), int(hi)
+        lo = getattr(rules, "min_raise_to", None)
+        hi = getattr(rules, "max_raise_to", None)
+        if callable(lo) and callable(hi):
+            return int(lo(player_id)), int(hi(player_id))
+
+    call_amt = _call_amount(game, player_id)
+    current_to = int(
+        getattr(
+            game,
+            "current_bet_to",
+            getattr(game, "current_bet", getattr(rules, "current_bet", 0)),
+        )
+    )
+    last_raise = int(
+        getattr(
+            game,
+            "last_raise_size",
+            getattr(game, "min_raise", getattr(rules, "previous_raise_amount", 0)),
+        )
+        or 0
+    )
+    min_to = max(current_to, current_to + last_raise, call_amt + last_raise)
+
+    stack = 0
+    if hasattr(game, "player_stacks"):
+        stack = int(game.player_stacks[player_id])
+    elif hasattr(game, "players"):
+        p = game.players[player_id]
+        stack = int(getattr(p, "stack_size", getattr(p, "stack", 0)) + getattr(p, "current_bet", 0))
+    elif rules is not None and hasattr(rules, "player_chips"):
+        stack = int(rules.player_chips[player_id])
+    else:
+        stack = int(player_id)
+    max_to = max(min_to, stack)
+    return min_to, max_to
+
+
+def _linspace_int(lo: int, hi: int, k: int) -> List[int]:
+    if k <= 1 or lo >= hi:
+        return [hi]
+    step = (hi - lo) / float(k - 1)
+    out = [int(round(lo + i * step)) for i in range(k)]
+    out = sorted(set(out))
+    if out[-1] != hi:
+        out[-1] = hi
+    return out
+
+
+def get_action_from_index(idx: int, game, player_id: int) -> Action:
+    """Map an action index to an :class:`Action` instance.
+
+    Index ``0`` → FOLD, ``1`` → CHECK/CALL, ``2+`` → ``RAISE`` buckets up to
+    ALL-IN.  Raise amounts are "to" amounts (total commitment after action).
     """
-    Checks if a given action is legal in the current game state.
-    This is a helper function containing the core game logic for action validation.
-    """
+
+    if idx <= 0:
+        return Action(ActionType.FOLD)
+
+    call_amt = _call_amount(game, player_id)
+    if idx == 1:
+        return Action(ActionType.CALL) if call_amt > 0 else Action(ActionType.CHECK)
+
+    min_to, max_to = _raise_bounds(game, player_id)
+    if max_to <= min_to:
+        return Action(ActionType.CALL) if call_amt > 0 else Action(ActionType.CHECK)
+
+    k = 6
+    game_cfg = getattr(game, "config", None)
+    if isinstance(game_cfg, dict):
+        k = int(game_cfg.get("num_raise_buckets", k))
+    buckets = _linspace_int(min_to, max_to, k)
+    choice = buckets[min(idx - 2, len(buckets) - 1)]
+    if choice < max_to:
+        return Action(ActionType.RAISE, amount_to=choice)
+    return Action(ActionType.ALL_IN, amount_to=max_to)
+
+
+def action_to_tuple(action: Action | Tuple[str, int | None]) -> Tuple[str, int | None]:
+    """Convert an :class:`Action` into a ``(action_str, amount)`` tuple."""
+
+    if isinstance(action, tuple):  # Already in tuple form
+        return action
+
+    action_str = action.type.value.lower()
+    amount = action.amount_to if action.is_bet_like() else None
+    if action_str == "all_in":
+        action_str = "raise"
+    return action_str, amount
+
+
+# ---------------------------------------------------------------------------
+# Legacy legality helpers
+
+def _is_action_valid(game, player_id: int, action_str: str, amount: int | None) -> bool:
+    """Basic legality check for the simplified engine used in tests."""
+
     rules = game.rules
     player_chips = rules.player_chips[player_id]
-
-    # This needs to be the player's bet in the current round, not their total bet in the hand.
-    # The game engine should track this. Assuming `rules.bets` is reset each round.
     player_bet_in_round = rules.bets[player_id]
-
     amount_to_call = rules.current_bet - player_bet_in_round
 
     if action_str == "fold":
-        # Fold is always legal unless the player is all-in and there's no bet to call.
         return True
-
     if action_str == "check":
-        # Check is only legal if there is no bet to call.
         return amount_to_call == 0
-
     if action_str == "call":
-        # Call is only legal if there is a bet to call.
-        if amount_to_call <= 0:
-            return False
-        # A player can always call, even if it means going all-in.
-        return True
+        return amount_to_call > 0
 
     if action_str == "bet":
-        # Bet is only legal if there is no current bet in the round.
-        if rules.current_bet != 0:
+        if rules.current_bet != 0 or amount is None or amount <= 0:
             return False
-        if amount is None or amount <= 0:
-            return False
-        # Bet must be at least the big blind, unless the player is going all-in for less.
         if amount < rules.big_blind and amount != player_chips:
             return False
-        # Cannot bet more than you have.
         return player_chips >= amount
 
     if action_str == "raise":
-        # Raise is only legal if there is a current bet.
-        if rules.current_bet == 0:
+        if rules.current_bet == 0 or amount is None:
             return False
-        if amount is None:
-            return False
-
-        # The total amount of the raise must be more than the current bet.
         if amount <= rules.current_bet:
             return False
-
-        # The player must have enough chips to make the raise.
-        # The amount to commit is the total new bet amount minus what they've already bet.
         raise_amount_to_commit = amount - player_bet_in_round
         if player_chips < raise_amount_to_commit:
             return False
-
-        # The raise increment must be at least the size of the previous bet/raise,
-        # unless the player is going all-in for less (an "under-raise").
-        min_raise_increment = (
-            rules.previous_raise_amount if rules.previous_raise_amount > 0 else rules.big_blind
-        )
-        actual_raise_increment = amount - rules.current_bet
-
-        if actual_raise_increment < min_raise_increment:
-            # An under-raise is only legal if the player is going all-in.
+        min_raise_inc = rules.previous_raise_amount if rules.previous_raise_amount > 0 else rules.big_blind
+        actual_inc = amount - rules.current_bet
+        if actual_inc < min_raise_inc:
             return raise_amount_to_commit == player_chips
-
         return True
 
     return False
 
 
-def get_legal_actions_mask(game: TexasHoldem, player_id: int, num_actions: int) -> torch.Tensor:
-    """
-    Returns a boolean tensor indicating which of the abstract actions are legal.
-    """
+def get_legal_actions_mask(game, player_id: int, num_actions: int) -> torch.Tensor:
+    """Return a boolean mask for which abstract actions are legal."""
+
     mask = torch.zeros(num_actions, dtype=torch.bool)
-    player_stack = game.rules.player_chips[player_id]
-
-    for action_idx in range(num_actions):
-        action_str, amount = get_action_from_index(action_idx, game, player_id)
-
-        # The 'raise' action from get_action_from_index should be treated as 'bet' if no bet has been made.
+    seen: set[tuple[str, int | None]] = set()
+    for idx in range(num_actions):
+        action_str, amount = action_to_tuple(get_action_from_index(idx, game, player_id))
         if game.rules.current_bet == 0 and action_str == "raise":
             action_str = "bet"
-
+        key = (action_str, amount)
+        if key in seen:
+            continue
         if _is_action_valid(game, player_id, action_str, amount):
-            mask[action_idx] = True
+            mask[idx] = True
+            seen.add(key)
 
-    # If no actions are legal (should not happen, fold is always an option), log an error.
-    if not mask.any():
-        # As a fallback, mark 'fold' as legal.
+    if not mask.any():  # pragma: no cover - defensive
         mask[0] = True
-
     return mask
 
 
-def get_action_from_index(
-    action_index: int, game: TexasHoldem, player_id: int
-) -> tuple[str, int | None]:
-    """Converts an action index (0-9) to a game action string and amount.
+__all__ = [
+    "get_action_from_index",
+    "get_legal_actions_mask",
+    "action_to_tuple",
+    "Action",
+    "ActionType",
+]
 
-    The helper primarily targets :class:`TexasHoldem` instances but also works
-    with lightweight stand-ins used in tests.  When the ``game`` object lacks a
-    ``rules`` attribute we fall back to using ``game`` directly and interpret
-    ``player_id`` as the player's stack size.
-    """
-
-    action_string = ""
-    amount = None
-
-    if hasattr(game, "rules"):
-        rules = game.rules
-        pot = rules.pot
-        player_stack = rules.player_chips[player_id]
-        current_bet = rules.current_bet
-        player_bet_in_round = rules.bets[player_id]
-    else:  # minimal dummy state for unit tests
-        pot = getattr(game, "pot", 0)
-        current_bet = getattr(game, "current_bet", 0)
-        player_stack = player_id  # here `player_id` encodes stack size
-        player_bet_in_round = getattr(game, "current_player_bet", 0)
-
-    # Define raise percentages relative to the pot
-    raise_percentages = {3: 0.25, 4: 0.50, 5: 0.75, 6: 1.0, 7: 1.5, 8: 2.0}
-
-    if action_index == 0:
-        action_string = "fold"
-    elif action_index == 1:
-        action_string = "check"
-    elif action_index == 2:
-        action_string = "call"
-        amount = current_bet - player_bet_in_round
-    elif action_index in raise_percentages:
-        # If there's no bet, this is a 'bet'. Otherwise, it's a 'raise'.
-        action_string = "raise" if current_bet > 0 else "bet"
-        # The amount is the total size of the new bet, not the increment.
-        # For a bet, it's % of pot. For a raise, it's current_bet + % of pot.
-        raise_increment = pot * raise_percentages[action_index]
-        amount = current_bet + raise_increment
-    elif action_index == 9:
-        # Treat index 9 as an all-in raise regardless of current betting state.
-        action_string = "raise"
-        amount = player_stack + player_bet_in_round  # total commitment including prior bet
-    else:
-        raise ValueError(f"Invalid action_index: {action_index}. Must be 0-9.")
-
-    # Clamp the amount to be within the player's stack
-    if amount is not None:
-        amount_to_commit = amount - player_bet_in_round if action_string == "raise" else amount
-        if amount_to_commit > player_stack:
-            amount = player_stack + player_bet_in_round
-
-        amount = int(round(amount)) if amount > 0 else 0
-
-    # The action string for 'call' should be the final amount to call
-    if action_string == "call":
-        amount = current_bet - player_bet_in_round
-
-    return action_string, amount

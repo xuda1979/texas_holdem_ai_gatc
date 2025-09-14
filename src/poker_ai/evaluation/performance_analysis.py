@@ -7,7 +7,11 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import PlayerStrategy
 from poker_ai.rules.cfr import calculate_strategy
-from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.action_mapping import (
+    action_to_tuple,
+    get_action_from_index,
+    get_legal_actions_mask,
+)
 from poker_ai.utils.state_representation import prepare_transformer_input
 
 
@@ -54,7 +58,8 @@ class EvalStrategy(PlayerStrategy):
         else:  # pragma: no cover - fallback
             valid_indices = torch.where(legal_mask)[0]
             action_idx = valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
-        return get_action_from_index(action_idx, game, player_id=player_index)
+        action = get_action_from_index(action_idx, game, player_id=player_index)
+        return action_to_tuple(action)
 
 
 def run_tournament(

@@ -6,7 +6,11 @@ import random
 import torch
 from typing import TYPE_CHECKING
 
-from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.action_mapping import (
+    action_to_tuple,
+    get_action_from_index,
+    get_legal_actions_mask,
+)
 from poker_ai.utils.state_representation import prepare_transformer_input
 
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
@@ -96,7 +100,8 @@ class ModelAIStrategy(PlayerStrategy):
             policy = legal_mask.float() / legal_mask.sum()
 
         action_idx = torch.multinomial(policy, 1).item()
-        return get_action_from_index(action_idx, game, player_index)
+        action = get_action_from_index(action_idx, game, player_index)
+        return action_to_tuple(action)
 
 
 class HumanStrategy(PlayerStrategy):
