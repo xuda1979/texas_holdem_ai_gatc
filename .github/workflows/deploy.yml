@@ -16,7 +16,7 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       REPO: ${{ secrets.GCP_AR_REPOSITORY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: auth
         uses: google-github-actions/auth@v1
         with:
