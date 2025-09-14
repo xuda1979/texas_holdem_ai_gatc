@@ -164,7 +164,11 @@ class SelfPlay:
             _, _, state_tensor = prepare_transformer_input(
                 game, traverser_id, max_seq_len, d_raw_feature
             )
-            self.cfr_trainer.replay_buffer.push(state_tensor, weighted_regrets, iteration)
+            # Some trainer implementations (e.g. AICFRTrainer) do not expose a replay buffer.
+            # Guard access so that lightweight trainers can still be used for basic training
+            # without requiring a replay buffer implementation.
+            if hasattr(self.cfr_trainer, "replay_buffer"):
+                self.cfr_trainer.replay_buffer.push(state_tensor, weighted_regrets, iteration)
 
             return node_value
         else:

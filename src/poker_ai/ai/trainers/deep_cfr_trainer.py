@@ -54,7 +54,10 @@ class DeepCFRTrainer:
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
         self.num_actions = num_actions
-        self.card_feature_dim = input_feature_dim  # placeholder dimension
+        # Each card encoding from ``prepare_transformer_input`` is 17-dimensional
+        # (13 ranks + 4 suits).  Use this fixed dimensionality for the card
+        # summary projections irrespective of the history feature size.
+        self.card_feature_dim = 17
 
         # Use the new AdvantageNetwork; this trainer treats card summaries as zeros
         self.advantage_net = AdvantageNetwork(
@@ -88,10 +91,25 @@ class DeepCFRTrainer:
     ) -> torch.Tensor:
         """Return advantages conditioned on hole cards, community cards and history."""
 
+        # ``prepare_transformer_input`` returns ``history`` with shape
+        # ``(seq_len, feat_dim)`` while the network expects a batch
+        # dimension.  ``hole`` and ``community`` are 1-D summaries and are
+        # already handled by a simple unsqueeze in the comprehension below,
+        # but ``history`` requires special treatment when it is 2-D.
+        hole = hole.unsqueeze(0) if hole.ndim == 1 else hole
+        community = community.unsqueeze(0) if community.ndim == 1 else community
+
+        if history.ndim == 2:
+            history = history.unsqueeze(0)
+        elif history.ndim != 3:  # pragma: no cover - sanity check
+            raise ValueError(
+                "history_seq should be of shape (seq_len, feat_dim) or (batch, seq_len, feat_dim)"
+            )
+
         hole, community, history = (
-            t.unsqueeze(0).to(self.device) if t.ndim == 1 else t.to(self.device)
-            for t in (hole, community, history)
+            t.to(self.device) for t in (hole, community, history)
         )
+
         return self.advantage_net(hole, community, history).squeeze(0).cpu()
 
     def train(self, batch_size: int = 256):
