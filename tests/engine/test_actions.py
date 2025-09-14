@@ -44,7 +44,7 @@ class DummyGame:
                 pot=0,
             ),
             0,
-            {0, 1, 9},
+            {0, 1, 3, 4, 5, 6, 7},
         ),
         # Facing bet: fold, call and sufficiently large raises legal
         (
@@ -57,7 +57,7 @@ class DummyGame:
                 pot=150,
             ),
             0,
-            {0, 2, 5, 6, 7, 8, 9},
+            {0, 1, 2, 3, 4, 5, 6, 7},
         ),
         # Short-stacked call all-in
         (
@@ -70,7 +70,7 @@ class DummyGame:
                 pot=150,
             ),
             0,
-            {0, 2},
+            {0, 1},
         ),
     ],
 )

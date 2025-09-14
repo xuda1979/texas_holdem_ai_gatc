@@ -8,7 +8,7 @@ try:  # pragma: no cover - executed when PyYAML is present
 except Exception:  # pragma: no cover - PyYAML missing
     yaml = None
 
-from poker_ai.utils.action_mapping import get_action_from_index
+from poker_ai.utils.action_mapping import action_to_tuple, get_action_from_index
 
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer as CFRTrainer
 
@@ -185,7 +185,9 @@ def display_ai_gto_stats(  # noqa: C901
 
         for i in range(trainer_config["num_actions"]):
             prob = ai_strategy_probabilities[i]
-            action_str, action_amount = get_action_from_index(i, game_rules, player_chips)
+            action_str, action_amount = action_to_tuple(
+                get_action_from_index(i, game_rules, player_chips)
+            )
 
             display_action = ""
             if action_str == "fold":

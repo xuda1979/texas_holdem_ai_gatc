@@ -79,6 +79,6 @@ def test_seed_controlled_replay_equality():
 
     assert len(data1) == len(data2)
     for a, b in zip(data1, data2):
-        assert torch.equal(a[0], b[0])
-        assert torch.equal(a[1], b[1])
-        assert a[2] == b[2]
+        for xa, xb in zip(a[:-1], b[:-1]):
+            assert torch.equal(xa, xb)
+        assert a[-1] == b[-1]

@@ -16,6 +16,7 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.config import config, load_config
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.utils.action_mapping import (
+    action_to_tuple,
     get_action_from_index,
     get_legal_actions_mask,
 )
@@ -68,7 +69,8 @@ class TransformerStrategy:
             policy = legal_mask.float() / legal_mask.sum()
 
         action_idx = torch.multinomial(policy, 1).item()
-        return get_action_from_index(action_idx, game, player_index)
+        action = get_action_from_index(action_idx, game, player_index)
+        return action_to_tuple(action)
 
 
 COMMON_ACTIONS = ["talk", "move"]

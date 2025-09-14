@@ -12,7 +12,11 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import HumanStrategy, PlayerStrategy
 from poker_ai.rules.cfr import calculate_strategy
-from poker_ai.utils.action_mapping import get_action_from_index, get_legal_actions_mask
+from poker_ai.utils.action_mapping import (
+    action_to_tuple,
+    get_action_from_index,
+    get_legal_actions_mask,
+)
 from poker_ai.utils.state_representation import prepare_transformer_input
 
 
@@ -88,7 +92,8 @@ class AIStrategy(PlayerStrategy):
             action_idx = valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
 
         # 4. Convert action index to game action
-        action_str, amount = get_action_from_index(action_idx, game, player_id=player_index)
+        action = get_action_from_index(action_idx, game, player_id=player_index)
+        action_str, amount = action_to_tuple(action)
 
         print(
             "AI (Player {player_index + 1}) chose action: "

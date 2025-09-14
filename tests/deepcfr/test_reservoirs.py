@@ -11,7 +11,7 @@ def test_perfect_reservoir_sampling():
         s = torch.tensor([i], dtype=torch.float32)
         r = torch.tensor([i], dtype=torch.float32)
         buffer.push(s, r, i)
-    iterations = [exp[2] for exp in buffer.buffer]
+    iterations = [exp[4] for exp in buffer.buffer]
     assert sorted(iterations) == sorted([8, 1, 2, 5, 9])
 
 
@@ -28,7 +28,7 @@ def test_minibatch_shapes_masks():
         loss = trainer.train(batch_size=5)
     assert loss <= initial_loss
     batch = trainer.replay_buffer.sample(5)
-    states, regrets, iterations = zip(*batch, strict=False)
+    _, _, states, regrets, iterations = zip(*batch, strict=False)
     assert torch.stack(states).shape == (5, 1, 4)
     assert torch.stack(regrets).shape == (5, 2)
     assert torch.tensor(iterations).shape == (5,)
