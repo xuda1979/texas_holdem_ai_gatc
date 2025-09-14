@@ -1,3 +1,5 @@
 fastapi
 uvicorn[standard]
 numpy
+pydantic>=2.7
+prometheus-client>=0.22
