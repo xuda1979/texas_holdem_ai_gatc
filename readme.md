@@ -52,9 +52,10 @@ During training each hand uses a random number of players (between 2 and 10).
 
 To control the computation device you can use:
 
-- `--device cpu` to force CPU execution.
-- `--device npu` to target a single NPU.
-- `--npu` to utilize all available NPUs via `DataParallel`.
+- `--gpus` to train on available GPUs (uses all GPUs via `DataParallel`).
+- `--npus` to train on available NPUs (uses all NPUs via `DataParallel`).
+
+Omitting these flags runs training on the CPU by default.
 
 
 3. **Run tests**:
@@ -112,7 +113,7 @@ The directory `trained_models/` will be created automatically when saving.
 - Betting-tree abstraction utilities
 - Discounted CFR+ solver with regret discounting
 - Distributed self-play with multiprocessing
-- Optional GPU acceleration with automatic device selection
+- Optional GPU/NPU acceleration via command-line flags
 - Simple exploitability evaluation tools
 
 ## Using Distributed Self-Play

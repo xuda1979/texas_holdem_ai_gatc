@@ -54,7 +54,10 @@ class TestMultiNPU(unittest.TestCase):
             for algorithm in algorithms:
                 with self.subTest(algorithm=algorithm):
                     trainer = initialize_trainer(
-                        algorithm=algorithm, config=dummy_config, device="npu", use_all_npus=True
+                        algorithm=algorithm,
+                        config=dummy_config,
+                        device="npu",
+                        use_data_parallel=True,
                     )
 
                     model_attr = "advantage_net" if algorithm == "deep_cfr" else "model"

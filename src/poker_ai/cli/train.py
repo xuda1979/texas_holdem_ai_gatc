@@ -42,18 +42,14 @@ def parse_args() -> argparse.Namespace:
         help="Path to configuration YAML file",
     )
     parser.add_argument(
-        "--device",
-        choices=["cpu", "cuda", "npu"],
-        default=None,
-        help=(
-            "Computation device. Defaults to CUDA if available, then CPU."
-            " Specify 'npu' or pass --npu to target NPUs."
-        ),
+        "--gpus",
+        action="store_true",
+        help="Use available GPUs. Wraps model in DataParallel if multiple GPUs are present.",
     )
     parser.add_argument(
-        "--npu",
+        "--npus",
         action="store_true",
-        help="Use all available NPUs via DataParallel (implies --device npu).",
+        help="Use available NPUs. Wraps model in DataParallel if multiple NPUs are present.",
     )
     return parser.parse_args()
 
@@ -70,9 +66,22 @@ def load_configuration(path: str | None = None) -> dict:
 
 
 def initialize_trainer(
-    algorithm: str, config: dict, device: str, use_all_npus: bool = False
+    algorithm: str, config: dict, device: str, use_data_parallel: bool = False
 ) -> object:
-    """Return a trainer instance based on selected algorithm."""
+    """Return a trainer instance based on selected algorithm.
+
+    Parameters
+    ----------
+    algorithm:
+        Which training algorithm to initialize.
+    config:
+        Loaded configuration dictionary.
+    device:
+        The computation device identifier (``cpu``, ``cuda`` or ``npu``).
+    use_data_parallel:
+        If ``True`` the underlying model will be wrapped with
+        :class:`torch.nn.DataParallel` to leverage multiple devices.
+    """
     trainer: object | None = None
     if algorithm == "ai_cfr":
         from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
@@ -105,7 +114,7 @@ def initialize_trainer(
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
 
-    if use_all_npus:
+    if use_data_parallel:
         model_to_wrap = None
         if hasattr(trainer, "advantage_net"):
             model_to_wrap = trainer.advantage_net
@@ -113,8 +122,7 @@ def initialize_trainer(
             model_to_wrap = trainer.model
 
         if model_to_wrap:
-            print("Wrapping model with DataParallel for multi-NPU training.")
-            # The model is already on the correct device from the trainer's __init__
+            print("Wrapping model with DataParallel for multi-device training.")
             wrapped_model = torch.nn.DataParallel(model_to_wrap)
             if hasattr(trainer, "advantage_net"):
                 trainer.advantage_net = wrapped_model
@@ -140,38 +148,44 @@ def main() -> None:  # noqa: C901
     ):
         if isinstance(getattr(args, attr, None), MagicMock):
             setattr(args, attr, None)
-    if isinstance(getattr(args, "npu", None), MagicMock):
-        args.npu = False
-    device: str = "cpu"
-    use_all_npus = False
+    for flag in ("gpus", "npus"):
+        if isinstance(getattr(args, flag, None), MagicMock):
+            setattr(args, flag, False)
 
-    if args.npu:
+    device: str = "cpu"
+    use_data_parallel = False
+
+    if args.gpus and args.npus:
+        raise ValueError("Cannot specify both --gpus and --npus.")
+
+    if args.npus:
         if hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
             npu_count = torch.npu.device_count()
             if npu_count > 1:
-                use_all_npus = True
+                use_data_parallel = True
                 print(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
             else:
-                print("NPU training enabled. Found 1 NPU.")
+                print("NPU training enabled.")
         else:
             print(
-                "Warning: --npu flag was specified, but no NPU devices are "
-                "available. Falling back to CPU."
+                "Warning: --npus specified, but no NPU devices are available. "
+                "Falling back to CPU."
             )
-    elif args.device:
-        device = args.device
-        if device == "npu":
-            if hasattr(torch, "npu") and torch.npu.is_available():
-                print("NPU training enabled.")
+    elif args.gpus:
+        if torch.cuda.is_available():
+            device = "cuda"
+            gpu_count = torch.cuda.device_count()
+            if gpu_count > 1:
+                use_data_parallel = True
+                print(f"Multi-GPU training enabled. Found {gpu_count} GPUs.")
             else:
-                print(
-                    "Warning: --device npu specified, but no NPU devices are "
-                    "available. Falling back to CPU."
-                )
-                device = "cpu"
-    elif torch.cuda.is_available():
-        device = "cuda"
+                print("GPU training enabled.")
+        else:
+            print(
+                "Warning: --gpus specified, but no GPU devices are available. "
+                "Falling back to CPU."
+            )
 
     # Load configuration
     config = load_configuration(args.config)
@@ -241,7 +255,9 @@ def main() -> None:  # noqa: C901
     try:
         cfr_trainer = cast(
             Any,
-            initialize_trainer(args.algorithm, config, device, use_all_npus=use_all_npus),
+            initialize_trainer(
+                args.algorithm, config, device, use_data_parallel=use_data_parallel
+            ),
         )
         print(f"{args.algorithm} trainer initialized.")
     except Exception as e:
