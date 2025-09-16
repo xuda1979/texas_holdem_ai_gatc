@@ -208,9 +208,21 @@ class SelfPlay:
                 game, traverser_id, max_seq_len, d_raw_feature
             )
             if hasattr(self.cfr_trainer, "replay_buffer"):
-                self.cfr_trainer.replay_buffer.push(
-                    hole_s, community_s, state_tensor, weighted_regrets, iteration
-                )
+                try:
+                    self.cfr_trainer.replay_buffer.push(
+                        hole_s,
+                        community_s,
+                        state_tensor,
+                        weighted_regrets,
+                        action_utilities.detach().clone(),
+                        legal_actions_mask,
+                        iteration,
+                    )
+                except TypeError:
+                    # Older replay buffers accept only regret targets.
+                    self.cfr_trainer.replay_buffer.push(
+                        hole_s, community_s, state_tensor, weighted_regrets, iteration
+                    )
 
             return node_value
         else:

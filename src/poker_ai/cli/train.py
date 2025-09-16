@@ -281,52 +281,53 @@ def main() -> None:  # noqa: C901
     )
 
     last_save_time = time.time()
-    for iteration in range(1, num_iterations + 1):
-        print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
-        try:
+    iteration = 0
+    try:
+        for iteration in range(1, num_iterations + 1):
+            print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
             # The play_hand_for_training method now runs one MCCFR traversal
             # and triggers the training step internally.
             self_play_env.play_hand_for_training(iteration)
-        except Exception as e:
-            print(f"Error during iteration {iteration}: {e}")
-            import traceback
 
-            traceback.print_exc()
-            # Decide if training should continue or break on error
-            # For now, we break on error as it might indicate a deeper issue.
-            break
+            # Conditional saving logic
+            if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
+                path = f"models/{args.algorithm}_hand_{iteration}.pth"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                cfr_trainer.save_model(path)
+                print(f"Model saved to {path} at iteration {iteration}")
 
-        # Conditional saving logic
-        if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
-            path = f"models/{args.algorithm}_hand_{iteration}.pth"
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            cfr_trainer.save_model(path)
-            print(f"Model saved to {path} at iteration {iteration}")
+            if (
+                save_model_every_minutes > 0
+                and (time.time() - last_save_time) >= save_model_every_minutes * 60
+            ):
+                path = f"models/{args.algorithm}_time_{iteration}.pth"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                cfr_trainer.save_model(path)
+                print(
+                    f"Model saved to {path} due to time interval at iteration {iteration}"
+                )
+                last_save_time = time.time()
 
-        if (
-            save_model_every_minutes > 0
-            and (time.time() - last_save_time) >= save_model_every_minutes * 60
-        ):
-            path = f"models/{args.algorithm}_time_{iteration}.pth"
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            cfr_trainer.save_model(path)
-            print(f"Model saved to {path} due to time interval at iteration {iteration}")
-            last_save_time = time.time()
-
-        analyzer.on_iteration_end(cfr_trainer, iteration)
-
-    # Final save after the loop
-    print("\n--- Training session finished ---")
-    print("Saving final model...")
-    final_model_path = f"models/{args.algorithm}_final.pth"
-    os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
-    try:
-        cfr_trainer.save_model(final_model_path)
-        print(f"Final model saved successfully to {final_model_path}")
+            analyzer.on_iteration_end(cfr_trainer, iteration)
     except Exception as e:
-        print(f"Error saving final model: {e}")
+        import traceback
 
-    print("\n--- Training Complete ---")
+        print(f"Error during iteration {iteration}: {e}")
+        traceback.print_exc()
+        raise
+    else:
+        # Final save after the loop
+        print("\n--- Training session finished ---")
+        print("Saving final model...")
+        final_model_path = f"models/{args.algorithm}_final.pth"
+        os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+        try:
+            cfr_trainer.save_model(final_model_path)
+            print(f"Final model saved successfully to {final_model_path}")
+        except Exception as e:
+            print(f"Error saving final model: {e}")
+
+        print("\n--- Training Complete ---")
 
 
 if __name__ == "__main__":

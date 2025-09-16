@@ -18,19 +18,34 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 class EvalStrategy(PlayerStrategy):
     """Strategy wrapper used for automated evaluation."""
 
-    def __init__(self, model_path: str, device: str, num_actions: int = 10):
+    def __init__(self, model_path: str, device: str):
         self.device = device
-        self.num_actions = num_actions
+
+        payload = torch.load(model_path, map_location=self.device)
+        metadata: dict[str, object] = {}
+        if isinstance(payload, dict) and "state_dict" in payload:
+            state_dict = payload["state_dict"]
+            metadata = payload.get("metadata", {})  # type: ignore[assignment]
+        else:
+            state_dict = payload
+
+        self.history_feature_dim = int(metadata.get("history_feature_dim", 18))  # type: ignore[arg-type]
+        self.card_feature_dim = int(metadata.get("card_feature_dim", self.history_feature_dim))  # type: ignore[arg-type]
+        hidden_dim = int(metadata.get("hidden_dim", 128))  # type: ignore[arg-type]
+        num_heads = int(metadata.get("num_heads", 4))  # type: ignore[arg-type]
+        num_layers = int(metadata.get("num_layers", 2))  # type: ignore[arg-type]
+        self.num_actions = int(metadata.get("num_actions", 10))  # type: ignore[arg-type]
+        self.max_seq_len = int(metadata.get("max_seq_len", 256))  # type: ignore[arg-type]
 
         self.model = AdvantageNetwork(
-            history_feature_dim=18,
-            card_feature_dim=18,
-            hidden_dim=128,
-            num_heads=4,
-            num_layers=2,
+            history_feature_dim=self.history_feature_dim,
+            card_feature_dim=self.card_feature_dim,
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
             num_actions=self.num_actions,
         )
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.load_state_dict(state_dict)
         self.model.to(self.device)
         self.model.eval()
 
@@ -40,7 +55,9 @@ class EvalStrategy(PlayerStrategy):
 
     @torch.no_grad()
     def choose_action(self, game: TexasHoldem, player_index: int):
-        hole, community, history = prepare_transformer_input(game, player_index, 256, 18)
+        hole, community, history = prepare_transformer_input(
+            game, player_index, self.max_seq_len, self.history_feature_dim
+        )
         advantages = (
             self.model(
                 hole.unsqueeze(0).to(self.device),
@@ -84,8 +101,7 @@ def run_tournament(
                 verbose=False,
             )
             for _ in range(games_per_match):
-                game.initialize_game()
-                game.play_hand()
+                game.play_game()
                 chips = game.rules.player_chips
                 if chips[0] > chips[1]:
                     scores[path_i] += 1

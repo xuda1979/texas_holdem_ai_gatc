@@ -1,22 +1,40 @@
 import torch
 
 
-def calculate_strategy(cumulative_regret, num_actions):
+def calculate_strategy(cumulative_regret, num_actions, legal_actions_mask=None):
     """
     Calculate the strategy for the current iteration based on cumulative regret.
 
     :param cumulative_regret: Tensor representing the cumulative regret for each action.
     :param num_actions: The number of possible actions.
+    :param legal_actions_mask: Optional boolean mask indicating which actions are legal.
     :return: A probability distribution (strategy) over actions.
     """
+    mask = None
+    if legal_actions_mask is not None:
+        mask = legal_actions_mask.to(cumulative_regret.device)
+        if mask.dtype != torch.bool:
+            mask = mask.bool()
+
     positive_regret = torch.clamp(cumulative_regret, min=0)
+    if mask is not None:
+        positive_regret = torch.where(mask, positive_regret, torch.zeros_like(positive_regret))
+
     sum_positive_regret = torch.sum(positive_regret)
 
     if sum_positive_regret > 0:
-        return positive_regret / sum_positive_regret
+        strategy = positive_regret / sum_positive_regret
     else:
-        # If all regrets are non-positive, return a uniform random strategy
-        return torch.ones(num_actions) / num_actions
+        # If all regrets are non-positive, return a uniform random strategy over legal actions
+        if mask is not None and mask.any():
+            mask_float = mask.float()
+            strategy = mask_float / mask_float.sum()
+        else:
+            strategy = torch.ones(num_actions, device=cumulative_regret.device) / num_actions
+
+    if mask is not None:
+        strategy = torch.where(mask, strategy, torch.zeros_like(strategy))
+    return strategy
 
 
 def update_regret(cumulative_regret, regrets):

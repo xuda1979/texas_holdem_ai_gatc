@@ -144,8 +144,12 @@ def main() -> None:  # noqa: C901
     try:
         while hands_to_play == 0 or hands_played < hands_to_play:
             game.play_game()
-            if game.winner is not None:
-                print(f"Hand Summary: Player {game.winner + 1} wins!")
+            winner_info = getattr(game, "last_winner", None)
+            if isinstance(winner_info, list) and winner_info:
+                players = ", ".join(f"Player {idx + 1}" for idx in winner_info)
+                print(f"Hand Summary: Tie between {players}.")
+            elif isinstance(winner_info, int):
+                print(f"Hand Summary: Player {winner_info + 1} wins!")
             else:
                 print("Hand Summary: No winner determined.")
             print("\n--- Hand Completed ---")
