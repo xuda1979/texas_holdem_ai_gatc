@@ -2,7 +2,6 @@
 
 # ruff: noqa
 
-import copy
 import random
 from typing import Any
 
@@ -41,7 +40,7 @@ class SelfPlay:
         # 2. Perform a traversal for each player in the hand
         base_reach = [1.0] * num_players
         for traverser_id in range(num_players):
-            self._traverse_mccfr(copy.deepcopy(game), traverser_id, iteration, base_reach.copy())
+            self._traverse_mccfr(game.clone(), traverser_id, iteration, base_reach.copy())
 
         # 3. After the traversals, run a training step on the collected data
 
@@ -117,7 +116,7 @@ class SelfPlay:
     def _advance_street(self, game: TexasHoldem) -> TexasHoldem:
         """Return a cloned game state advanced to the next street with clean betting state."""
 
-        next_game = copy.deepcopy(game)
+        next_game = game.clone()
         next_game.rules.end_betting_round_cleanup()
 
         community_cards = next_game.rules.community_cards
@@ -177,7 +176,7 @@ class SelfPlay:
                     continue
 
                 # Create a new game state for this action
-                next_game = copy.deepcopy(game)
+                next_game = game.clone()
                 action = get_action_from_index(action_idx, next_game, player_id=current_player)
                 action_str, amount = action_to_tuple(action)
                 next_game.process_action(current_player, action_str, amount)
@@ -231,7 +230,7 @@ class SelfPlay:
             action_idx = torch.multinomial(policy, 1).item()
 
             # Create the next game state
-            next_game = copy.deepcopy(game)
+            next_game = game.clone()
             action = get_action_from_index(action_idx, next_game, player_id=current_player)
             action_str, amount = action_to_tuple(action)
             next_game.process_action(current_player, action_str, amount)
