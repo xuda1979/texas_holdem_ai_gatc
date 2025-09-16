@@ -311,6 +311,7 @@ class TexasHoldem:
         """Process a single player's action with correct reopen/short all-in semantics."""
         # This method now also handles updating self.rules.last_raiser if a bet/raise occurs.
         # It also updates self.rules.previous_raise_amount correctly.
+        action_completed = False
         try:
             original_current_bet = self.rules.current_bet
             is_aggressive_action = False
@@ -323,10 +324,12 @@ class TexasHoldem:
                     if self.rules.current_bet == 0 and self.rules.bets[player_index] == 0:
                         self.rules.betting_history.append((str(player_index), ("check", 0)))
                         self._log(f"Player {player_index + 1} checks.")
+                        action_completed = True
                     else:  # Or if they are trying to call but already match the bet (e.g. after a previous partial all-in)
                         self._log(
                             f"Player {player_index + 1} effectively checks (already matching current bet or no bet to call)."
                         )
+                        action_completed = True
                     # No change in bet needed if amount_to_call <=0
                 elif amount_to_call > self.rules.player_chips[player_index]:  # All-in call
                     amount_to_call = self.rules.player_chips[player_index]
@@ -338,11 +341,13 @@ class TexasHoldem:
                     self.rules.bet(
                         player_index, new_bet
                     )  # bet method handles chip deduction and all-in state
+                    action_completed = True
                 else:  # Regular call
                     self.rules.betting_history.append((str(player_index), ("call", amount_to_call)))
                     self._log(f"Player {player_index + 1} calls {amount_to_call} chips.")
                     new_bet = self.rules.bets[player_index] + amount_to_call
                     self.rules.bet(player_index, new_bet)
+                    action_completed = True
 
             elif action == "bet" or action == "raise":
                 # 'bet' is used when current_bet is 0. 'raise' is used when current_bet > 0.
@@ -425,6 +430,7 @@ class TexasHoldem:
 
                 # Call self.rules.bet with the player's total bet for this round
                 self.rules.bet(player_index, total_player_bet)
+                action_completed = True
 
                 # Decide if this action *reopens* action:
                 # Only if there was an actual raise of at least the minimum increment.
@@ -470,6 +476,7 @@ class TexasHoldem:
                         if self.rules.active_players[i]:
                             self.winner = i
                             break
+                action_completed = True
             elif action == "check":
                 # Check is only allowed if current_bet is 0 or player's bet matches current_bet
                 if (
@@ -478,16 +485,19 @@ class TexasHoldem:
                 ):
                     self.rules.betting_history.append((str(player_index), ("check", 0)))
                     self._log(f"Player {player_index + 1} checks.")
+                    action_completed = True
                 else:  # Bet to call, cannot check
                     self._log(
                         f"Player {player_index + 1} tried to check, but there is a bet of {self.rules.current_bet - self.rules.bets[player_index]} to call. Defaulting to fold."
                     )
                     self.process_action(player_index, "fold")  # Or 'call' if preferred default
+                    return
             else:  # Invalid action string
                 self._log(
                     f"Player {player_index + 1} made an invalid action '{action}' and is folding by default."
                 )
                 self.process_action(player_index, "fold")
+                return
         except ValueError as ve:
             self._log(
                 f"Error processing action for Player {player_index + 1} ('{action}', {raise_amount}): {ve}. Defaulting to fold."
@@ -497,6 +507,13 @@ class TexasHoldem:
                 player_index
             ]:  # Ensure not trying to fold an already folded player
                 self.process_action(player_index, "fold")
+            return
+
+        if action_completed:
+            try:
+                self.rules.actions_this_round += 1
+            except AttributeError:  # pragma: no cover - defensive
+                pass
 
     def betting_round(self, is_preflop=False):
         """
@@ -628,9 +645,6 @@ class TexasHoldem:
             self.process_action(player_index, action, raise_amount)
             acted_in_sequence[player_index] = True
             actions_taken_this_sequence += 1
-            self.rules.actions_this_round += (
-                1  # Overall actions in this round for history or other rules.
-            )
 
             if self.end_game_early:  # e.g., everyone else folded during process_action
                 break

@@ -256,9 +256,26 @@ def prepare_transformer_input(  # noqa: C901
     # ------------------------------------------------------------------
     # Encode card sets using the set encoder (or mean pooling fallback).
     # ------------------------------------------------------------------
-    current_player_obj = game_state.get_player(current_player_id)
-    if not current_player_obj:
-        raise ValueError(f"Player {current_player_id} not found in game_state.")
+    current_player_obj = None
+    getter = getattr(game_state, "get_player", None)
+    if callable(getter):
+        try:
+            current_player_obj = getter(current_player_id)
+        except Exception:
+            current_player_obj = None
+    if current_player_obj is None:
+        rules_view = getattr(game_state, "rules", game_state)
+        try:
+            idx = int(str(current_player_id))
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Player {current_player_id} not found in game_state.") from exc
+        hands = getattr(rules_view, "hands", None)
+        stacks = getattr(rules_view, "player_chips", None)
+        bets = getattr(rules_view, "bets", None)
+        if hands is None or stacks is None or bets is None:
+            raise ValueError(f"Player {current_player_id} not found in game_state.")
+        current_player_obj = Player(str(idx), hands[idx], int(stacks[idx]))
+        setattr(current_player_obj, "current_bet_in_round", int(bets[idx]))
 
     hole_cards = torch.tensor(
         [_encode_card(c) for c in current_player_obj.hand], dtype=torch.float32

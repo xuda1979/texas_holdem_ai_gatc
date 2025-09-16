@@ -52,13 +52,13 @@ class ReplayBuffer:
             regrets.detach().cpu(),
             int(iteration),
         )
+        self.n_seen += 1
         if len(self.buffer) < self.capacity:
             self.buffer.append(exp)
         else:
-            j = random.randrange(self.n_seen + 1)
+            j = random.randrange(self.n_seen)
             if j < self.capacity:
                 self.buffer[j] = exp
-        self.n_seen += 1
 
     def sample(self, batch_size: int) -> list[Tuple[torch.Tensor, ...]]:
         if not self.buffer:

@@ -85,7 +85,10 @@ def _raise_bounds(game, player_id: int) -> Tuple[int, int]:
         p = game.players[player_id]
         stack = int(getattr(p, "stack_size", getattr(p, "stack", 0)) + getattr(p, "current_bet", 0))
     elif rules is not None and hasattr(rules, "player_chips"):
-        stack = int(rules.player_chips[player_id])
+        try:
+            stack = int(rules.player_chips[player_id] + rules.bets[player_id])
+        except Exception:
+            stack = int(rules.player_chips[player_id])
     else:
         stack = int(player_id)
     max_to = max(min_to, stack)
