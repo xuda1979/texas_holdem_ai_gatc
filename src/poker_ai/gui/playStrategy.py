@@ -76,7 +76,13 @@ class ModelAIStrategy(PlayerStrategy):
     @torch.no_grad()
     def choose_action(self, game, player_index):
         max_seq_len = self.config.get("max_seq_len", 256)
-        d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
+        d_raw_feature = self.config.get(
+            "d_raw_feature",
+            self.config.get(
+                "input_feature_dim",
+                self.config.get("history_feature_dim", 18),
+            ),
+        )
         hole, community, history = prepare_transformer_input(
             game, player_index, max_seq_len, d_raw_feature
         )
