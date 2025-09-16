@@ -236,6 +236,41 @@ class TexasHoldemRules:
         suit_symbols = {"h": "♥", "d": "♦", "c": "♣", "s": "♠"}
         return f"{rank}{suit_symbols.get(suit, suit)}"
 
+    def clone(self) -> "TexasHoldemRules":
+        """Return a lightweight copy of the mutable rule state."""
+
+        clone = self.__class__.__new__(self.__class__)
+
+        # Immutable or shared objects can be copied directly.
+        clone.num_players = self.num_players
+        clone.starting_stack = self.starting_stack
+        clone.small_blind = self.small_blind
+        clone.big_blind = self.big_blind
+        clone.logger = self.logger
+        clone.verbose = self.verbose
+        clone.betting_round = self.betting_round
+        clone.dealer_button = self.dealer_button
+        clone.pot = self.pot
+        clone.current_bet = self.current_bet
+        clone.previous_raise_amount = self.previous_raise_amount
+        clone.actions_this_round = self.actions_this_round
+        clone.last_raiser = self.last_raiser
+
+        # Lists are re-created to avoid accidental sharing during simulations.
+        clone.deck = CardDeck(self.deck)
+        clone.hands = [list(hand) for hand in self.hands]
+        clone.community_cards = list(self.community_cards)
+        clone.bets = list(self.bets)
+        clone.player_chips = list(self.player_chips)
+        clone.active_players = list(self.active_players)
+        clone.betting_history = list(self.betting_history)
+        clone.total_bets_this_hand = list(self.total_bets_this_hand)
+
+        if hasattr(self, "current_player"):
+            clone.current_player = self.current_player
+
+        return clone
+
 
 class MockPlayer:
     def __init__(self, player_id: str, hand: list, stack: int):
@@ -269,6 +304,36 @@ class TexasHoldem:
     def _log(self, msg: str) -> None:
         if self.verbose:
             self.logger.info(msg)
+
+    def clone(self) -> "TexasHoldem":
+        """Return a copy containing only the mutable state required for simulation."""
+
+        clone = self.__class__.__new__(self.__class__)
+
+        # Core configuration/state shared across clones.
+        clone.num_players = self.num_players
+        clone.starting_stack = self.starting_stack
+        clone.player_strategies = self.player_strategies
+        clone.history_limit = self.history_limit
+        clone.logger = self.logger
+        clone.verbose = self.verbose
+
+        # Mutable per-hand state.
+        clone.rules = self.rules.clone()
+        clone.end_game_early = self.end_game_early
+        clone.hand_count = self.hand_count
+        clone.current_hand_initial_actions = list(self.current_hand_initial_actions)
+        clone.historical_actions = self.historical_actions
+
+        def _copy_winner(value):
+            if isinstance(value, list):
+                return list(value)
+            return value
+
+        clone.winner = _copy_winner(self.winner)
+        clone.last_winner = _copy_winner(self.last_winner)
+
+        return clone
 
     def initialize_game(self):
         # Reset game state for new hand
