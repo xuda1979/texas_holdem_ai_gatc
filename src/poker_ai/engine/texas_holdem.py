@@ -117,6 +117,7 @@ class TexasHoldemRules:
         self.player_chips[small_blind_player] -= self.small_blind
         self.bets[small_blind_player] = self.small_blind
         self.pot += self.small_blind
+        self.total_bets_this_hand[small_blind_player] += self.small_blind
         self.betting_history.append((str(small_blind_player), ("bet", self.small_blind)))
         self._log(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
         structured_blind_actions.append((str(small_blind_player), ("bet", self.small_blind)))
@@ -125,6 +126,7 @@ class TexasHoldemRules:
         self.player_chips[big_blind_player] -= self.big_blind
         self.bets[big_blind_player] = self.big_blind
         self.pot += self.big_blind
+        self.total_bets_this_hand[big_blind_player] += self.big_blind
         self.betting_history.append((str(big_blind_player), ("bet", self.big_blind)))
         self._log(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
         structured_blind_actions.append((str(big_blind_player), ("bet", self.big_blind)))
@@ -253,6 +255,7 @@ class TexasHoldem:
         self.player_strategies = player_strategies  # List of strategy instances
         self.end_game_early = False
         self.winner = None
+        self.last_winner = None
         self.hand_count = 0
         self.historical_actions = []
         self.history_limit = 500  # Save history every 500 hands
@@ -268,6 +271,7 @@ class TexasHoldem:
 
     def initialize_game(self):
         # Reset game state for new hand
+        self.last_winner = None
         self.rules.hands = [[] for _ in range(self.num_players)]
         self.rules.community_cards = []
         self.rules.pot = 0
@@ -298,7 +302,6 @@ class TexasHoldem:
                 "players": self.get_player_status(),
             }
         )
-        self.rules.betting_history.clear()
 
     def deal_hands(self):
         self.rules.deal()
@@ -924,6 +927,7 @@ class TexasHoldem:
         self.rules.player_chips[winner_player_index] += actual_winnings
         self.historical_actions[-1]["winner"] = f"Player {winner_player_index + 1}"
         self.historical_actions[-1]["pot_won"] = actual_winnings
+        self.last_winner = winner_player_index
 
         # Note: If actual_winnings < self.rules.pot, the remainder of the pot is currently not distributed
         # as full side pot logic is out of scope. This is a known limitation.
@@ -970,6 +974,7 @@ class TexasHoldem:
             self.historical_actions[-1]["pot_won"] = (
                 pot_to_split  # Total pot split among these winners
             )
+            self.last_winner = list(winner)
             # Note: Remainder of self.rules.pot if pot_to_split < self.rules.pot is not handled.
         else:  # Single winner
             winner_player_index = winner
@@ -989,6 +994,7 @@ class TexasHoldem:
             self.rules.player_chips[winner_player_index] += actual_winnings
             self.historical_actions[-1]["winner"] = f"Player {winner_player_index + 1}"
             self.historical_actions[-1]["pot_won"] = actual_winnings
+            self.last_winner = winner_player_index
             # Note: If actual_winnings < self.rules.pot, the remainder of the pot is not distributed.
 
         self.reset_for_next_hand()  # Reset state for the next hand after showdown and pot distribution

@@ -19,6 +19,28 @@ def test_post_blinds() -> None:
     assert rules.player_chips == [90, 95]
     assert rules.bets == [10, 5]
     assert rules.current_bet == 10
+    assert rules.total_bets_this_hand == [10, 5]
+
+
+def test_showdown_awards_blinds() -> None:
+    game = TexasHoldem(num_players=2, starting_stack=100, verbose=False)
+    game.rules.small_blind = 5
+    game.rules.big_blind = 10
+    game.initialize_game()
+
+    # No additional betting: both players check/call to proceed directly to showdown.
+    for _ in range(2):
+        current = game.rules.current_player
+        valid = game.get_valid_actions(current)
+        if "call" in valid:
+            game.process_action(current, "call")
+        elif "check" in valid:
+            game.process_action(current, "check")
+        game.rules.advance_turn()
+
+    winnings = game.perform_showdown()
+    assert winnings  # pot must be awarded to at least one player
+    assert sum(winnings.values()) == game.rules.pot
 
 
 def test_bet_and_call() -> None:

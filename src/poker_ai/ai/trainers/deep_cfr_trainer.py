@@ -32,18 +32,26 @@ class ReplayBuffer:
     def push(self, *args: torch.Tensor | int) -> None:
         """Add an experience to the buffer using reservoir sampling.
 
-        Accepts either ``(hole, community, history, regrets, iteration)`` or the
-        legacy ``(state, regrets, iteration)`` tuple.
+        Accepts either ``(hole, community, history, regrets, iteration)``,
+        ``(hole, community, history, regrets, counterfactual, legal_mask,
+        iteration)`` from the modern self-play pipeline, or the legacy
+        ``(state, regrets, iteration)`` tuple.
         """
 
-        if len(args) == 5:
-            hole, community, history, regrets, iteration = args  # type: ignore[misc]
-        elif len(args) == 3:
+        if len(args) == 3:
             history, regrets, iteration = args  # type: ignore[misc]
             hole = torch.zeros(self.card_feature_dim)
             community = torch.zeros(self.card_feature_dim)
+        elif len(args) >= 5:
+            hole, community, history, regrets = args[:4]  # type: ignore[misc]
+            iteration = args[-1]
         else:  # pragma: no cover - defensive
-            raise TypeError("push expects 5 or 3 arguments")
+            raise TypeError("push expects at least 3 arguments")
+
+        if isinstance(iteration, torch.Tensor):
+            if iteration.numel() != 1:  # pragma: no cover - defensive
+                raise ValueError("iteration tensor must contain a single value")
+            iteration = float(iteration.item())
 
         exp = (
             hole.detach().cpu(),
@@ -94,13 +102,18 @@ class DeepCFRTrainer:
 
         # Each card summary is encoded as 17 features (13 rank + 4 suit).
         self.card_feature_dim = 17
+        self.history_feature_dim = input_feature_dim
+        self.hidden_dim = hidden_dim
+        self.num_heads = 4
+        self.num_layers = 2
+        self.max_seq_len = 256
 
         self.advantage_net = AdvantageNetwork(
             history_feature_dim=input_feature_dim,
             card_feature_dim=self.card_feature_dim,
             hidden_dim=hidden_dim,
-            num_heads=4,
-            num_layers=2,
+            num_heads=self.num_heads,
+            num_layers=self.num_layers,
             num_actions=num_actions,
         ).to(self.device)
 
@@ -114,6 +127,9 @@ class DeepCFRTrainer:
                 "hidden_dim": hidden_dim,
                 "num_actions": num_actions,
                 "learning_rate": learning_rate,
+                "max_seq_len": self.max_seq_len,
+                "num_heads": self.num_heads,
+                "num_layers": self.num_layers,
             }
         }
 
@@ -183,11 +199,28 @@ class DeepCFRTrainer:
         return float(weighted_loss.item())
 
     def save_model(self, path: str) -> None:
-        torch.save(self.advantage_net.state_dict(), path)
+        payload = {
+            "state_dict": self.advantage_net.state_dict(),
+            "metadata": {
+                "history_feature_dim": self.history_feature_dim,
+                "card_feature_dim": self.card_feature_dim,
+                "num_actions": self.num_actions,
+                "hidden_dim": self.hidden_dim,
+                "num_heads": self.num_heads,
+                "num_layers": self.num_layers,
+                "max_seq_len": self.max_seq_len,
+                "trainer": "deep_cfr",
+            },
+        }
+        torch.save(payload, path)
 
     def load_model(self, path: str) -> None:
         state = torch.load(path, map_location=self.device)
-        self.advantage_net.load_state_dict(state)
+        if isinstance(state, dict) and "state_dict" in state:
+            state_dict = state["state_dict"]
+        else:
+            state_dict = state
+        self.advantage_net.load_state_dict(state_dict)
         self.advantage_net.to(self.device)
         self.advantage_net.eval()
 

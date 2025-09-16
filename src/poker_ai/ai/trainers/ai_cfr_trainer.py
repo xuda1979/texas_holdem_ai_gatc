@@ -1,5 +1,7 @@
+import hashlib
 import logging
 import os
+import random
 
 import torch
 import torch.optim as optim
@@ -69,20 +71,30 @@ class AICFRTrainer:
         d_raw_feature = model_config.get("d_raw_feature", 18)
         d_card_feature = model_config.get("d_card_feature", 17)
 
+        self.hidden_dim = hidden_dim
+        self.num_heads = model_config.get("num_heads", 8)
+        self.num_layers = model_config.get("num_layers", 2)
+
         self.model = AdvantageNetwork(
             history_feature_dim=d_raw_feature,
             card_feature_dim=d_card_feature,
             hidden_dim=hidden_dim,
-            num_heads=8,  # Could also be in config
-            num_layers=2,
+            num_heads=self.num_heads,
+            num_layers=self.num_layers,
             num_actions=output_dim,
         )
         self.model.to(self.device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
         self.num_actions = output_dim  # Ensure this is consistent with model output
+        self.history_feature_dim = d_raw_feature
+        self.card_feature_dim = d_card_feature
+        self.max_seq_len = model_config.get("max_seq_len", 256)
         # Expose configuration so callers (e.g. self-play) can retrieve model params
         self.config = config
+
+        buffer_capacity = int(config.get("training", {}).get("replay_buffer_capacity", 100000))
+        self.replay_buffer = AICFRReplayBuffer(buffer_capacity)
 
         # Track regrets and strategies per information set.
         # Keys are information set identifiers supplied during training.
@@ -114,7 +126,20 @@ class AICFRTrainer:
             advantages = self.model(hole_summary, community_summary, history_tensor, src_mask=None)
         return advantages.squeeze(0)
 
-    def train(
+    def train(self, *args, **kwargs):
+        """Dispatch training calls for compatibility with multiple front-ends."""
+
+        if args and isinstance(args[0], str):
+            return self._train_single(*args, **kwargs)
+
+        batch_size = kwargs.get("batch_size")
+        if batch_size is None and args:
+            batch_size = args[0]
+        if batch_size is None:
+            batch_size = 256
+        return self._train_from_buffer(int(batch_size))
+
+    def _train_single(
         self,
         info_set_id: str,
         hole_summary: torch.Tensor,
@@ -122,8 +147,8 @@ class AICFRTrainer:
         history_tensor: torch.Tensor,
         all_counterfactual_payoffs: torch.Tensor,
         mask: torch.Tensor | None = None,
-    ):
-        """Train the model for one step based on the provided state."""
+    ) -> float:
+        """Train the model for one infoset and return the loss."""
 
         try:
             if hole_summary.ndim == 1:
@@ -136,24 +161,32 @@ class AICFRTrainer:
             hole_summary = hole_summary.to(self.device)
             community_summary = community_summary.to(self.device)
             history_tensor = history_tensor.to(self.device)
-            all_counterfactual_payoffs = all_counterfactual_payoffs.to(self.device)
+            payoffs = all_counterfactual_payoffs.to(self.device)
 
-            # a. Get model's current strategy prediction
-            strategy_pred = self.model(
+            logits = self.model(
                 hole_summary,
                 community_summary,
                 history_tensor,
                 src_mask=None,
             ).squeeze(0)
+            strategy_pred = torch.softmax(logits, dim=-1)
 
-            # b. Detach for regret calculation
-            current_model_strategy_detached = strategy_pred.detach().clone()
+            legal_mask = None
+            if mask is not None:
+                legal_mask = mask.to(self.device)
+                if legal_mask.dtype != torch.bool:
+                    legal_mask = legal_mask.bool()
+                strategy_pred = torch.where(legal_mask, strategy_pred, torch.zeros_like(strategy_pred))
+                prob_sum = strategy_pred.sum()
+                if prob_sum.item() > 0:
+                    strategy_pred = strategy_pred / prob_sum
+                else:
+                    legal_float = legal_mask.float()
+                    total_legal = legal_float.sum()
+                    if total_legal.item() > 0:
+                        strategy_pred = legal_float / total_legal
 
-            # c. Calculate state value under current strategy
-            state_value = torch.sum(current_model_strategy_detached * all_counterfactual_payoffs)
-
-            # d. Calculate action regrets
-            action_regrets = all_counterfactual_payoffs - state_value
+                payoffs = torch.where(legal_mask, payoffs, torch.zeros_like(payoffs))
 
             if info_set_id not in self.cumulative_regret:
                 self.cumulative_regret[info_set_id] = torch.zeros(
@@ -166,13 +199,15 @@ class AICFRTrainer:
             cumulative_regret = self.cumulative_regret[info_set_id]
             cumulative_strategy = self.cumulative_strategy[info_set_id]
 
-            # e. Update cumulative regrets
+            state_value = torch.sum(strategy_pred.detach() * payoffs)
+            action_regrets = payoffs - state_value
+            if legal_mask is not None:
+                action_regrets = torch.where(legal_mask, action_regrets, torch.zeros_like(action_regrets))
+
             cumulative_regret = update_regret(cumulative_regret, action_regrets)
-
-            # f. Current regret-matched policy
-            current_regret_matched_policy = calculate_strategy(cumulative_regret, self.num_actions)
-
-            # g. Update cumulative strategy
+            current_regret_matched_policy = calculate_strategy(
+                cumulative_regret, self.num_actions, legal_actions_mask=legal_mask
+            )
             cumulative_strategy = update_strategy(
                 cumulative_strategy, current_regret_matched_policy.detach()
             )
@@ -180,7 +215,6 @@ class AICFRTrainer:
             self.cumulative_regret[info_set_id] = cumulative_regret
             self.cumulative_strategy[info_set_id] = cumulative_strategy
 
-            # h. Loss: train model output to match regret-matched policy
             loss = F.mse_loss(strategy_pred, current_regret_matched_policy.detach())
 
             self.optimizer.zero_grad()
@@ -188,10 +222,47 @@ class AICFRTrainer:
             self.optimizer.step()
 
             logging.info(f"Training step completed. Loss: {loss.item()}")
+            return float(loss.item())
 
         except Exception as e:  # pragma: no cover - logging path
             logging.error(f"Error during training: {str(e)}", exc_info=True)
             raise
+
+    def _train_from_buffer(self, batch_size: int) -> float:
+        batch = self.replay_buffer.sample(batch_size)
+        if not batch:
+            return 0.0
+
+        losses: list[float] = []
+        for hole, community, history, payoffs, legal_mask, _iteration in batch:
+            info_set_id = self._build_info_set_id(hole, community, history)
+            loss = self._train_single(
+                info_set_id,
+                hole,
+                community,
+                history,
+                payoffs,
+                mask=legal_mask,
+            )
+            if loss is not None:
+                losses.append(float(loss))
+        if not losses:
+            return 0.0
+        return float(sum(losses) / len(losses))
+
+    @staticmethod
+    def _build_info_set_id(
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+    ) -> str:
+        """Deterministically hash tensors into an information set identifier."""
+
+        hasher = hashlib.sha1()
+        for tensor in (hole_summary, community_summary, history_tensor):
+            contiguous = tensor.detach().cpu().contiguous().view(-1)
+            hasher.update(contiguous.numpy().tobytes())
+        return hasher.hexdigest()
 
     def save_model(self, model_path=None):
         # Ensure config path is correct or make it an argument
@@ -199,7 +270,20 @@ class AICFRTrainer:
             if model_path is None:
                 model_path = self.config["training"]["save_model_path"]
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
-            torch.save(self.model.state_dict(), model_path)
+            payload = {
+                "state_dict": self.model.state_dict(),
+                "metadata": {
+                    "history_feature_dim": self.history_feature_dim,
+                    "card_feature_dim": self.card_feature_dim,
+                    "num_actions": self.num_actions,
+                    "max_seq_len": self.max_seq_len,
+                    "hidden_dim": self.hidden_dim,
+                    "num_heads": self.num_heads,
+                    "num_layers": self.num_layers,
+                    "trainer": "ai_cfr",
+                },
+            }
+            torch.save(payload, model_path)
             logging.info(f"Model saved to {model_path}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
@@ -207,9 +291,11 @@ class AICFRTrainer:
     def load_model(self):
         # Ensure config path is correct or make it an argument
         try:
-            self.model.load_state_dict(
-                torch.load(config["training"]["save_model_path"], map_location=self.device)
+            payload = torch.load(
+                config["training"]["save_model_path"], map_location=self.device
             )
+            state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
+            self.model.load_state_dict(state_dict)
             self.model.to(self.device)
             self.model.eval()
             logging.info(f"Model loaded from {config['training']['save_model_path']}")
@@ -234,3 +320,51 @@ class AICFRTrainer:
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
         return cumulative_strategy / sum_cumulative_strategy
+
+
+class AICFRReplayBuffer:
+    """Simple FIFO replay buffer for infoset experiences."""
+
+    def __init__(self, capacity: int = 100_000):
+        self.capacity = capacity
+        self.buffer: list[tuple[torch.Tensor, ...]] = []
+
+    def push(self, *args: torch.Tensor | int) -> None:
+        if len(args) < 5:
+            raise TypeError("push expects at least 5 arguments")
+
+        hole, community, history, target, *remaining = args  # type: ignore[misc]
+        iteration = int(remaining.pop()) if remaining else 0
+        counterfactual_values = remaining.pop(0) if remaining else target
+        legal_mask = remaining.pop(0) if remaining else None
+
+        hole_cpu = hole.detach().cpu()
+        community_cpu = community.detach().cpu()
+        history_cpu = history.detach().cpu()
+        cf_cpu = counterfactual_values.detach().cpu()
+        if legal_mask is None:
+            mask_cpu = torch.ones_like(cf_cpu, dtype=torch.bool)
+        else:
+            mask_cpu = legal_mask.detach().cpu().bool()
+
+        entry = (
+            hole_cpu,
+            community_cpu,
+            history_cpu,
+            cf_cpu,
+            mask_cpu,
+            int(iteration),
+        )
+
+        if len(self.buffer) >= self.capacity:
+            self.buffer.pop(0)
+        self.buffer.append(entry)
+
+    def sample(self, batch_size: int) -> list[tuple[torch.Tensor, ...]]:
+        if not self.buffer:
+            return []
+        k = min(batch_size, len(self.buffer))
+        return random.sample(self.buffer, k)
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
+        return len(self.buffer)
