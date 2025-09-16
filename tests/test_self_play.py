@@ -1,6 +1,9 @@
 import os
 import sys
 
+from types import MethodType
+
+import pytest
 import torch
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -55,3 +58,29 @@ def test_play_hand_for_training_runs():
     ):
         data = sp.play_hand_for_training()
     assert isinstance(data, list)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_get_policy_handles_cuda_advantages():
+    trainer = DummyTrainer()
+
+    trainer.get_advantages = MethodType(
+        lambda self, *args, **kwargs: torch.tensor([1.0, -1.0], device="cuda"),
+        trainer,
+    )
+
+    sp = SelfPlay(trainer, {"num_players": 2, "starting_stack": 50})
+
+    with (
+        patch(
+            "poker_ai.selfplay.self_play.prepare_transformer_input",
+            return_value=(torch.zeros(1), torch.zeros(1), torch.zeros(1)),
+        ),
+        patch(
+            "poker_ai.selfplay.self_play.get_legal_actions_mask",
+            return_value=torch.tensor([True, False]),
+        ),
+    ):
+        policy = sp._get_policy(object(), 0)
+
+    assert policy.device.type == "cuda"

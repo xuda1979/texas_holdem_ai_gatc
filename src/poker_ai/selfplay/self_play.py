@@ -73,7 +73,10 @@ class SelfPlay:
             advantages = self.cfr_trainer.get_advantages(history_tensor)
 
         # c. Get a mask for legal actions
-        legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)
+        legal_actions_mask = get_legal_actions_mask(
+            game, player_id, self.cfr_trainer.num_actions
+        )
+        legal_actions_mask = legal_actions_mask.to(advantages.device)
 
         # d. Regret matching over legal actions only while avoiding propagating -inf/NaN
         #    when masking out illegal moves.
@@ -81,13 +84,13 @@ class SelfPlay:
         positive_advantages = torch.where(
             legal_actions_mask,
             positive_advantages,
-            torch.zeros_like(positive_advantages),
+            torch.zeros_like(positive_advantages, device=advantages.device),
         )
 
         # e. Normalize across legal actions.  If all regrets are non-positive, revert to
         #    a uniform policy over legal actions only.
         sum_positive = positive_advantages.sum()
-        policy = torch.zeros_like(advantages)
+        policy = torch.zeros_like(advantages, device=advantages.device)
         if sum_positive.item() > 0:
             policy[legal_actions_mask] = positive_advantages[legal_actions_mask] / sum_positive
         else:
