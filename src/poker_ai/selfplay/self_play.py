@@ -1,5 +1,7 @@
 """Implements External Sampling MCCFR for data generation as described in ``texas.tex``."""
 
+# ruff: noqa
+
 import copy
 import random
 from typing import Any
@@ -73,29 +75,71 @@ class SelfPlay:
         # c. Get a mask for legal actions
         legal_actions_mask = get_legal_actions_mask(game, player_id, self.cfr_trainer.num_actions)
 
-        # d. Apply the mask to the advantages by cloning and setting illegal entries to -inf.
-        #    We avoid modifying the original tensor in-place to prevent unintended side-effects.
-        masked_advantages = advantages.clone()
-        masked_advantages[~legal_actions_mask] = float("-inf")
+        # d. Regret matching over legal actions only while avoiding propagating -inf/NaN
+        #    when masking out illegal moves.
+        positive_advantages = torch.clamp(advantages, min=0.0)
+        positive_advantages = torch.where(
+            legal_actions_mask,
+            positive_advantages,
+            torch.zeros_like(positive_advantages),
+        )
 
-        # e. Convert advantages to a strategy via regret matching over legal actions only.
-        #    We first compute the positive part of the masked advantages.  Negative or
-        #    -inf values contribute zero to the sum.  If there is some positive regret
-        #    among the legal actions, we normalize over those values.  Otherwise,
-        #    we return a uniform distribution over the legal actions.  Illegal
-        #    actions always receive zero probability.
-        positive_adv = torch.clamp(masked_advantages, min=0.0)
-        sum_positive = positive_adv.sum()
-        policy = torch.zeros_like(masked_advantages)
-        if sum_positive > 0:
-            policy[legal_actions_mask] = positive_adv[legal_actions_mask] / sum_positive
+        # e. Normalize across legal actions.  If all regrets are non-positive, revert to
+        #    a uniform policy over legal actions only.
+        sum_positive = positive_advantages.sum()
+        policy = torch.zeros_like(advantages)
+        if sum_positive.item() > 0:
+            policy[legal_actions_mask] = positive_advantages[legal_actions_mask] / sum_positive
         else:
-            # If all advantages are non-positive, fall back to uniform distribution
-            # over legal actions.
             num_legal = int(legal_actions_mask.sum().item())
             if num_legal > 0:
                 policy[legal_actions_mask] = 1.0 / num_legal
         return policy
+
+    def _is_betting_round_over(self, game: TexasHoldem) -> bool:
+        """Return ``True`` when the current street has finished for traversal purposes."""
+
+        rules = game.rules
+        active_non_allin = [
+            i
+            for i in range(rules.num_players)
+            if rules.active_players[i] and rules.player_chips[i] > 0
+        ]
+        if not active_non_allin:
+            return True
+
+        all_settled = all(
+            rules.bets[i] == rules.current_bet for i in active_non_allin
+        )
+        actions_this_round = getattr(rules, "actions_this_round", 0)
+        return all_settled and actions_this_round >= len(active_non_allin)
+
+    def _advance_street(self, game: TexasHoldem) -> TexasHoldem:
+        """Return a cloned game state advanced to the next street with clean betting state."""
+
+        next_game = copy.deepcopy(game)
+        next_game.rules.end_betting_round_cleanup()
+
+        community_cards = next_game.rules.community_cards
+        if len(community_cards) == 0:
+            next_game.play_stage("flop")
+        elif len(community_cards) == 3:
+            next_game.play_stage("turn")
+        elif len(community_cards) == 4:
+            next_game.play_stage("river")
+
+        # First player to act post-flop is directly left of the dealer button.
+        start_player = (next_game.rules.dealer_button + 1) % next_game.rules.num_players
+        current = start_player
+        for _ in range(next_game.rules.num_players):
+            if (
+                next_game.rules.active_players[current]
+                and next_game.rules.player_chips[current] > 0
+            ):
+                break
+            current = (current + 1) % next_game.rules.num_players
+        next_game.rules.current_player = current
+        return next_game
 
     def _traverse_mccfr(  # noqa: C901
         self,
@@ -111,15 +155,8 @@ class SelfPlay:
             return game.get_payoff(traverser_id)
 
         # --- Chance Node ---
-        # In this engine, chance events (dealing cards) are handled by advancing the stage
-        if game.rules.betting_round_is_over():
-            next_game = copy.deepcopy(game)
-            if len(game.rules.community_cards) == 0:
-                next_game.play_stage("flop")
-            elif len(game.rules.community_cards) == 3:
-                next_game.play_stage("turn")
-            elif len(game.rules.community_cards) == 4:
-                next_game.play_stage("river")
+        if self._is_betting_round_over(game):
+            next_game = self._advance_street(game)
             return self._traverse_mccfr(next_game, traverser_id, iteration, reach_probs)
 
         # --- Decision Node ---

@@ -12,9 +12,7 @@ import torch.nn.functional as F
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 
-# Assuming rules.cfr is accessible from this path. Adjust if necessary.
-# e.g., if 'rules' is a top-level directory: from rules.cfr import ...
-# If trainers and rules are siblings under a common root (e.g. 'src'): from ..rules.cfr import ...
+# CFR utilities live under the package namespace.
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
 # Load configuration.  If the YAML parser or file is missing we fall back to
