@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import random
-from typing import cast
+from typing import Optional, cast
 
 from gatc_holdem.engine.rules import min_raise_to
 
@@ -262,6 +262,7 @@ class TexasHoldem:
         self.current_hand_initial_actions = []
         self.logger = logging.getLogger(__name__)
         self.verbose = verbose
+        self._pending_showdown_winnings: Optional[dict[int, int]] = None
         if not os.path.exists("data"):
             os.makedirs("data")
 
@@ -706,7 +707,7 @@ class TexasHoldem:
                 return -self.rules.total_bets_this_hand[player_id]
 
         # Case 2: Showdown
-        winnings = self.perform_showdown()  # dict: player -> chips won from pots
+        winnings, _ = self.perform_showdown()
         return winnings.get(player_id, 0) - self.rules.total_bets_this_hand[player_id]
 
     def get_max_raise_amount(self, player_index):
@@ -719,13 +720,21 @@ class TexasHoldem:
     # ---------------------------
     # Showdown / Side-pot helpers
     # ---------------------------
-    def _hand_strength(self, hole: list[str], board: list[str]) -> tuple[int, list[str]]:
-        """Returns a comparable hand strength; lower is better for treys' Evaluator.
-        We return (score, tiebreaker_cards_sorted) so ties can be handled stably."""
+    def _hand_strength(
+        self, hole: list[str], board: list[str]
+    ) -> tuple[int, list[str], int]:
+        """Return a comparable hand strength and rank class.
+
+        Lower scores are better for ``treys``' ``Evaluator`` implementation.  The
+        returned tuple is ``(score, tiebreaker_cards_sorted, hand_rank_class)`` so
+        ties can be handled deterministically while also exposing the winning hand
+        class for logging purposes."""
         try:
+            evaluator = Evaluator()
             hole_cards = [Card.new(c) for c in hole]
             board_cards = [Card.new(c) for c in board]
-            score = Evaluator().evaluate(board_cards, hole_cards)
+            score = evaluator.evaluate(board_cards, hole_cards)
+            rank_class = evaluator.get_rank_class(score)
         except Exception:
             rank_order = {
                 r: i
@@ -736,7 +745,8 @@ class TexasHoldem:
             all7 = hole + board
             all7_sorted = sorted(all7, key=lambda x: (rank_order[x[0]], x[1]), reverse=True)
             score = -sum((rank_order[c[0]] + 2) for c in all7_sorted[:5])
-        return score, sorted(hole + board)
+            rank_class = 0
+        return score, sorted(hole + board), rank_class
 
     def _compute_side_pots(self) -> list[dict[str, object]]:
         """Compute side pots from total contributions. Returns a list of dicts:
@@ -761,19 +771,26 @@ class TexasHoldem:
             }
         return pots
 
-    def perform_showdown(self) -> dict[int, int]:
-        """Evaluate all active players' hands, build side pots, and distribute.
-        Returns mapping: player_index -> total chips won from all pots."""
+    def perform_showdown(self) -> tuple[dict[int, int], dict[int, int]]:
+        """Evaluate all active players' hands and build side pots.
+
+        Returns a tuple ``(winnings, best_hands)`` where ``winnings`` maps each
+        player index to the number of chips they receive from all pots and
+        ``best_hands`` maps each active player to the evaluator's rank class for
+        their best five-card hand."""
         board = self.rules.community_cards
         active = [i for i, a in enumerate(self.rules.active_players) if a]
         scores: dict[int, tuple[int, list[str]]] = {}
+        best_hands: dict[int, int] = {}
         for i in active:
             hole = self.rules.hands[i]
-            scores[i] = self._hand_strength(hole, board)
+            score, tiebreaker, rank_class = self._hand_strength(hole, board)
+            scores[i] = (score, tiebreaker)
+            best_hands[i] = rank_class
 
         pots = self._compute_side_pots()
         if not pots:
-            return {}
+            return {}, best_hands
 
         winnings: dict[int, int] = {i: 0 for i in range(self.num_players)}
         for pot in pots:
@@ -794,7 +811,7 @@ class TexasHoldem:
                 if seat in winners:
                     winnings[seat] += 1
                     rem -= 1
-        return winnings
+        return winnings, best_hands
 
     def is_hand_over(self) -> bool:
         """The hand is over if:
@@ -858,6 +875,7 @@ class TexasHoldem:
         self.rules.total_bets_this_hand = [0] * self.num_players  # Reset for next hand
         self.end_game_early = False
         self.winner = None
+        self._pending_showdown_winnings = None
 
     def play_game(self):
         self._log(f"--- Hand {self.hand_count + 1} ---")
@@ -900,13 +918,16 @@ class TexasHoldem:
                 hand_str = self.format_hand_display(self.rules.hands[i])
                 self._log(f"Player {i + 1}'s hand: {hand_str}")
 
-        showdown_winnings = self.perform_showdown()
-        if not showdown_winnings:
+        showdown_winnings, best_hands = self.perform_showdown()
+        positive_winnings = {i: amt for i, amt in showdown_winnings.items() if amt > 0}
+        if not positive_winnings:
             self._log("\nNo winner could be determined.")
         else:
-            winner = max(showdown_winnings, key=showdown_winnings.get)
-            self.winner = winner
-            self.declare_winner()
+            max_winnings = max(positive_winnings.values())
+            winners = [i for i, amt in positive_winnings.items() if amt == max_winnings]
+            self._pending_showdown_winnings = showdown_winnings
+            self.winner = winners[0] if len(winners) == 1 else None
+            self.show_winner(winners, best_hands)
 
         self.save_history_if_needed()
 
@@ -933,71 +954,68 @@ class TexasHoldem:
         # as full side pot logic is out of scope. This is a known limitation.
 
     def show_winner(self, winner, player_best_hands):
-        # This method is called after perform_showdown if not end_game_early
+        """Distribute showdown winnings and log the results."""
+
         evaluator = Evaluator()
-        hand_rankings = {}
-        for player_index in player_best_hands:
-            rank_class = player_best_hands[player_index]
-            hand_name = evaluator.class_to_string(rank_class)
-            hand_rankings[player_index] = hand_name
+        hand_rankings: dict[int, str] = {}
+        for player_index, rank_class in player_best_hands.items():
+            try:
+                hand_rankings[player_index] = evaluator.class_to_string(rank_class)
+            except Exception:
+                hand_rankings[player_index] = "Unknown"
 
-        if isinstance(winner, list):
+        payouts = self._pending_showdown_winnings or {}
+        positive_payouts = {pid: amt for pid, amt in payouts.items() if amt > 0}
+
+        winners_list = winner if isinstance(winner, list) else [winner]
+        winners_list = [w for w in winners_list if positive_payouts.get(w, 0) > 0]
+
+        if len(winners_list) > 1:
             self._log("\nIt's a tie between the following players:")
-            for w in winner:
-                self._log(f"Player {w + 1} with a {hand_rankings[w]}")
+            for w in winners_list:
+                hand_name = hand_rankings.get(w, "Unknown")
+                self._log(f"Player {w + 1} with a {hand_name}")
             self._log("Pot split between players.")
-            # Simplified tie logic for pot distribution with all-ins:
-            # Each winner gets their share of the pot they are eligible for.
-            # This is complex without full side pot logic.
-            # For now, we'll split the *total pot they are all eligible for together* equally.
-            # This isn't perfect for all complex all-in tie scenarios but is a step.
-
-            min_all_in_among_winners = float("inf")
-            for w_idx in winner:
-                min_all_in_among_winners = min(
-                    min_all_in_among_winners, self.rules.total_bets_this_hand[w_idx]
-                )
-
-            total_eligible_pot_for_tied_winners = 0
-            for p_idx in range(self.num_players):
-                total_eligible_pot_for_tied_winners += min(
-                    min_all_in_among_winners, self.rules.total_bets_this_hand[p_idx]
-                )
-
-            pot_to_split = min(self.rules.pot, total_eligible_pot_for_tied_winners)
-
-            split_amount = pot_to_split // len(winner)
-            for w_idx in winner:
-                self.rules.player_chips[w_idx] += split_amount
-
-            self.historical_actions[-1]["winner"] = [f"Player {w_idx + 1}" for w_idx in winner]
-            self.historical_actions[-1]["pot_won"] = (
-                pot_to_split  # Total pot split among these winners
-            )
-            self.last_winner = list(winner)
-            # Note: Remainder of self.rules.pot if pot_to_split < self.rules.pot is not handled.
-        else:  # Single winner
-            winner_player_index = winner
-            eligible_pot_for_winner = 0
-            winner_total_bet = self.rules.total_bets_this_hand[winner_player_index]
-            for p_idx in range(self.num_players):
-                eligible_pot_for_winner += min(
-                    winner_total_bet, self.rules.total_bets_this_hand[p_idx]
-                )
-
-            actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
-
+        elif len(winners_list) == 1:
+            w = winners_list[0]
             self._log(
-                f"\nThe winner is Player {winner_player_index + 1} with a {hand_rankings[winner_player_index]}!"
+                f"\nThe winner is Player {w + 1} with a {hand_rankings.get(w, 'Unknown')}!"
             )
-            self._log(f"Pot won: {actual_winnings} chips.")
-            self.rules.player_chips[winner_player_index] += actual_winnings
-            self.historical_actions[-1]["winner"] = f"Player {winner_player_index + 1}"
-            self.historical_actions[-1]["pot_won"] = actual_winnings
-            self.last_winner = winner_player_index
-            # Note: If actual_winnings < self.rules.pot, the remainder of the pot is not distributed.
+        elif positive_payouts:
+            self._log("\nMultiple side pots were awarded.")
+        else:
+            self._log("\nNo winner could be determined.")
 
-        self.reset_for_next_hand()  # Reset state for the next hand after showdown and pot distribution
+        if not positive_payouts:
+            self._pending_showdown_winnings = None
+            self.reset_for_next_hand()
+            return
+
+        total_awarded = 0
+        for pid in sorted(positive_payouts):
+            amount = positive_payouts[pid]
+            hand_name = hand_rankings.get(pid, "Unknown")
+            self._log(f"Player {pid + 1} wins {amount} chips with a {hand_name}.")
+            self.rules.player_chips[pid] += amount
+            total_awarded += amount
+
+        if self.historical_actions:
+            winners_formatted = [f"Player {pid + 1}" for pid in sorted(positive_payouts)]
+            if len(winners_formatted) == 1:
+                self.historical_actions[-1]["winner"] = winners_formatted[0]
+            else:
+                self.historical_actions[-1]["winner"] = winners_formatted
+            self.historical_actions[-1]["pot_won"] = total_awarded
+
+        if len(positive_payouts) == 1:
+            self.last_winner = next(iter(positive_payouts))
+        else:
+            self.last_winner = sorted(positive_payouts)
+
+        self.rules.pot = max(0, self.rules.pot - total_awarded)
+        self._pending_showdown_winnings = None
+
+        self.reset_for_next_hand()
 
     def format_hand_display(self, hand):
         # Mapping from treys-compatible suits to display-friendly symbols

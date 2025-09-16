@@ -1,5 +1,6 @@
 import os
 import sys
+from types import MethodType
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
@@ -38,8 +39,9 @@ def test_showdown_awards_blinds() -> None:
             game.process_action(current, "check")
         game.rules.advance_turn()
 
-    winnings = game.perform_showdown()
+    winnings, best_hands = game.perform_showdown()
     assert winnings  # pot must be awarded to at least one player
+    assert best_hands  # best hand classes reported for active players
     assert sum(winnings.values()) == game.rules.pot
 
 
@@ -77,3 +79,62 @@ def test_min_raise_amount_follows_wsop_rules() -> None:
     assert game.get_min_raise_amount(0) == 10
     game.process_action(0, "raise", raise_amount=10)
     assert game.get_min_raise_amount(1) == 10
+
+
+def test_perform_showdown_returns_best_hand_classes_for_multiway_tie() -> None:
+    game = TexasHoldem(num_players=3, starting_stack=500, verbose=False)
+    game.rules.active_players = [True, True, True]
+    game.rules.community_cards = ["2h", "3d", "4c", "5s", "6h"]
+    game.rules.hands = [
+        ["Ah", "Ad"],
+        ["Ac", "As"],
+        ["Kh", "Kd"],
+    ]
+    game.rules.total_bets_this_hand = [50, 50, 50]
+    game.rules.pot = sum(game.rules.total_bets_this_hand)
+
+    outcomes = {
+        tuple(game.rules.hands[0]): (10, [], 1),
+        tuple(game.rules.hands[1]): (10, [], 1),
+        tuple(game.rules.hands[2]): (10, [], 1),
+    }
+
+    def fake_hand_strength(self, hole, board):  # pragma: no cover - simple stub
+        return outcomes[tuple(hole)]
+
+    game._hand_strength = MethodType(fake_hand_strength, game)
+
+    winnings, best_hands = game.perform_showdown()
+    assert sum(winnings.values()) == game.rules.pot
+    assert winnings == {0: 50, 1: 50, 2: 50}
+    assert best_hands == {0: 1, 1: 1, 2: 1}
+
+
+def test_perform_showdown_side_pot_split() -> None:
+    game = TexasHoldem(num_players=3, starting_stack=1000, verbose=False)
+    game.rules.active_players = [True, True, True]
+    game.rules.community_cards = ["2h", "3d", "4c", "5s", "6h"]
+    game.rules.hands = [
+        ["Ah", "Ad"],
+        ["Kc", "Kd"],
+        ["Qh", "Qd"],
+    ]
+    contributions = [50, 100, 200]
+    game.rules.total_bets_this_hand = contributions[:]
+    game.rules.pot = sum(contributions)
+
+    outcomes = {
+        tuple(game.rules.hands[0]): (1, [], 7),
+        tuple(game.rules.hands[1]): (5, [], 4),
+        tuple(game.rules.hands[2]): (10, [], 2),
+    }
+
+    def fake_hand_strength(self, hole, board):  # pragma: no cover - simple stub
+        return outcomes[tuple(hole)]
+
+    game._hand_strength = MethodType(fake_hand_strength, game)
+
+    winnings, best_hands = game.perform_showdown()
+    assert sum(winnings.values()) == game.rules.pot
+    assert winnings == {0: 150, 1: 100, 2: 100}
+    assert best_hands == {0: 7, 1: 4, 2: 2}
