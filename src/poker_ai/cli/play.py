@@ -3,14 +3,10 @@
 """Command line game allowing humans to play against simple AI players."""
 
 import argparse
-import json
-import os
 import sys
 from typing import Any, cast
 
-import torch
-
-from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.ai import load_model_strategy
 from poker_ai.config import load_config
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import (
@@ -44,24 +40,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model(model_path: str) -> ModelAIStrategy:
-    """Load a saved :class:`AdvantageNetwork` and wrap it in ``ModelAIStrategy``."""
-    config_path = os.path.splitext(model_path)[0] + ".config.json"
-    with open(config_path) as f:
-        model_config = json.load(f)
+def load_model(model_path: str) -> ModelAIStrategy | None:
+    """Load a saved AI model using :func:`load_model_strategy`."""
 
-    network_params = {
-        "history_feature_dim": model_config["input_feature_dim"],
-        "card_feature_dim": model_config["input_feature_dim"],
-        "hidden_dim": model_config["hidden_dim"],
-        "num_heads": model_config["num_heads"],
-        "num_layers": model_config["num_layers"],
-        "num_actions": model_config["num_actions"],
-    }
-    model = AdvantageNetwork(**network_params)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    return ModelAIStrategy(model, model_config, device)
+    strategy, _ = load_model_strategy(model_path)
+    if isinstance(strategy, ModelAIStrategy):
+        return strategy
+    return None
 
 
 def main() -> None:  # noqa: C901

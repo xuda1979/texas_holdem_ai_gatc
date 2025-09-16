@@ -1,4 +1,3 @@
-import json
 import warnings
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +7,8 @@ import torch
 
 from poker_ai.ai.model_loader import load_model_strategy
 from poker_ai.ai.models.transformer import AdvantageNetwork
-from poker_ai.gui.playStrategy import ModelAIStrategy, PlayerStrategy, RandomAIStrategy
+from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
+from poker_ai.gui.playStrategy import ModelAIStrategy, RandomAIStrategy
 
 
 @pytest.fixture
@@ -22,78 +22,100 @@ def cpu_only() -> None:
 @pytest.mark.parametrize("model_exists", [True, False])
 def test_load_model_strategy(tmp_path: Path, model_exists: bool) -> None:
     model_path = tmp_path / "cfr_model.pth"
+    metadata = {
+        "history_feature_dim": 18,
+        "card_feature_dim": 17,
+        "hidden_dim": 16,
+        "num_heads": 2,
+        "num_layers": 1,
+        "num_actions": 4,
+        "max_seq_len": 32,
+    }
     if model_exists:
-        config = {
-            "input_feature_dim": 18,
-            "hidden_dim": 16,
-            "num_heads": 2,
-            "num_layers": 1,
-            "num_actions": 4,
-        }
         model = AdvantageNetwork(
-            history_feature_dim=config["input_feature_dim"],
-            card_feature_dim=config["input_feature_dim"],
-            hidden_dim=config["hidden_dim"],
-            num_heads=config["num_heads"],
-            num_layers=config["num_layers"],
-            num_actions=config["num_actions"],
+            history_feature_dim=metadata["history_feature_dim"],
+            card_feature_dim=metadata["card_feature_dim"],
+            hidden_dim=metadata["hidden_dim"],
+            num_heads=metadata["num_heads"],
+            num_layers=metadata["num_layers"],
+            num_actions=metadata["num_actions"],
         )
-        torch.save(model.state_dict(), model_path)
-        config_path = model_path.with_suffix(".config.json")
-        config_path.write_text(json.dumps(config))
-        strategy_cls: type[PlayerStrategy] = ModelAIStrategy
+        payload = {"state_dict": model.state_dict(), "metadata": metadata}
+        torch.save(payload, model_path)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             strategy, device = load_model_strategy(str(model_path))
+        assert isinstance(strategy, ModelAIStrategy)
+        assert strategy.config["history_feature_dim"] == metadata["history_feature_dim"]
+        assert strategy.config["card_feature_dim"] == metadata["card_feature_dim"]
     else:
-        strategy_cls = RandomAIStrategy
         with pytest.warns(RuntimeWarning):
             strategy, device = load_model_strategy(str(model_path))
+        assert isinstance(strategy, RandomAIStrategy)
 
-    assert isinstance(strategy, strategy_cls)
     assert isinstance(device, torch.device)
     assert device.type == "cpu"
 
 
 @pytest.mark.usefixtures("cpu_only")
 @pytest.mark.parametrize(
-    "config_writer, model_writer",
+    "payload_factory",
     [
-        (None, torch.save),
-        (lambda path, data: path.write_text(json.dumps(data)), None),
-        (lambda path, data: path.write_text("invalid json"), torch.save),
+        lambda state: state,
+        lambda state: {},
+        lambda state: {"state_dict": state},
+        lambda state: {"metadata": {"history_feature_dim": 18, "num_actions": 4}},
+        lambda state: {
+            "state_dict": state,
+            "metadata": {"history_feature_dim": 18, "num_actions": 4},
+        },
+        lambda state: {"state_dict": state, "metadata": "invalid"},
     ],
 )
 def test_load_model_strategy_fallback(
-    tmp_path: Path, config_writer, model_writer
+    tmp_path: Path, payload_factory
 ) -> None:
     model_path = tmp_path / "cfr_model.pth"
-    config_path = model_path.with_suffix(".config.json")
-    config = {
-        "input_feature_dim": 18,
+    metadata = {
+        "history_feature_dim": 18,
+        "card_feature_dim": 17,
         "hidden_dim": 16,
         "num_heads": 2,
         "num_layers": 1,
         "num_actions": 4,
     }
     model = AdvantageNetwork(
-        history_feature_dim=config["input_feature_dim"],
-        card_feature_dim=config["input_feature_dim"],
-        hidden_dim=config["hidden_dim"],
-        num_heads=config["num_heads"],
-        num_layers=config["num_layers"],
-        num_actions=config["num_actions"],
+        history_feature_dim=metadata["history_feature_dim"],
+        card_feature_dim=metadata["card_feature_dim"],
+        hidden_dim=metadata["hidden_dim"],
+        num_heads=metadata["num_heads"],
+        num_layers=metadata["num_layers"],
+        num_actions=metadata["num_actions"],
     )
 
-    if config_writer is not None:
-        config_writer(config_path, config)
-
-    if model_writer is not None:
-        model_writer(model.state_dict(), model_path)
+    payload = payload_factory(model.state_dict())
+    torch.save(payload, model_path)
 
     with pytest.warns(RuntimeWarning):
         strategy, device = load_model_strategy(str(model_path))
 
     assert isinstance(strategy, RandomAIStrategy)
+    assert isinstance(device, torch.device)
+    assert device.type == "cpu"
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_load_model_strategy_trainer_payload(tmp_path: Path) -> None:
+    model_path = tmp_path / "trainer_model.pth"
+    trainer = SingleNetworkCFRTrainer(input_feature_dim=18, hidden_dim=32, num_actions=4, lr=1e-3)
+    trainer.save_model(str(model_path))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        strategy, device = load_model_strategy(str(model_path))
+
+    assert isinstance(strategy, ModelAIStrategy)
+    assert strategy.config["history_feature_dim"] == trainer.history_feature_dim
+    assert strategy.config["card_feature_dim"] == trainer.card_feature_dim
     assert isinstance(device, torch.device)
     assert device.type == "cpu"

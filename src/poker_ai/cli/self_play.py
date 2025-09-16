@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, cast
 
@@ -84,47 +85,43 @@ def parse_args():
 
 def load_transformer_model(cfg):
     model_name = cfg.get("model", {}).get("name", "texas_holdem_transformer_ai")
-    weights_path, config_path = get_model_paths(model_name)
+    weights_path = get_model_path(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if model_exists(weights_path, config_path):
-        strategy = load_existing_model(weights_path, config_path, device)
-        last_mtime = os.path.getmtime(weights_path)
-        return strategy, weights_path, last_mtime
+    if os.path.exists(weights_path):
+        try:
+            strategy = load_existing_model(weights_path, device)
+            last_mtime = os.path.getmtime(weights_path)
+            return strategy, weights_path, last_mtime
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"Failed to load existing model: {exc}. Initializing a new model.")
     strategy = initialize_new_model(device)
     return strategy, weights_path, None
 
 
-def get_model_paths(model_name):
-    weights_path = os.path.join(config.MODEL_DIR, f"{model_name}.pth")
-    config_path = os.path.join(config.MODEL_DIR, f"{model_name}_config.json")
-    return weights_path, config_path
+def get_model_path(model_name):
+    return os.path.join(config.MODEL_DIR, f"{model_name}.pth")
 
 
-def model_exists(weights_path, config_path):
-    return os.path.exists(weights_path) and os.path.exists(config_path)
-
-
-def load_existing_model(weights_path, config_path, device):
-    with open(config_path) as f:
-        model_config = json.load(f)
+def load_existing_model(weights_path, device):
+    metadata, state_dict = _load_state_and_metadata(weights_path, device)
     network_params = {
-        "history_feature_dim": model_config["input_feature_dim"],
-        "card_feature_dim": model_config.get("card_feature_dim", 17),
-        "hidden_dim": model_config["hidden_dim"],
-        "num_heads": model_config["num_heads"],
-        "num_layers": model_config["num_layers"],
-        "num_actions": model_config["num_actions"],
+        "history_feature_dim": metadata["history_feature_dim"],
+        "card_feature_dim": metadata["card_feature_dim"],
+        "hidden_dim": metadata["hidden_dim"],
+        "num_heads": metadata["num_heads"],
+        "num_layers": metadata["num_layers"],
+        "num_actions": metadata["num_actions"],
     }
     model = AdvantageNetwork(**network_params)
-    model.load_state_dict(torch.load(weights_path, map_location=device))
+    model.load_state_dict(state_dict)
     print(f"Model loaded from {weights_path}")
-    return TransformerStrategy(model, model_config, device)
+    return TransformerStrategy(model, metadata, device)
 
 
 def initialize_new_model(device):
     print("No existing model found. Initializing a new model.")
     model_config = {
-        "input_feature_dim": 18,
+        "history_feature_dim": 18,
         "card_feature_dim": 17,
         "hidden_dim": 128,
         "num_heads": 2,
@@ -132,9 +129,11 @@ def initialize_new_model(device):
         "num_actions": 10,
         "max_seq_len": 256,
         "d_raw_feature": 18,
+        "input_feature_dim": 18,
+        "d_card_feature": 17,
     }
     network_params = {
-        "history_feature_dim": model_config["input_feature_dim"],
+        "history_feature_dim": model_config["history_feature_dim"],
         "card_feature_dim": model_config["card_feature_dim"],
         "hidden_dim": model_config["hidden_dim"],
         "num_heads": model_config["num_heads"],
@@ -149,34 +148,27 @@ def save_transformer_model(transformer_strategy):
     models_dir = config.MODEL_DIR
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
-    weight_path, config_path = get_save_paths()
+    weight_path = get_save_path()
 
     save_weights(transformer_strategy, weight_path)
-    save_config(transformer_strategy, config_path)
 
 
-def get_save_paths():
+def get_save_path():
     timestamp = datetime.now().strftime("%y%m%d%H%M%S")
-    weight_path = os.path.join(config.MODEL_DIR, f"{timestamp}_model.pth")
-    config_path = os.path.join(config.MODEL_DIR, f"{timestamp}_model.config.json")
-    return weight_path, config_path
+    return os.path.join(config.MODEL_DIR, f"{timestamp}_model.pth")
 
 
 def save_weights(transformer_strategy, weight_path):
     try:
-        torch.save(transformer_strategy.model.state_dict(), weight_path)
+        metadata = _metadata_from_config(transformer_strategy.config)
+        payload = {
+            "state_dict": transformer_strategy.model.state_dict(),
+            "metadata": metadata,
+        }
+        torch.save(payload, weight_path)
         print(f"Saved model weights to {weight_path}")
     except Exception as e:
         print(f"Error saving model weights: {e}")
-
-
-def save_config(transformer_strategy, config_path):
-    try:
-        with open(config_path, "w") as f:
-            json.dump(transformer_strategy.config, f, indent=4)
-        print(f"Saved model configuration to {config_path}")
-    except Exception as e:
-        print(f"Error saving model configuration: {e}")
 
 
 def reload_weights_if_updated(transformer_strategy, weights_path, last_mtime):
@@ -185,8 +177,9 @@ def reload_weights_if_updated(transformer_strategy, weights_path, last_mtime):
         current_mtime = os.path.getmtime(weights_path)
         if last_mtime is None or current_mtime > last_mtime:
             try:
-                state = torch.load(weights_path, map_location=transformer_strategy.device)
+                metadata, state = _load_state_and_metadata(weights_path, transformer_strategy.device)
                 transformer_strategy.model.load_state_dict(state)
+                transformer_strategy.config.update(metadata)
                 print(
                     f"[Model Reloaded] {datetime.now().isoformat()} - "
                     f"Loaded weights from {weights_path}"
@@ -195,6 +188,88 @@ def reload_weights_if_updated(transformer_strategy, weights_path, last_mtime):
             except Exception as e:
                 print(f"[Model Reloaded] Failed to reload weights: {e}")
     return last_mtime
+
+
+def _metadata_from_config(config_dict: Mapping[str, Any]) -> dict[str, Any]:
+    history = int(
+        config_dict.get(
+            "history_feature_dim",
+            config_dict.get("d_raw_feature", config_dict.get("input_feature_dim", 18)),
+        )
+    )
+    card = int(config_dict.get("card_feature_dim", config_dict.get("d_card_feature", 17)))
+    hidden = int(config_dict.get("hidden_dim", 128))
+    num_heads = int(config_dict.get("num_heads", 2))
+    num_layers = int(config_dict.get("num_layers", 2))
+    num_actions = int(config_dict.get("num_actions", 10))
+    max_seq_len = int(config_dict.get("max_seq_len", 256))
+
+    metadata: dict[str, Any] = {
+        "history_feature_dim": history,
+        "card_feature_dim": card,
+        "hidden_dim": hidden,
+        "num_heads": num_heads,
+        "num_layers": num_layers,
+        "num_actions": num_actions,
+        "max_seq_len": max_seq_len,
+    }
+
+    trainer = config_dict.get("trainer")
+    if trainer is not None:
+        metadata["trainer"] = trainer
+
+    return metadata
+
+
+def _load_state_and_metadata(
+    path: str, device: torch.device
+) -> tuple[dict[str, Any], Mapping[str, torch.Tensor]]:
+    payload = torch.load(path, map_location=device)
+    if not isinstance(payload, Mapping):
+        raise ValueError("Model file is missing metadata payload")
+
+    metadata_obj = payload.get("metadata")
+    if not isinstance(metadata_obj, Mapping):
+        raise ValueError("Model metadata missing or malformed")
+
+    state_dict = payload.get("state_dict")
+    if not isinstance(state_dict, Mapping):
+        raise ValueError("Model payload missing state_dict")
+
+    metadata = _normalize_metadata(metadata_obj)
+    return metadata, state_dict
+
+
+def _normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        history_feature_dim = int(metadata["history_feature_dim"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Invalid model metadata: missing history_feature_dim") from exc
+
+    try:
+        num_actions = int(metadata["num_actions"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Invalid model metadata: missing num_actions") from exc
+
+    card_feature_dim = int(metadata.get("card_feature_dim", history_feature_dim))
+    hidden_dim = int(metadata.get("hidden_dim", 128))
+    num_heads = int(metadata.get("num_heads", 4))
+    num_layers = int(metadata.get("num_layers", 2))
+    max_seq_len = int(metadata.get("max_seq_len", 256))
+
+    normalized = dict(metadata)
+    normalized["history_feature_dim"] = history_feature_dim
+    normalized["card_feature_dim"] = card_feature_dim
+    normalized["hidden_dim"] = hidden_dim
+    normalized["num_heads"] = num_heads
+    normalized["num_layers"] = num_layers
+    normalized["num_actions"] = num_actions
+    normalized["max_seq_len"] = max_seq_len
+    normalized.setdefault("d_raw_feature", history_feature_dim)
+    normalized.setdefault("input_feature_dim", history_feature_dim)
+    normalized.setdefault("d_card_feature", card_feature_dim)
+
+    return normalized
 
 
 def append_common_actions(actions):
