@@ -116,13 +116,15 @@ class ModelPerformanceAnalyzer:
     def __init__(
         self,
         models_dir: str = "models",
-        save_every_samples: int = 100000,
+        save_every_samples: int | None = 100000,
         tournament_threshold: int = 10,
         tournament_size: int = 10,
         games_per_match: int = 10,
         device: str = "cpu",
     ):
         self.models_dir = models_dir
+        if save_every_samples is not None and save_every_samples <= 0:
+            save_every_samples = None
         self.save_every_samples = save_every_samples
         self.tournament_threshold = tournament_threshold
         self.tournament_size = tournament_size
@@ -130,6 +132,8 @@ class ModelPerformanceAnalyzer:
         self.device = device
 
     def on_iteration_end(self, trainer, sample_count: int) -> None:
+        if self.save_every_samples is None:
+            return
         if sample_count % self.save_every_samples != 0:
             return
         os.makedirs(self.models_dir, exist_ok=True)

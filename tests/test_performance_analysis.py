@@ -53,6 +53,17 @@ class TestPerformanceAnalyzer(unittest.TestCase):
                 self.assertEqual(len(os.listdir(tmpdir)), 2)
                 mock_tourn.assert_called_once()
 
+    def test_disabled_when_zero_interval(self):
+        trainer = DummyTrainer()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            analyzer = ModelPerformanceAnalyzer(
+                models_dir=tmpdir,
+                save_every_samples=0,
+                device="cpu",
+            )
+            analyzer.on_iteration_end(trainer, 1)
+            self.assertEqual(os.listdir(tmpdir), [])
+
 
 if __name__ == "__main__":
     unittest.main()
