@@ -232,7 +232,7 @@ def main() -> None:  # noqa: C901
 
     print("\n--- Configuration ---")
     print(f"Total training iterations: {num_iterations}")
-    print(f"Save model every: {save_model_every_samples} samples")
+    print(f"Save model every: {save_model_every_samples} iterations")
     if save_model_every_n_hands > 0:
         print(f"Save model every {save_model_every_n_hands} hands")
     if save_model_every_minutes > 0:
@@ -275,7 +275,7 @@ def main() -> None:  # noqa: C901
     print("\n--- Starting Training Loop ---")
     analyzer = ModelPerformanceAnalyzer(
         models_dir="models",
-        save_every_samples=save_model_every_samples,
+        save_every_iterations=save_model_every_samples,
         tournament_threshold=10,
         device=device,
     )
@@ -308,7 +308,7 @@ def main() -> None:  # noqa: C901
                 )
                 last_save_time = time.time()
 
-            analyzer.on_iteration_end(cfr_trainer, iteration)
+            analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
     except Exception as e:
         import traceback
 

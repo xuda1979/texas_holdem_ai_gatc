@@ -116,30 +116,30 @@ class ModelPerformanceAnalyzer:
     def __init__(
         self,
         models_dir: str = "models",
-        save_every_samples: int | None = 100000,
+        save_every_iterations: int | None = 100000,
         tournament_threshold: int = 10,
         tournament_size: int = 10,
         games_per_match: int = 10,
         device: str = "cpu",
     ):
         self.models_dir = models_dir
-        if save_every_samples is not None and save_every_samples <= 0:
-            save_every_samples = None
-        self.save_every_samples = save_every_samples
+        if save_every_iterations is not None and save_every_iterations <= 0:
+            save_every_iterations = None
+        self.save_every_iterations = save_every_iterations
         self.tournament_threshold = tournament_threshold
         self.tournament_size = tournament_size
         self.games_per_match = games_per_match
         self.device = device
 
-    def on_iteration_end(self, trainer, sample_count: int) -> None:
-        if self.save_every_samples is None:
+    def on_iteration_end(self, trainer, iteration: int) -> None:
+        if self.save_every_iterations is None:
             return
-        if sample_count % self.save_every_samples != 0:
+        if iteration % self.save_every_iterations != 0:
             return
         os.makedirs(self.models_dir, exist_ok=True)
-        path = os.path.join(self.models_dir, f"model_{sample_count}.pth")
+        path = os.path.join(self.models_dir, f"model_{iteration}.pth")
         trainer.save_model(path)
-        print(f"Model saved to {path}")
+        print(f"Model saved to {path} at iteration {iteration}")
         self._maybe_run_tournament()
 
     def _maybe_run_tournament(self) -> None:

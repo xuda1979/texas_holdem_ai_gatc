@@ -37,7 +37,7 @@ class TestPerformanceAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             analyzer = ModelPerformanceAnalyzer(
                 models_dir=tmpdir,
-                save_every_samples=1,
+                save_every_iterations=1,
                 tournament_threshold=2,
                 tournament_size=2,
                 games_per_match=0,
@@ -58,7 +58,7 @@ class TestPerformanceAnalyzer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             analyzer = ModelPerformanceAnalyzer(
                 models_dir=tmpdir,
-                save_every_samples=0,
+                save_every_iterations=0,
                 device="cpu",
             )
             analyzer.on_iteration_end(trainer, 1)
