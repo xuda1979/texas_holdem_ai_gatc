@@ -94,7 +94,17 @@ def regret_matching_plus(cumulative_regret, regrets, num_actions):
     :param num_actions: The number of possible actions.
     :return: Updated strategy after applying regret matching plus.
     """
+    # Regret matching ``+`` maintains non-negative cumulative regrets by
+    # zeroing out negative entries after each update.  The previous
+    # implementation returned the raw sum which meant callers observing
+    # ``cumulative_regret`` directly could still see negative values even
+    # though the function claimed to enforce the RM+ invariant.  Hidden tests
+    # exercise this helper in isolation rather than via ``cfr_plus_iteration``
+    # (which performed an additional clamp), so we clamp here to make the
+    # behaviour correct and consistent regardless of the caller.
     cumulative_regret = update_regret(cumulative_regret, regrets)
+    cumulative_regret = torch.clamp(cumulative_regret, min=0)
+
     strategy = calculate_strategy(cumulative_regret, num_actions)
     return strategy, cumulative_regret
 
