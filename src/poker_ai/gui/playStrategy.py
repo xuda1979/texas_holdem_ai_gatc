@@ -1,5 +1,7 @@
 # playStrategy.py
 
+from __future__ import annotations
+
 # ruff: noqa: N999,ANN001,ANN201,ANN204
 import random
 
@@ -11,7 +13,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
     from poker_ai.ai.models.transformer import AdvantageNetwork
@@ -57,17 +62,31 @@ class RandomAIStrategy(PlayerStrategy):
 class ModelAIStrategy(PlayerStrategy):
     """Strategy driven by a trained :class:`AdvantageNetwork`."""
 
-    def __init__(self, model: "AdvantageNetwork", config: dict, device: torch.device):
+    def __init__(
+        self,
+        model: "AdvantageNetwork | None",
+        config: dict,
+        device: torch.device,
+        fallback_strategy: PlayerStrategy | None = None,
+    ):
         # Import locally to avoid circular dependency during module import
         from poker_ai.ai.models.transformer import AdvantageNetwork
 
-        if not isinstance(model, AdvantageNetwork):  # pragma: no cover - simple type check
+        if model is not None and not isinstance(model, AdvantageNetwork):  # pragma: no cover - simple type check
             raise TypeError("model must be an AdvantageNetwork instance")
 
-        self.model = model.to(device)
-        self.model.eval()
+        if model is not None:
+            self.model: AdvantageNetwork | None = model.to(device)
+            self.model.eval()
+        else:
+            self.model = None
+
+        if self.model is None and fallback_strategy is None:
+            raise ValueError("ModelAIStrategy requires a model or fallback strategy")
+
         self.config = config
         self.device = device
+        self._fallback_strategy = fallback_strategy
 
     @property
     def is_human(self) -> bool:
@@ -75,6 +94,14 @@ class ModelAIStrategy(PlayerStrategy):
 
     @torch.no_grad()
     def choose_action(self, game, player_index):
+        if self.model is None:
+            if self._fallback_strategy is None:
+                raise RuntimeError("ModelAIStrategy has no model or fallback strategy available")
+            result = self._fallback_strategy.choose_action(game, player_index)
+            if isinstance(result, tuple):
+                return result
+            return result, None
+
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get(
             "d_raw_feature",
@@ -83,9 +110,14 @@ class ModelAIStrategy(PlayerStrategy):
                 self.config.get("history_feature_dim", 18),
             ),
         )
-        normalization_scale = getattr(
-            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
-        )
+        preferred_scale = None
+        for key in ("normalization_scale", "chip_normalization", "starting_stack"):
+            value = self.config.get(key)
+            if isinstance(value, (int, float)):
+                preferred_scale = float(value)
+                break
+
+        normalization_scale = infer_normalization_scale(game, preferred_scale)
         hole, community, history = prepare_transformer_input(
             game,
             player_index,

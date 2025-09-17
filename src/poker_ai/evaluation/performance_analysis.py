@@ -12,7 +12,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 
 class EvalStrategy(PlayerStrategy):
@@ -28,6 +31,8 @@ class EvalStrategy(PlayerStrategy):
             metadata = payload.get("metadata", {})  # type: ignore[assignment]
         else:
             state_dict = payload
+
+        self.config: dict[str, object] = dict(metadata)
 
         self.history_feature_dim = int(metadata.get("history_feature_dim", 18))  # type: ignore[arg-type]
         self.card_feature_dim = int(metadata.get("card_feature_dim", self.history_feature_dim))  # type: ignore[arg-type]
@@ -55,9 +60,14 @@ class EvalStrategy(PlayerStrategy):
 
     @torch.no_grad()
     def choose_action(self, game: TexasHoldem, player_index: int):
-        normalization_scale = getattr(
-            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
-        )
+        preferred_scale = None
+        for key in ("normalization_scale", "chip_normalization", "starting_stack"):
+            value = self.config.get(key)
+            if isinstance(value, (int, float)):
+                preferred_scale = float(value)
+                break
+
+        normalization_scale = infer_normalization_scale(game, preferred_scale)
         hole, community, history = prepare_transformer_input(
             game,
             player_index,

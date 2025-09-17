@@ -14,7 +14,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 
 class SelfPlay:
@@ -51,6 +54,23 @@ class SelfPlay:
 
         return self.cfr_trainer.replay_buffer
 
+    def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
+        """Determine the chip normalization scale for ``game``."""
+
+        config_obj = getattr(self.cfr_trainer, "config", {})
+        preferred_scale = None
+        if isinstance(config_obj, dict):
+            for key in ("normalization_scale", "chip_normalization", "starting_stack"):
+                value = config_obj.get(key)
+                if isinstance(value, (int, float)):
+                    preferred_scale = float(value)
+                    break
+
+        if preferred_scale is None:
+            preferred_scale = float(self.starting_stack)
+
+        return infer_normalization_scale(game, preferred_scale)
+
     def _get_policy(self, game: TexasHoldem, player_id: int) -> torch.Tensor:
         """
         Gets the current policy for a player at a given game state.
@@ -61,11 +81,7 @@ class SelfPlay:
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
-        normalization_scale = getattr(
-            game.rules,
-            "starting_stack",
-            getattr(game, "starting_stack", self.starting_stack),
-        )
+        normalization_scale = self._normalization_scale_for_game(game)
         hole, community, history_tensor = prepare_transformer_input(
             game,
             player_id,
@@ -215,11 +231,7 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            normalization_scale = getattr(
-                game.rules,
-                "starting_stack",
-                getattr(game, "starting_stack", self.starting_stack),
-            )
+            normalization_scale = self._normalization_scale_for_game(game)
             hole_s, community_s, state_tensor = prepare_transformer_input(
                 game,
                 traverser_id,

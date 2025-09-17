@@ -17,7 +17,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 
 class AIStrategy(PlayerStrategy):
@@ -66,9 +69,7 @@ class AIStrategy(PlayerStrategy):
     def choose_action(self, game: TexasHoldem, player_index: int):
         """Chooses an action by querying the model."""
         # 1. Get the policy from the network
-        normalization_scale = getattr(
-            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
-        )
+        normalization_scale = infer_normalization_scale(game)
         hole, community, history = prepare_transformer_input(
             game,
             player_index,

@@ -223,6 +223,24 @@ def _resolve_normalization_scale(
     return 1.0
 
 
+def infer_normalization_scale(
+    game_state: GameState, explicit_scale: float | None = None
+) -> float:
+    """Infer a reasonable chip scale from ``game_state``.
+
+    Parameters
+    ----------
+    game_state:
+        The game instance or lightweight mock containing chip related
+        configuration such as blinds or starting stacks.
+    explicit_scale:
+        Optional preferred scale (for example from configuration files).  When
+        positive it takes precedence over values found on ``game_state``.
+    """
+
+    return _resolve_normalization_scale(game_state, explicit_scale)
+
+
 def prepare_transformer_input(  # noqa: C901
     game_state: GameState,
     current_player_id: str | int,

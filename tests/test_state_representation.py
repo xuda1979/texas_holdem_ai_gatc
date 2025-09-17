@@ -20,6 +20,7 @@ from poker_ai.utils.state_representation import (  # noqa: E402
     TYPE_ID_PLAYER_STACK,
     TYPE_ID_POT,
     _encode_card,
+    infer_normalization_scale,
     prepare_transformer_input,
 )
 
@@ -123,6 +124,36 @@ def test_prepare_transformer_input_normalization_small_stack() -> None:
     stack_row = rows[history_len + 2]
     assert stack_row[1] == TYPE_ID_PLAYER_STACK
     assert stack_row[0] == pytest.approx(1.0)
+
+
+def test_infer_normalization_scale_prefers_explicit_and_rules() -> None:
+    p0 = MockPlayer("p0", ["Ah", "Ks"], 500)
+    gs = MockGameState(
+        [p0],
+        [],
+        pot=0,
+        current_bet=0,
+        betting_round="pre-flop",
+        betting_history=[],
+        player_order=["p0"],
+    )
+    setattr(gs, "starting_stack", 200)
+    setattr(gs, "small_blind", 2)
+
+    # Explicit value wins when positive
+    assert infer_normalization_scale(gs, explicit_scale=150.0) == pytest.approx(150.0)
+
+    # Otherwise the function searches the game and rules for options
+    delattr(gs, "starting_stack")
+    gs.small_blind = 0
+    setattr(gs, "rules", type("Rules", (), {"starting_stack": 400, "big_blind": 5})())
+    assert infer_normalization_scale(gs) == pytest.approx(400.0)
+
+    # If no positive values exist fall back to 1.0
+    gs.rules.starting_stack = 0
+    gs.rules.big_blind = 0
+    gs.rules.small_blind = 0
+    assert infer_normalization_scale(gs) == pytest.approx(1.0)
 
 
 def test_encode_card_full_deck() -> None:

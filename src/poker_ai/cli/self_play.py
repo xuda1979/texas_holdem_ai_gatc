@@ -21,7 +21,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 
 class TransformerStrategy:
@@ -41,9 +44,7 @@ class TransformerStrategy:
     def choose_action(self, game: TexasHoldem, player_index: int):
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
-        normalization_scale = getattr(
-            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
-        )
+        normalization_scale = infer_normalization_scale(game)
         hole, community, history = prepare_transformer_input(
             cast(Any, game),
             player_index,
