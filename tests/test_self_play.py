@@ -1,7 +1,7 @@
 import os
 import sys
 
-from types import MethodType
+from types import MethodType, SimpleNamespace
 
 import pytest
 import torch
@@ -14,6 +14,7 @@ for p in (src_path, project_root):
 
 from unittest.mock import patch
 
+from poker_ai.cli.self_play import extract_game_data
 from poker_ai.selfplay.self_play import SelfPlay
 
 
@@ -58,6 +59,30 @@ def test_play_hand_for_training_runs():
     ):
         data = sp.play_hand_for_training()
     assert isinstance(data, list)
+
+
+def test_extract_game_data_uses_betting_history_directly():
+    betting_history = [("0", ("bet", 100)), ("1", ("call", 100))]
+    community_cards = ["Ah", "Kd", "Qs"]
+    players = [{"stack": 900}, {"stack": 1100}]
+
+    game = SimpleNamespace(
+        hand_count=7,
+        rules=SimpleNamespace(
+            dealer_button=1,
+            betting_history=betting_history,
+            community_cards=community_cards,
+            pot=200,
+        ),
+        get_player_status=lambda: players,
+    )
+
+    data = extract_game_data(game)
+
+    assert data["actions"] is betting_history
+    assert data["actions"] == betting_history
+    assert data["community_cards"] == community_cards
+    assert data["players"] == players
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
