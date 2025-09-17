@@ -4,7 +4,8 @@ from poker_ai.engine.texas_holdem import TexasHoldem
 
 def simulate_self_play(trainer: AICFRTrainer, num_games: int):
     for _ in range(num_games):
-        game = TexasHoldem()
+        # Disable verbose engine logging; no training entry points rely on it.
+        game = TexasHoldem(num_players=2, verbose=False)
         game_state_sequence = game.start()
         # Simulate the game using the AI model and update strategies
         trainer.train(game_state_sequence)
