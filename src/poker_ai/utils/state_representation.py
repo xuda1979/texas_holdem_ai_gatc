@@ -331,9 +331,12 @@ def prepare_transformer_input(  # noqa: C901
     )
     hole_cards = hole_cards.unsqueeze(0)  # batch dimension
 
-    community_cards_tensor = torch.tensor(
-        [_encode_card(c) for c in community_cards], dtype=torch.float32
-    )
+    community_features = [_encode_card(c) for c in community_cards]
+    if community_features:
+        community_cards_tensor = torch.tensor(community_features, dtype=torch.float32)
+    else:
+        feature_dim = len(RANK_TO_NUM) + len(SUIT_TO_NUM)
+        community_cards_tensor = torch.zeros((0, feature_dim), dtype=torch.float32)
     community_cards_tensor = community_cards_tensor.unsqueeze(0)
 
     if set_encoder is not None:
