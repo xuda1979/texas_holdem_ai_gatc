@@ -204,10 +204,19 @@ class SelfPlay:
     def _snapshot_state(self, game: TexasHoldem) -> _GameStateSnapshot:
         """Capture the current mutable state so it can be restored later."""
 
+        rules = game.rules
+        if hasattr(rules, "clone") and callable(getattr(rules, "clone")):
+            rules_snapshot = rules.clone()
+        else:
+            rules_snapshot = copy.deepcopy(rules)
+
+        end_game_early = bool(getattr(game, "end_game_early", False))
+        winner = copy.deepcopy(getattr(game, "winner", None))
+
         return _GameStateSnapshot(
-            rules=game.rules.clone(),
-            end_game_early=game.end_game_early,
-            winner=copy.deepcopy(game.winner),
+            rules=rules_snapshot,
+            end_game_early=end_game_early,
+            winner=winner,
             pending_showdown=copy.deepcopy(getattr(game, "_pending_showdown_winnings", None)),
         )
 

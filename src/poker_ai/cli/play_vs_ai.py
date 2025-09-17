@@ -3,12 +3,17 @@ A command-line interface to play against a trained Poker AI model.
 """
 
 import argparse
+import inspect
 import os
+from collections import OrderedDict
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 
 # ruff: noqa: ANN201,ANN204
 from poker_ai.ai.model_loader import load_model_strategy
+from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import HumanStrategy, ModelAIStrategy, PlayerStrategy
 from poker_ai.rules.cfr import calculate_strategy
@@ -25,6 +30,135 @@ from poker_ai.utils.state_representation import (
 
 class AIStrategy(PlayerStrategy):
     """A strategy that uses a trained AdvantageNetwork to make decisions."""
+
+    @staticmethod
+    def _strip_module_prefix(state_dict: Mapping[str, torch.Tensor]) -> Mapping[str, torch.Tensor]:
+        if not any(key.startswith("module.") for key in state_dict):
+            return state_dict
+        return OrderedDict(
+            (key.partition(".")[2] if key.startswith("module.") else key, value)
+            for key, value in state_dict.items()
+        )
+
+    @staticmethod
+    def _infer_metadata_from_state(
+        state_dict: Mapping[str, torch.Tensor], metadata: Mapping[str, Any] | None = None
+    ) -> dict[str, int] | None:
+        base: dict[str, Any] = {}
+        if metadata:
+            for key, value in metadata.items():
+                if isinstance(value, (int, float)):
+                    base[key] = int(value)
+
+        def _get_tensor(suffix: str) -> torch.Tensor | None:
+            for key, tensor in state_dict.items():
+                if key.endswith(suffix) and isinstance(tensor, torch.Tensor):
+                    return tensor
+            return None
+
+        history_weight = _get_tensor("history_projection.weight")
+        card_weight = _get_tensor("card_projection.weight")
+        fc_weight = _get_tensor("fc.weight")
+
+        if history_weight is None or history_weight.ndim != 2:
+            return None
+        if card_weight is None or card_weight.ndim != 2:
+            return None
+        if fc_weight is None or fc_weight.ndim != 2:
+            return None
+
+        hidden_dim = int(history_weight.shape[0])
+        history_dim = int(history_weight.shape[1])
+        card_dim = int(card_weight.shape[1])
+        num_actions = int(fc_weight.shape[0])
+
+        base.setdefault("hidden_dim", hidden_dim)
+        base.setdefault("history_feature_dim", history_dim)
+        base.setdefault("card_feature_dim", card_dim)
+        base.setdefault("num_actions", num_actions)
+
+        if base["hidden_dim"] <= 0 or base["num_actions"] <= 0:
+            return None
+
+        if "hidden_dim" not in base and fc_weight.shape[1] % 3 == 0:
+            base["hidden_dim"] = int(fc_weight.shape[1] // 3)
+
+        layer_prefix = "transformer.layers."
+        layer_indices = {
+            int(parts[0])
+            for key in state_dict
+            if key.startswith(layer_prefix)
+            and (parts := key[len(layer_prefix) :].split("."))
+            and parts[0].isdigit()
+        }
+        if layer_indices:
+            base.setdefault("num_layers", len(layer_indices))
+
+        if "num_layers" not in base:
+            base["num_layers"] = 2
+
+        if "num_heads" not in base:
+            for candidate in (8, 6, 5, 4, 3, 2):
+                if base["hidden_dim"] % candidate == 0:
+                    base["num_heads"] = candidate
+                    break
+            base.setdefault("num_heads", 1)
+
+        base.setdefault("max_seq_len", 256)
+        base.setdefault("d_raw_feature", base["history_feature_dim"])
+        base.setdefault("input_feature_dim", base["history_feature_dim"])
+
+        try:
+            return {key: int(value) for key, value in base.items()}
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return None
+
+    @classmethod
+    def _recover_model_from_path(
+        cls, model_path: str, map_location: torch.device | str
+    ) -> tuple[AdvantageNetwork, dict[str, int]] | None:
+        try:
+            payload = torch.load(model_path, map_location=map_location)
+        except Exception:
+            return None
+
+        state_dict: Mapping[str, torch.Tensor] | None = None
+        metadata: Mapping[str, Any] | None = None
+
+        if isinstance(payload, Mapping):
+            candidate = payload.get("state_dict")
+            metadata_candidate = payload.get("metadata")
+            if isinstance(candidate, Mapping):
+                state_dict = candidate
+            elif all(isinstance(v, torch.Tensor) for v in payload.values()):
+                state_dict = payload  # type: ignore[assignment]
+            if isinstance(metadata_candidate, Mapping):
+                metadata = metadata_candidate
+        elif isinstance(payload, OrderedDict):  # pragma: no cover - handled above
+            state_dict = payload
+
+        if state_dict is None:
+            return None
+
+        stripped = cls._strip_module_prefix(state_dict)
+        metadata_int = cls._infer_metadata_from_state(stripped, metadata)
+        if metadata_int is None:
+            return None
+
+        try:
+            model = AdvantageNetwork(
+                history_feature_dim=metadata_int["history_feature_dim"],
+                card_feature_dim=metadata_int["card_feature_dim"],
+                hidden_dim=metadata_int["hidden_dim"],
+                num_heads=metadata_int["num_heads"],
+                num_layers=metadata_int["num_layers"],
+                num_actions=metadata_int["num_actions"],
+            )
+            model.load_state_dict(stripped)
+        except Exception:
+            return None
+
+        return model, metadata_int
 
     def __init__(
         self,
@@ -50,16 +184,18 @@ class AIStrategy(PlayerStrategy):
 
         self._torch_device = target_device
 
+        wrap_for_npu = (
+            use_all_npus
+            and (device == "npu" or getattr(target_device, "type", None) == "npu")
+            and hasattr(torch, "npu")
+            and torch.npu.is_available()
+            and torch.npu.device_count() > 1
+        )
+
         if isinstance(loaded_strategy, ModelAIStrategy):
             model = loaded_strategy.model.to(target_device)
 
-            if (
-                use_all_npus
-                and target_device.type == "npu"
-                and hasattr(torch, "npu")
-                and torch.npu.is_available()
-                and torch.npu.device_count() > 1
-            ):
+            if wrap_for_npu:
                 model = torch.nn.DataParallel(model)
 
             self.model = model
@@ -84,7 +220,22 @@ class AIStrategy(PlayerStrategy):
             self.num_actions = configured_num_actions
             self.config["num_actions"] = self.num_actions
         else:
-            self._fallback_strategy = loaded_strategy
+            recovered = self._recover_model_from_path(model_path, loader_device)
+            if recovered is not None:
+                model, metadata = recovered
+                model = model.to(target_device)
+                if wrap_for_npu:
+                    model = torch.nn.DataParallel(model)
+                self.model = model
+                self.model.eval()
+                self.config = dict(metadata)
+                self.max_seq_len = int(self.config.get("max_seq_len", self.max_seq_len))
+                self.feature_dim = int(self.config.get("d_raw_feature", self.feature_dim))
+                self.num_actions = int(self.config.get("num_actions", self.num_actions))
+                self.config["num_actions"] = self.num_actions
+                self._fallback_strategy = None
+            else:
+                self._fallback_strategy = loaded_strategy
 
     @property
     def is_human(self):
@@ -113,16 +264,35 @@ class AIStrategy(PlayerStrategy):
         else:
  
             normalization_scale = self._normalization_scale(game)
- 
-            hole, community, history = prepare_transformer_input(
-                game,
-                player_index,
-                self.max_seq_len,
-                self.feature_dim,
- 
-                normalization_scale=normalization_scale,
- 
-            )
+
+            prepare_fn = prepare_transformer_input
+            supports_normalization = False
+            try:
+                signature = inspect.signature(prepare_fn)
+            except (TypeError, ValueError):  # pragma: no cover - dynamic objects
+                supports_normalization = False
+            else:
+                supports_normalization = "normalization_scale" in signature.parameters
+
+            if supports_normalization:
+                tensors = prepare_fn(
+                    game,
+                    player_index,
+                    self.max_seq_len,
+                    self.feature_dim,
+                    normalization_scale=normalization_scale,
+                )
+            else:
+                tensors = prepare_fn(
+                    game,
+                    player_index,
+                    self.max_seq_len,
+                    self.feature_dim,
+                )
+
+            hole = tensors[0]
+            community = tensors[1]
+            history = tensors[2]
             advantages = (
                 self.model(
                     hole.unsqueeze(0).to(self._torch_device),

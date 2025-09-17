@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -6,6 +7,49 @@ from typing import Any
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 ENV_CONFIG_PATH = "POKER_AI_CONFIG"
 ENV_PREFIX = "POKER_AI__"
+
+
+_FALLBACK_CONFIG: dict[str, Any] = {
+    "game_engine": {
+        "num_players": 2,
+        "starting_stack": 10000,
+        "small_blind": 10,
+        "big_blind": 20,
+    },
+    "training": {
+        "num_training_hands": 2_000_000,
+        "save_model_every_n_hands": 10_000,
+        "save_model_every_minutes": 10,
+        "log_every_n_hands": 1000,
+        "cfr_algorithm": "vanilla",
+        "cfr_discount_factor": 1.0,
+        "distributed_workers": 1,
+        "save_model_path": "trained_models/cfr_model.pth",
+        "min_buffer_before_train": 256,
+    },
+    "model": {
+        "directory": "trained_models/",
+        "filename_prefix": "cfr_model",
+        "hidden_dim": 128,
+        "num_actions": 10,
+        "d_raw_feature": 18,
+    },
+    "player_strategies": ["cfr_trained", "random"],
+    "simulation": {
+        "num_simulation_hands": 1000,
+        "log_results_to_file": True,
+        "results_filename": "simulation_results.txt",
+    },
+    "abstraction": {"enabled": False, "buckets": 5},
+    "api_server": {"host": "0.0.0.0", "port": 5001, "debug_mode": True},
+    "evaluation": {"best_response_iterations": 100},
+    "logging": {
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "log_to_file": True,
+        "log_file": "poker_ai.log",
+    },
+}
 
 
 _YAML: ModuleType | None = None
@@ -62,12 +106,15 @@ def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     config_path = Path(path_str) if path_str else DEFAULT_CONFIG_PATH
     data: dict[str, Any] = {}
     if yaml is None:
-        if path_str or config_path.exists():
+        resolved_default = DEFAULT_CONFIG_PATH.resolve()
+        resolved_requested = config_path.resolve()
+        if path_str and resolved_requested != resolved_default:
             raise RuntimeError(
                 "PyYAML is required to load configuration files "
                 f"(attempted path: {config_path}). "
                 "Install the 'PyYAML' package to enable configuration loading."
             )
+        data = deepcopy(_FALLBACK_CONFIG)
         _apply_env_overrides(data)
         return data
     try:
