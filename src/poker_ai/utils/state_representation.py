@@ -100,11 +100,6 @@ TYPE_ID_ROUND = 4.0
 # example for d_raw_feature=3, as all three positions are used for
 # player_id, action_id, amount.
 
-# Normalization constants (placeholders, ideally should be more dynamic or configurable)
-NORM_AMOUNT = 100.0  # e.g. divide amounts by a typical big blind or average pot
-NORM_STACK_POT = 100.0  # For stack and pot sizes
-
-
 class CardSetTransformer(nn.Module):
     """A lightweight Set Transformer for encoding unordered card sets.
 
@@ -198,11 +193,60 @@ def _get_numeric_player_id(player_id: str | int, all_player_ids_in_order: list[s
         ) from exc
 
 
+def _resolve_normalization_scale(
+    game_state: GameState, explicit_scale: float | None
+) -> float:
+    """Return a positive chip scale for feature normalisation."""
+
+    candidates: list[float | int | None] = [explicit_scale]
+    rules = getattr(game_state, "rules", None)
+    for source in (game_state, rules):
+        if source is None:
+            continue
+        for attr in (
+            "normalization_scale",
+            "chip_normalization",
+            "starting_stack",
+            "big_blind",
+            "small_blind",
+        ):
+            candidates.append(getattr(source, attr, None))
+
+    for candidate in candidates:
+        try:
+            value = float(candidate)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+
+    return 1.0
+
+
+def infer_normalization_scale(
+    game_state: GameState, explicit_scale: float | None = None
+) -> float:
+    """Infer a reasonable chip scale from ``game_state``.
+
+    Parameters
+    ----------
+    game_state:
+        The game instance or lightweight mock containing chip related
+        configuration such as blinds or starting stacks.
+    explicit_scale:
+        Optional preferred scale (for example from configuration files).  When
+        positive it takes precedence over values found on ``game_state``.
+    """
+
+    return _resolve_normalization_scale(game_state, explicit_scale)
+
+
 def prepare_transformer_input(  # noqa: C901
     game_state: GameState,
     current_player_id: str | int,
     max_seq_len: int,
     d_raw_feature: int,
+    normalization_scale: float | None = None,
     set_encoder: CardSetTransformer | None = None,
     return_mask: bool = False,
 ) -> (
@@ -215,6 +259,11 @@ def prepare_transformer_input(  # noqa: C901
     summary of the community cards, and the sequential history features.  If
     ``return_mask`` is ``True`` an additional attention mask for the history
     sequence is provided.
+
+    The ``normalization_scale`` argument defines the divisor used when
+    normalising chip amounts such as bet sizes, pot size and stack depth.  If
+    omitted the function inspects common configuration fields on ``game_state``
+    (e.g. ``starting_stack`` or ``big_blind``) to pick a positive scale.
     """
 
     # ------------------------------------------------------------------
@@ -303,6 +352,7 @@ def prepare_transformer_input(  # noqa: C901
     raw_sequence: list[list[float]] = []
 
     all_player_ids_ordered = list(player_order)
+    scale = _resolve_normalization_scale(game_state, normalization_scale)
 
     def _pad_feature(values: list[float]) -> list[float]:
         base = list(values)
@@ -315,21 +365,21 @@ def prepare_transformer_input(  # noqa: C901
         action_name, amount_val = action_tuple
         numeric_p_id = float(_get_numeric_player_id(p_id_str, all_player_ids_ordered))
         action_id = float(ACTION_TO_ID.get(action_name.lower(), -1))  # -1 for unknown
-        normalized_amount = float(amount_val / NORM_AMOUNT if amount_val is not None else 0.0)
+        normalized_amount = float(amount_val / scale if amount_val is not None else 0.0)
         raw_sequence.append(_pad_feature([numeric_p_id, action_id, normalized_amount]))
 
     # Pot size
-    normalized_pot = float(pot / NORM_STACK_POT)
+    normalized_pot = float(pot / scale)
     raw_sequence.append(_pad_feature([normalized_pot, TYPE_ID_POT]))
 
     # Current bet faced by player
     player_bet_in_round = getattr(current_player_obj, "current_bet_in_round", 0)
     effective_bet_faced = max(0, current_bet - player_bet_in_round)
-    normalized_bet_faced = float(effective_bet_faced / NORM_AMOUNT)
+    normalized_bet_faced = float(effective_bet_faced / scale)
     raw_sequence.append(_pad_feature([normalized_bet_faced, TYPE_ID_CURRENT_BET]))
 
     # Player stack
-    normalized_stack = float(current_player_obj.stack / NORM_STACK_POT)
+    normalized_stack = float(current_player_obj.stack / scale)
     raw_sequence.append(_pad_feature([normalized_stack, TYPE_ID_PLAYER_STACK]))
 
     # Betting round indicator

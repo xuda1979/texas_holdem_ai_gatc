@@ -16,7 +16,20 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
+
+
+@dataclass
+class _GameStateSnapshot:
+    """Lightweight snapshot for restoring ``TexasHoldem`` traversal state."""
+
+    rules: TexasHoldemRules
+    end_game_early: bool
+    winner: Any
+    pending_showdown: Any
 
 
 @dataclass
@@ -51,6 +64,25 @@ class SelfPlay:
         except (TypeError, ValueError):  # pragma: no cover - defensive
             min_buffer = 256
         self.min_buffer_before_train = max(1, min_buffer)
+ 
+
+    def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
+        """Determine the chip normalization scale for ``game``."""
+
+        config_obj = getattr(self.cfr_trainer, "config", {})
+        preferred_scale = None
+        if isinstance(config_obj, dict):
+            for key in ("normalization_scale", "chip_normalization", "starting_stack"):
+                value = config_obj.get(key)
+                if isinstance(value, (int, float)):
+                    preferred_scale = float(value)
+                    break
+
+        if preferred_scale is None:
+            preferred_scale = float(self.starting_stack)
+
+        return infer_normalization_scale(game, preferred_scale)
+ 
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
@@ -87,8 +119,13 @@ class SelfPlay:
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
+        normalization_scale = self._normalization_scale_for_game(game)
         hole, community, history_tensor = prepare_transformer_input(
-            game, player_id, max_seq_len, d_raw_feature
+            game,
+            player_id,
+            max_seq_len,
+            d_raw_feature,
+            normalization_scale=normalization_scale,
         )
 
         # b. Get advantages from the network (support older trainer signatures)

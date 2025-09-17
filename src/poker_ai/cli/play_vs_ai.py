@@ -17,7 +17,10 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
-from poker_ai.utils.state_representation import prepare_transformer_input
+from poker_ai.utils.state_representation import (
+    infer_normalization_scale,
+    prepare_transformer_input,
+)
 
 
 class AIStrategy(PlayerStrategy):
@@ -89,6 +92,15 @@ class AIStrategy(PlayerStrategy):
             return self._fallback_strategy.is_human
         return False
 
+    def _normalization_scale(self, game: TexasHoldem) -> float:
+        preferred_scale = None
+        for key in ("normalization_scale", "chip_normalization", "starting_stack"):
+            value = self.config.get(key)
+            if isinstance(value, (int, float)):
+                preferred_scale = float(value)
+                break
+        return infer_normalization_scale(game, preferred_scale)
+
     @torch.no_grad()
     def choose_action(self, game: TexasHoldem, player_index: int):
         """Chooses an action by querying the model."""
@@ -99,11 +111,17 @@ class AIStrategy(PlayerStrategy):
             else:
                 action_str, amount = result, None
         else:
+ 
+            normalization_scale = self._normalization_scale(game)
+ 
             hole, community, history = prepare_transformer_input(
                 game,
                 player_index,
                 self.max_seq_len,
                 self.feature_dim,
+ 
+                normalization_scale=normalization_scale,
+ 
             )
             advantages = (
                 self.model(
