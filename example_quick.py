@@ -5,7 +5,16 @@ Quick test to verify major fixes are working (without PyTorch dependencies)
 import os
 import sys
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Ensure the project root and ``src`` directory are importable when the script is
+# executed directly.  Without this adjustment ``poker_ai`` (which lives under
+# ``src/``) cannot be imported, causing the quick sanity checks to fail when
+# executed outside of the test harness.
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC_PATH = os.path.join(PROJECT_ROOT, "src")
+
+for path in (PROJECT_ROOT, SRC_PATH):
+    if path not in sys.path:
+        sys.path.insert(0, path)
 
 
 def test_core_functionality():
@@ -28,9 +37,17 @@ def test_core_functionality():
         game.rules.deal_community_cards("flop")
         print(f"✓ Flop dealt: {game.rules.community_cards}")
         print(f"✓ Deck has {len(game.rules.deck)} cards remaining")
-        # Test configuration (basic check)
-        if os.path.exists("config.yaml"):
-            print("✓ Configuration file (config.yaml) exists")
+
+        # Test configuration (basic check).  The project keeps configuration in
+        # ``src/poker_ai/config/config.yaml`` but some legacy setups used a
+        # top-level ``config.yaml``.  Accept either location so the example
+        # works in both environments.
+        config_candidates = [
+            os.path.join(PROJECT_ROOT, "config.yaml"),
+            os.path.join(SRC_PATH, "poker_ai", "config", "config.yaml"),
+        ]
+        if any(os.path.exists(path) for path in config_candidates):
+            print("✓ Configuration file found")
         else:
             print("✗ Configuration file missing")
             return False
@@ -52,17 +69,16 @@ def test_gui_fixes():
 
         print("✓ GUI can be imported")
 
-        # Check for the infinite recursion fix
-        if hasattr(PokerGameGUI, "_show_next_hand_option"):
-            print("✓ GUI has _show_next_hand_option method (infinite recursion fix)")
+        # Check for the infinite recursion fix: the current GUI exposes a
+        # ``next_hand`` method that is triggered via a "Next Hand" button after
+        # a hand completes.  Earlier versions used private helpers, so we accept
+        # either implementation for compatibility.
+        if hasattr(PokerGameGUI, "next_hand"):
+            print("✓ GUI has next_hand method (infinite recursion fix)")
+        elif hasattr(PokerGameGUI, "_show_next_hand_option"):
+            print("✓ GUI has _show_next_hand_option method (legacy fix)")
         else:
-            print("✗ GUI missing _show_next_hand_option method")
-            return False
-
-        if hasattr(PokerGameGUI, "_start_next_hand"):
-            print("✓ GUI has _start_next_hand method")
-        else:
-            print("✗ GUI missing _start_next_hand method")
+            print("✗ GUI missing next hand handling method")
             return False
 
         return True
