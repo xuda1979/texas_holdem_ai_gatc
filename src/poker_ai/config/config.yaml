@@ -16,6 +16,7 @@ training:
   cfr_discount_factor: 1.0 # Discount factor for discounted CFR+
   distributed_workers: 1 # Number of workers for distributed self-play
   save_model_path: "trained_models/cfr_model.pth" # Moved from model section for ai_cfr_trainer compatibility
+  min_buffer_before_train: 256 # Minimum replay buffer size before starting a training step
   # CFR+ specific parameters (if used)
   # cfr_plus_alpha: 1.5 # Alpha parameter for CFR+ (controls regret weighting)
   # cfr_plus_beta: 0.5  # Beta parameter for CFR+ (controls strategy weighting)

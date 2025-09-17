@@ -111,13 +111,17 @@ class AIStrategy(PlayerStrategy):
             else:
                 action_str, amount = result, None
         else:
+ 
             normalization_scale = self._normalization_scale(game)
+ 
             hole, community, history = prepare_transformer_input(
                 game,
                 player_index,
                 self.max_seq_len,
                 self.feature_dim,
+ 
                 normalization_scale=normalization_scale,
+ 
             )
             advantages = (
                 self.model(

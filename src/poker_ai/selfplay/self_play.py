@@ -32,6 +32,16 @@ class _GameStateSnapshot:
     pending_showdown: Any
 
 
+@dataclass
+class _GameStateSnapshot:
+    """Lightweight snapshot for restoring ``TexasHoldem`` traversal state."""
+
+    rules: TexasHoldemRules
+    end_game_early: bool
+    winner: Any
+    pending_showdown: Any
+
+
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
@@ -54,6 +64,7 @@ class SelfPlay:
         except (TypeError, ValueError):  # pragma: no cover - defensive
             min_buffer = 256
         self.min_buffer_before_train = max(1, min_buffer)
+ 
 
     def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
         """Determine the chip normalization scale for ``game``."""
@@ -71,6 +82,7 @@ class SelfPlay:
             preferred_scale = float(self.starting_stack)
 
         return infer_normalization_scale(game, preferred_scale)
+ 
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""

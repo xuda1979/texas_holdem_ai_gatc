@@ -48,6 +48,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.device = None
         args_mock.gpus = False
         args_mock.npus = False
+        args_mock.min_buffer_before_train = None
 
         training_params_mock = {
             "save_model_every_minutes": save_interval_minutes,
@@ -102,6 +103,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.device = None
         args_mock.gpus = False
         args_mock.npus = False
+        args_mock.min_buffer_before_train = None
 
         training_params_mock = {
             "save_model_every_minutes": 0,
@@ -156,6 +158,7 @@ class TestRunTraining(unittest.TestCase):
         args_mock.device = None
         args_mock.gpus = False
         args_mock.npus = False
+        args_mock.min_buffer_before_train = None
 
         training_params_mock = {
             "save_model_every_minutes": args_mock.save_minutes,
