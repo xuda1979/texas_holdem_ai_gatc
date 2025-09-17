@@ -66,7 +66,16 @@ class AIStrategy(PlayerStrategy):
     def choose_action(self, game: TexasHoldem, player_index: int):
         """Chooses an action by querying the model."""
         # 1. Get the policy from the network
-        hole, community, history = prepare_transformer_input(game, player_index, 256, 18)
+        normalization_scale = getattr(
+            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
+        )
+        hole, community, history = prepare_transformer_input(
+            game,
+            player_index,
+            256,
+            18,
+            normalization_scale=normalization_scale,
+        )
         advantages = (
             self.model(
                 hole.unsqueeze(0).to(self.device),

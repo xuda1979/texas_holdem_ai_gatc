@@ -41,11 +41,15 @@ class TransformerStrategy:
     def choose_action(self, game: TexasHoldem, player_index: int):
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
+        normalization_scale = getattr(
+            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
+        )
         hole, community, history = prepare_transformer_input(
             cast(Any, game),
             player_index,
             max_seq_len,
             d_raw_feature,
+            normalization_scale=normalization_scale,
             return_mask=False,
         )
         advantages = (

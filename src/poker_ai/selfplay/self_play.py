@@ -61,8 +61,17 @@ class SelfPlay:
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
+        normalization_scale = getattr(
+            game.rules,
+            "starting_stack",
+            getattr(game, "starting_stack", self.starting_stack),
+        )
         hole, community, history_tensor = prepare_transformer_input(
-            game, player_id, max_seq_len, d_raw_feature
+            game,
+            player_id,
+            max_seq_len,
+            d_raw_feature,
+            normalization_scale=normalization_scale,
         )
 
         # b. Get advantages from the network (support older trainer signatures)
@@ -206,8 +215,17 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
+            normalization_scale = getattr(
+                game.rules,
+                "starting_stack",
+                getattr(game, "starting_stack", self.starting_stack),
+            )
             hole_s, community_s, state_tensor = prepare_transformer_input(
-                game, traverser_id, max_seq_len, d_raw_feature
+                game,
+                traverser_id,
+                max_seq_len,
+                d_raw_feature,
+                normalization_scale=normalization_scale,
             )
             if hasattr(self.cfr_trainer, "replay_buffer"):
                 try:

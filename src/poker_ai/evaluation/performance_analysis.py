@@ -55,8 +55,15 @@ class EvalStrategy(PlayerStrategy):
 
     @torch.no_grad()
     def choose_action(self, game: TexasHoldem, player_index: int):
+        normalization_scale = getattr(
+            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
+        )
         hole, community, history = prepare_transformer_input(
-            game, player_index, self.max_seq_len, self.history_feature_dim
+            game,
+            player_index,
+            self.max_seq_len,
+            self.history_feature_dim,
+            normalization_scale=normalization_scale,
         )
         advantages = (
             self.model(

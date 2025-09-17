@@ -83,8 +83,15 @@ class ModelAIStrategy(PlayerStrategy):
                 self.config.get("history_feature_dim", 18),
             ),
         )
+        normalization_scale = getattr(
+            game.rules, "starting_stack", getattr(game, "starting_stack", 1.0)
+        )
         hole, community, history = prepare_transformer_input(
-            game, player_index, max_seq_len, d_raw_feature
+            game,
+            player_index,
+            max_seq_len,
+            d_raw_feature,
+            normalization_scale=normalization_scale,
         )
         advantages = (
             self.model(
