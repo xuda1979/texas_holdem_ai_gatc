@@ -12,9 +12,15 @@ def _run_hand(args: dict[str, Any]) -> list[Any]:
 
 
 class DistributedSelfPlay:
-    def __init__(self, cfr_trainer, game_engine_config: dict[str, Any]):
+    def __init__(
+        self,
+        cfr_trainer,
+        game_engine_config: dict[str, Any],
+        training_config: dict[str, Any] | None = None,
+    ):
         self.cfr_trainer = cfr_trainer
         self.game_engine_config = game_engine_config
+        self.training_config = training_config
 
     def run(self, num_hands: int, num_workers: int = 2) -> list[list[Any]]:
         """Execute multiple hands in parallel and collect results."""
@@ -23,7 +29,11 @@ class DistributedSelfPlay:
             hands_per_worker[i] += 1
         tasks = []
         for count in hands_per_worker:
-            sp = SelfPlay(self.cfr_trainer, self.game_engine_config)
+            sp = SelfPlay(
+                self.cfr_trainer,
+                self.game_engine_config,
+                training_config=self.training_config,
+            )
             for _ in range(count):
                 tasks.append({"self_play": sp})
         with Pool(processes=num_workers) as pool:
