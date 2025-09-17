@@ -74,9 +74,6 @@ class TransformerStrategy:
         return action_to_tuple(action)
 
 
-COMMON_ACTIONS = ["talk", "move"]
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Run self-play simulation")
     parser.add_argument("--config", default=None, help="Path to configuration YAML file")
@@ -270,12 +267,6 @@ def _normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     normalized.setdefault("d_card_feature", card_feature_dim)
 
     return normalized
-
-
-def append_common_actions(actions):
-    return actions + COMMON_ACTIONS
-
-
 def save_game_history(game):
     history_dir = os.path.join(config.BASE_DATA_DIR, "historical_actions")
     if not os.path.exists(history_dir):
@@ -306,7 +297,7 @@ def extract_game_data(game):
     return {
         "hand_number": game.hand_count,
         "dealer": game.rules.dealer_button + 1,
-        "actions": append_common_actions(game.rules.betting_history),
+        "actions": game.rules.betting_history,
         "community_cards": game.rules.community_cards,
         "pot": game.rules.pot,
         "players": game.get_player_status(),
