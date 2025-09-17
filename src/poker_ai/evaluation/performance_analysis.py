@@ -33,7 +33,6 @@ class EvalStrategy(PlayerStrategy):
             state_dict = payload
 
         self.config: dict[str, object] = dict(metadata)
-
         self.history_feature_dim = int(metadata.get("history_feature_dim", 18))  # type: ignore[arg-type]
         self.card_feature_dim = int(metadata.get("card_feature_dim", self.history_feature_dim))  # type: ignore[arg-type]
         hidden_dim = int(metadata.get("hidden_dim", 128))  # type: ignore[arg-type]

@@ -2,13 +2,15 @@
 
 # ruff: noqa
 
+import copy
 import random
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 import torch
 
 # Assuming these imports are correct relative to the project structure
-from poker_ai.engine.texas_holdem import TexasHoldem
+from poker_ai.engine.texas_holdem import TexasHoldem, TexasHoldemRules
 from poker_ai.utils.action_mapping import (
     action_to_tuple,
     get_action_from_index,
@@ -20,39 +22,38 @@ from poker_ai.utils.state_representation import (
 )
 
 
+@dataclass
+class _GameStateSnapshot:
+    """Lightweight snapshot for restoring ``TexasHoldem`` traversal state."""
+
+    rules: TexasHoldemRules
+    end_game_early: bool
+    winner: Any
+    pending_showdown: Any
+
+
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
-    def __init__(self, cfr_trainer: object, game_engine_config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        cfr_trainer: object,
+        game_engine_config: dict[str, Any],
+        training_config: dict[str, Any] | None = None,
+    ) -> None:
         self.cfr_trainer = cfr_trainer
         self.starting_stack = game_engine_config.get("starting_stack", 1000)
         self.big_blind = game_engine_config.get("big_blind", 10)
         self.small_blind = game_engine_config.get("small_blind", 5)
         self.min_players = game_engine_config.get("min_players", 2)
         self.max_players = game_engine_config.get("max_players", 10)
-
-    def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
-        """Run one full MCCFR traversal for a new hand."""
-        # 1. Initialize a new hand with a random number of players
-        num_players = random.randint(self.min_players, self.max_players)
-        game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
-        game.rules.big_blind = self.big_blind
-        game.rules.small_blind = self.small_blind
-        game.initialize_game()
-
-        # 2. Perform a traversal for each player in the hand
-        base_reach = [1.0] * num_players
-        for traverser_id in range(num_players):
-            self._traverse_mccfr(game.clone(), traverser_id, iteration, base_reach.copy())
-
-        # 3. After the traversals, run a training step on the collected data
-
-        if len(self.cfr_trainer.replay_buffer) >= 256:
-            loss = self.cfr_trainer.train(batch_size=256)
-            if loss is not None:
-                print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
-
-        return self.cfr_trainer.replay_buffer
+        cfg = training_config or {}
+        min_buffer_raw = cfg.get("min_buffer_before_train", 256)
+        try:
+            min_buffer = int(min_buffer_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            min_buffer = 256
+        self.min_buffer_before_train = max(1, min_buffer)
 
     def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
         """Determine the chip normalization scale for ``game``."""
@@ -70,6 +71,31 @@ class SelfPlay:
             preferred_scale = float(self.starting_stack)
 
         return infer_normalization_scale(game, preferred_scale)
+
+    def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
+        """Run one full MCCFR traversal for a new hand."""
+        # 1. Initialize a new hand with a random number of players
+        num_players = random.randint(self.min_players, self.max_players)
+        game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
+        game.rules.big_blind = self.big_blind
+        game.rules.small_blind = self.small_blind
+        game.initialize_game()
+
+        # 2. Perform a traversal for each player in the hand
+        base_reach = [1.0] * num_players
+        for traverser_id in range(num_players):
+            snapshot = self._snapshot_state(game)
+            self._traverse_mccfr(game, traverser_id, iteration, base_reach.copy(), [])
+            self._restore_state(game, snapshot)
+
+        # 3. After the traversals, run a training step on the collected data
+
+        if len(self.cfr_trainer.replay_buffer) >= self.min_buffer_before_train:
+            loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
+            if loss is not None:
+                print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
+
+        return self.cfr_trainer.replay_buffer
 
     def _get_policy(self, game: TexasHoldem, player_id: int) -> torch.Tensor:
         """
@@ -141,32 +167,56 @@ class SelfPlay:
         actions_this_round = getattr(rules, "actions_this_round", 0)
         return all_settled and actions_this_round >= len(active_non_allin)
 
-    def _advance_street(self, game: TexasHoldem) -> TexasHoldem:
-        """Return a cloned game state advanced to the next street with clean betting state."""
+    def _advance_street(self, game: TexasHoldem) -> None:
+        """Advance the existing game to the next street without allocating a clone."""
 
-        next_game = game.clone()
-        next_game.rules.end_betting_round_cleanup()
+        game.rules.end_betting_round_cleanup()
 
-        community_cards = next_game.rules.community_cards
+        community_cards = game.rules.community_cards
         if len(community_cards) == 0:
-            next_game.play_stage("flop")
+            game.play_stage("flop")
         elif len(community_cards) == 3:
-            next_game.play_stage("turn")
+            game.play_stage("turn")
         elif len(community_cards) == 4:
-            next_game.play_stage("river")
+            game.play_stage("river")
 
         # First player to act post-flop is directly left of the dealer button.
-        start_player = (next_game.rules.dealer_button + 1) % next_game.rules.num_players
+        start_player = (game.rules.dealer_button + 1) % game.rules.num_players
         current = start_player
-        for _ in range(next_game.rules.num_players):
-            if (
-                next_game.rules.active_players[current]
-                and next_game.rules.player_chips[current] > 0
-            ):
+        for _ in range(game.rules.num_players):
+            if game.rules.active_players[current] and game.rules.player_chips[current] > 0:
                 break
-            current = (current + 1) % next_game.rules.num_players
-        next_game.rules.current_player = current
-        return next_game
+            current = (current + 1) % game.rules.num_players
+        game.rules.current_player = current
+
+    def _snapshot_state(self, game: TexasHoldem) -> _GameStateSnapshot:
+        """Capture the current mutable state so it can be restored later."""
+
+        return _GameStateSnapshot(
+            rules=game.rules.clone(),
+            end_game_early=game.end_game_early,
+            winner=copy.deepcopy(game.winner),
+            pending_showdown=copy.deepcopy(getattr(game, "_pending_showdown_winnings", None)),
+        )
+
+    def _restore_state(self, game: TexasHoldem, snapshot: _GameStateSnapshot) -> None:
+        """Restore ``game`` to a previously captured snapshot."""
+
+        game.rules = snapshot.rules
+        game.end_game_early = snapshot.end_game_early
+        game.winner = snapshot.winner
+        if hasattr(game, "_pending_showdown_winnings"):
+            game._pending_showdown_winnings = snapshot.pending_showdown
+
+    def _apply_action_in_place(
+        self, game: TexasHoldem, player_id: int, action_idx: int
+    ) -> None:
+        """Apply an indexed action to ``game`` without cloning."""
+
+        action = get_action_from_index(action_idx, game, player_id=player_id)
+        action_str, amount = action_to_tuple(action)
+        game.process_action(player_id, action_str, amount)
+        game.rules.advance_turn()
 
     def _traverse_mccfr(  # noqa: C901
         self,
@@ -174,26 +224,33 @@ class SelfPlay:
         traverser_id: int,
         iteration: int,
         reach_probs: list[float],
+        undo_stack: Optional[List[_GameStateSnapshot]] = None,
     ) -> float:
         """Recursive function to perform an External Sampling MCCFR traversal."""
+
+        if undo_stack is None:
+            undo_stack = []
+
         # --- Terminal Node ---
-        # Check if the hand is over (e.g., showdown, or one player folds)
         if game.is_hand_over():
             return game.get_payoff(traverser_id)
 
         # --- Chance Node ---
         if self._is_betting_round_over(game):
-            next_game = self._advance_street(game)
-            return self._traverse_mccfr(next_game, traverser_id, iteration, reach_probs)
+            undo_stack.append(self._snapshot_state(game))
+            self._advance_street(game)
+            value = self._traverse_mccfr(
+                game, traverser_id, iteration, reach_probs, undo_stack
+            )
+            snapshot = undo_stack.pop()
+            self._restore_state(game, snapshot)
+            return value
 
         # --- Decision Node ---
         current_player = game.rules.current_player
         policy = self._get_policy(game, current_player)
 
         if current_player == traverser_id:
-            # --- Traverser's Node ---
-            # We iterate over all legal actions to calculate regrets.
-            node_value = 0.0
             action_utilities = torch.zeros(self.cfr_trainer.num_actions)
 
             legal_actions_mask = get_legal_actions_mask(
@@ -203,25 +260,17 @@ class SelfPlay:
                 if not legal_actions_mask[action_idx]:
                     continue
 
-                # Create a new game state for this action
-                next_game = game.clone()
-                action = get_action_from_index(action_idx, next_game, player_id=current_player)
-                action_str, amount = action_to_tuple(action)
-                next_game.process_action(current_player, action_str, amount)
-                next_game.rules.advance_turn()
-
-                # Recursively call to get the utility of this action
+                undo_stack.append(self._snapshot_state(game))
+                self._apply_action_in_place(game, current_player, action_idx)
                 action_utilities[action_idx] = self._traverse_mccfr(
-                    next_game, traverser_id, iteration, reach_probs.copy()
+                    game, traverser_id, iteration, reach_probs, undo_stack
                 )
+                snapshot = undo_stack.pop()
+                self._restore_state(game, snapshot)
 
-            # Calculate node value using the current policy
             node_value = (action_utilities * policy).sum().item()
-
-            # Calculate regrets and store in replay buffer
             regrets = action_utilities - node_value
 
-            # Use the opponent's reach probability for weighting the regret update
             opponent_reach = 1.0
             for idx, prob in enumerate(reach_probs):
                 if idx != traverser_id:
@@ -231,13 +280,8 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            normalization_scale = self._normalization_scale_for_game(game)
             hole_s, community_s, state_tensor = prepare_transformer_input(
-                game,
-                traverser_id,
-                max_seq_len,
-                d_raw_feature,
-                normalization_scale=normalization_scale,
+                game, traverser_id, max_seq_len, d_raw_feature
             )
             if hasattr(self.cfr_trainer, "replay_buffer"):
                 try:
@@ -251,25 +295,18 @@ class SelfPlay:
                         iteration,
                     )
                 except TypeError:
-                    # Older replay buffers accept only regret targets.
                     self.cfr_trainer.replay_buffer.push(
                         hole_s, community_s, state_tensor, weighted_regrets, iteration
                     )
 
             return node_value
-        else:
-            # --- Opponent's Node ---
-            # We sample one action and continue the traversal.
-            action_idx = torch.multinomial(policy, 1).item()
 
-            # Create the next game state
-            next_game = game.clone()
-            action = get_action_from_index(action_idx, next_game, player_id=current_player)
-            action_str, amount = action_to_tuple(action)
-            next_game.process_action(current_player, action_str, amount)
-            next_game.rules.advance_turn()
-
-            # Update reach probabilities for the sampled action
-            new_reach = reach_probs.copy()
-            new_reach[current_player] *= policy[action_idx].item()
-            return self._traverse_mccfr(next_game, traverser_id, iteration, new_reach)
+        action_idx = torch.multinomial(policy, 1).item()
+        undo_stack.append(self._snapshot_state(game))
+        self._apply_action_in_place(game, current_player, action_idx)
+        new_reach = reach_probs.copy()
+        new_reach[current_player] *= policy[action_idx].item()
+        value = self._traverse_mccfr(game, traverser_id, iteration, new_reach, undo_stack)
+        snapshot = undo_stack.pop()
+        self._restore_state(game, snapshot)
+        return value
