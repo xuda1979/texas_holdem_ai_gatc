@@ -96,7 +96,7 @@ class AIStrategy(PlayerStrategy):
         action_str, amount = action_to_tuple(action)
 
         print(
-            "AI (Player {player_index + 1}) chose action: "
+            f"AI (Player {player_index + 1}) chose action: "
             f"{action_str} {amount if amount is not None else ''}"
         )
         return action_str, amount
