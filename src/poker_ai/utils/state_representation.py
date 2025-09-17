@@ -403,7 +403,7 @@ def prepare_transformer_input(  # noqa: C901
             attention_mask.append(0)
 
     history_tensor = torch.tensor(final_sequence, dtype=torch.float32)
-    mask_tensor = torch.tensor(attention_mask, dtype=torch.float32)
+    mask_tensor = torch.tensor(attention_mask, dtype=torch.bool)
 
     if history_tensor.shape != (max_seq_len, d_raw_feature):  # pragma: no cover - sanity check
         raise ValueError(
