@@ -8,13 +8,25 @@ ENV_CONFIG_PATH = "POKER_AI_CONFIG"
 ENV_PREFIX = "POKER_AI__"
 
 
+_YAML: ModuleType | None = None
+_YAML_IMPORT_ATTEMPTED = False
+
+
 def _import_yaml() -> ModuleType | None:
-    try:
-        import yaml
-    except ImportError:  # pragma: no cover - handled in loader
-        print("Warning: PyYAML is not installed. Using default configurations.")
-        return None
-    return yaml
+    global _YAML_IMPORT_ATTEMPTED, _YAML
+    if not _YAML_IMPORT_ATTEMPTED:
+        try:
+            import yaml
+        except ImportError:  # pragma: no cover - handled in loader
+            print(
+                "Warning: PyYAML is not installed. Configuration loading may be limited."
+            )
+            _YAML = None
+        else:
+            _YAML = yaml
+        finally:
+            _YAML_IMPORT_ATTEMPTED = True
+    return _YAML
 
 
 def _apply_env_overrides(cfg: dict[str, Any]) -> None:
@@ -50,6 +62,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     config_path = Path(path_str) if path_str else DEFAULT_CONFIG_PATH
     data: dict[str, Any] = {}
     if yaml is None:
+        if path_str or config_path.exists():
+            raise RuntimeError(
+                "PyYAML is required to load configuration files "
+                f"(attempted path: {config_path}). "
+                "Install the 'PyYAML' package to enable configuration loading."
+            )
         _apply_env_overrides(data)
         return data
     try:
