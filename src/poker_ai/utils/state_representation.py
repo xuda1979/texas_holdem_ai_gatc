@@ -300,6 +300,7 @@ def prepare_transformer_input(  # noqa: C901
             player_order = list(range(int(num_players)))
     player_order = [str(pid) for pid in player_order]
 
+    original_player_id = current_player_id
     current_player_id = str(current_player_id)
 
     # ------------------------------------------------------------------
@@ -308,22 +309,25 @@ def prepare_transformer_input(  # noqa: C901
     current_player_obj = None
     getter = getattr(game_state, "get_player", None)
     if callable(getter):
-        try:
-            current_player_obj = getter(current_player_id)
-        except Exception:
-            current_player_obj = None
+        for candidate in (original_player_id, current_player_id):
+            try:
+                current_player_obj = getter(candidate)
+            except Exception:
+                current_player_obj = None
+            if current_player_obj is not None:
+                break
     if current_player_obj is None:
         rules_view = getattr(game_state, "rules", game_state)
         try:
-            idx = int(str(current_player_id))
-        except Exception as exc:  # pragma: no cover - defensive
+            idx = _get_numeric_player_id(current_player_id, player_order)
+        except ValueError as exc:  # pragma: no cover - defensive
             raise ValueError(f"Player {current_player_id} not found in game_state.") from exc
         hands = getattr(rules_view, "hands", None)
         stacks = getattr(rules_view, "player_chips", None)
         bets = getattr(rules_view, "bets", None)
         if hands is None or stacks is None or bets is None:
             raise ValueError(f"Player {current_player_id} not found in game_state.")
-        current_player_obj = Player(str(idx), hands[idx], int(stacks[idx]))
+        current_player_obj = Player(player_order[idx], hands[idx], int(stacks[idx]))
         setattr(current_player_obj, "current_bet_in_round", int(bets[idx]))
 
     hole_cards = torch.tensor(
