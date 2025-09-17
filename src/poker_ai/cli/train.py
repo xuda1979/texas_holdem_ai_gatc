@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
         help="Save model every N samples/hands for performance analysis",
     )
     parser.add_argument(
+        "--min-buffer-before-train",
+        type=int,
+        help="Replay buffer size required before triggering a training batch",
+    )
+    parser.add_argument(
         "--algorithm",
         default="deep_cfr",
         choices=["ai_cfr", "deep_cfr", "single_network"],
@@ -145,6 +150,7 @@ def main() -> None:  # noqa: C901
         "save_model_every",
         "save_minutes",
         "save_samples",
+        "min_buffer_before_train",
     ):
         if isinstance(getattr(args, attr, None), MagicMock):
             setattr(args, attr, None)
@@ -223,6 +229,15 @@ def main() -> None:  # noqa: C901
         else training_params.get("save_model_every_samples", 100000)
     )
 
+    min_buffer_override = args.min_buffer_before_train
+    if min_buffer_override is not None:
+        min_buffer_before_train = int(min_buffer_override)
+    else:
+        min_buffer_before_train = int(
+            training_params.get("min_buffer_before_train", 256)
+        )
+    training_params["min_buffer_before_train"] = min_buffer_before_train
+
     # Game Engine Parameters for SelfPlay
     min_players = game_engine_config.get("min_players", 2)
     max_players = game_engine_config.get("max_players", 10)
@@ -241,6 +256,7 @@ def main() -> None:  # noqa: C901
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
     print(f"Using device: {device}")
+    print(f"Min buffer before training: {min_buffer_before_train}")
 
     # Initialization
     print("\n--- Initializing Components ---")
@@ -269,7 +285,11 @@ def main() -> None:  # noqa: C901
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
-    self_play_env = SelfPlay(cfr_trainer=cfr_trainer, game_engine_config=game_config_for_selfplay)
+    self_play_env = SelfPlay(
+        cfr_trainer=cfr_trainer,
+        game_engine_config=game_config_for_selfplay,
+        training_config=training_params,
+    )
 
     # Training Loop
     print("\n--- Starting Training Loop ---")

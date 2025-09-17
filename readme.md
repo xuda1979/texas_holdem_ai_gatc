@@ -55,6 +55,12 @@ To control the computation device you can use:
 - `--gpus` to train on available GPUs (uses all GPUs via `DataParallel`).
 - `--npus` to train on available NPUs (uses all NPUs via `DataParallel`).
 
+For faster iteration during small experiments you can lower the minimum replay
+buffer required before training with:
+
+- `--min-buffer-before-train 64` to start optimization steps once 64 samples
+  have been collected (defaults to 256).
+
 Omitting these flags runs training on the CPU by default.
 
 

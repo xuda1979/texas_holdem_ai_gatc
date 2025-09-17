@@ -20,13 +20,25 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
-    def __init__(self, cfr_trainer: object, game_engine_config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        cfr_trainer: object,
+        game_engine_config: dict[str, Any],
+        training_config: dict[str, Any] | None = None,
+    ) -> None:
         self.cfr_trainer = cfr_trainer
         self.starting_stack = game_engine_config.get("starting_stack", 1000)
         self.big_blind = game_engine_config.get("big_blind", 10)
         self.small_blind = game_engine_config.get("small_blind", 5)
         self.min_players = game_engine_config.get("min_players", 2)
         self.max_players = game_engine_config.get("max_players", 10)
+        cfg = training_config or {}
+        min_buffer_raw = cfg.get("min_buffer_before_train", 256)
+        try:
+            min_buffer = int(min_buffer_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            min_buffer = 256
+        self.min_buffer_before_train = max(1, min_buffer)
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
@@ -44,8 +56,8 @@ class SelfPlay:
 
         # 3. After the traversals, run a training step on the collected data
 
-        if len(self.cfr_trainer.replay_buffer) >= 256:
-            loss = self.cfr_trainer.train(batch_size=256)
+        if len(self.cfr_trainer.replay_buffer) >= self.min_buffer_before_train:
+            loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
             if loss is not None:
                 print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
 

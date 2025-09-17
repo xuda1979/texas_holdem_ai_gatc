@@ -12,7 +12,7 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from poker_ai.cli.self_play import extract_game_data
 from poker_ai.selfplay.self_play import SelfPlay
@@ -59,6 +59,38 @@ def test_play_hand_for_training_runs():
     ):
         data = sp.play_hand_for_training()
     assert isinstance(data, list)
+
+
+def test_play_hand_for_training_respects_custom_buffer_threshold():
+    trainer = DummyTrainer()
+    trainer.replay_buffer.extend([object(), object()])
+    trainer.train = MagicMock(return_value=None)
+
+    training_cfg = {"min_buffer_before_train": 2}
+    sp = SelfPlay(
+        trainer,
+        {"num_players": 2, "starting_stack": 50},
+        training_config=training_cfg,
+    )
+
+    class DummyGame:
+        def __init__(self, num_players: int, starting_stack: int) -> None:
+            self.rules = SimpleNamespace(big_blind=0, small_blind=0, num_players=num_players)
+
+        def initialize_game(self) -> None:
+            pass
+
+        def clone(self) -> "DummyGame":
+            return self
+
+    with (
+        patch("poker_ai.selfplay.self_play.random.randint", return_value=2),
+        patch("poker_ai.selfplay.self_play.TexasHoldem", DummyGame),
+        patch.object(SelfPlay, "_traverse_mccfr", return_value=0),
+    ):
+        sp.play_hand_for_training(iteration=123)
+
+    trainer.train.assert_called_once_with(batch_size=2)
 
 
 def test_extract_game_data_uses_betting_history_directly():
