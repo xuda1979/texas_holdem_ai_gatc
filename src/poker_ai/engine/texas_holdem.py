@@ -1002,21 +1002,93 @@ class TexasHoldem:
         self._log(f"The winner is Player {self.winner + 1}!")
 
         winner_player_index = self.winner
-        eligible_pot_for_winner = 0
-        winner_total_bet = self.rules.total_bets_this_hand[winner_player_index]
-        for p_idx in range(self.num_players):
-            eligible_pot_for_winner += min(winner_total_bet, self.rules.total_bets_this_hand[p_idx])
+        pots = self._compute_side_pots()
+        if not pots:
+            actual_winnings = self.rules.pot
+            self._log(f"Pot won: {actual_winnings} chips.")
+            self.rules.player_chips[winner_player_index] += actual_winnings
+            if self.historical_actions:
+                self.historical_actions[-1]["winner"] = (
+                    f"Player {winner_player_index + 1}"
+                )
+                self.historical_actions[-1]["pot_won"] = actual_winnings
+            self.last_winner = winner_player_index
+            self.rules.pot = max(0, self.rules.pot - actual_winnings)
+            return
 
-        actual_winnings = min(self.rules.pot, eligible_pot_for_winner)
+        start = (self.rules.dealer_button + 1) % self.num_players
+        seat_order = [((start + k) % self.num_players) for k in range(self.num_players)]
 
-        self._log(f"Pot won: {actual_winnings} chips.")
-        self.rules.player_chips[winner_player_index] += actual_winnings
-        self.historical_actions[-1]["winner"] = f"Player {winner_player_index + 1}"
-        self.historical_actions[-1]["pot_won"] = actual_winnings
+        winnings_for_winner = 0
+        redistributed: dict[int, int] = {i: 0 for i in range(self.num_players)}
+
+        for idx, pot in enumerate(pots):
+            amount = int(cast(int, pot["amount"]))
+            if amount <= 0:
+                continue
+
+            eligible = cast(set[int], pot["eligible"])
+            pot_name = "main pot" if idx == 0 else f"side pot {idx}"
+
+            if winner_player_index in eligible or not eligible:
+                winnings_for_winner += amount
+                if not eligible:
+                    self._log(
+                        f"{pot_name.capitalize()} ({amount} chips) defaults to Player "
+                        f"{winner_player_index + 1} (no eligible opponents)."
+                    )
+                else:
+                    self._log(
+                        f"{pot_name.capitalize()} ({amount} chips) awarded to Player "
+                        f"{winner_player_index + 1}."
+                    )
+                continue
+
+            share, remainder = divmod(amount, len(eligible))
+            pot_distribution: dict[int, int] = {pid: share for pid in eligible}
+            if remainder:
+                for seat in seat_order:
+                    if remainder == 0:
+                        break
+                    if seat in eligible:
+                        pot_distribution[seat] += 1
+                        remainder -= 1
+
+            for pid, amt in pot_distribution.items():
+                redistributed[pid] += amt
+
+            distribution_str = ", ".join(
+                f"Player {pid + 1} receives {amt}"
+                for pid, amt in sorted(pot_distribution.items())
+            )
+            self._log(
+                f"{pot_name.capitalize()} ({amount} chips) redistributed among "
+                f"eligible opponents: {distribution_str}."
+            )
+
+        if winnings_for_winner:
+            self.rules.player_chips[winner_player_index] += winnings_for_winner
+        self._log(f"Pot won: {winnings_for_winner} chips.")
+
+        for pid, amt in sorted(redistributed.items()):
+            if amt <= 0 or pid == winner_player_index:
+                continue
+            self.rules.player_chips[pid] += amt
+            self._log(
+                f"Player {pid + 1} receives {amt} chips from unresolved side pots."
+            )
+
+        total_distributed = winnings_for_winner + sum(
+            amt for pid, amt in redistributed.items() if pid != winner_player_index
+        )
+        self.rules.pot = max(0, self.rules.pot - total_distributed)
+
+        if self.historical_actions:
+            self.historical_actions[-1]["winner"] = (
+                f"Player {winner_player_index + 1}"
+            )
+            self.historical_actions[-1]["pot_won"] = winnings_for_winner
         self.last_winner = winner_player_index
-
-        # Note: If actual_winnings < self.rules.pot, the remainder of the pot is currently not distributed
-        # as full side pot logic is out of scope. This is a known limitation.
 
     def show_winner(self, winner, player_best_hands):
         """Distribute showdown winnings and log the results."""
