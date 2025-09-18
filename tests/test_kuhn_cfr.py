@@ -1,4 +1,5 @@
 from poker_ai.evaluation.kuhn_cfr import train_kuhn_cfr
+from poker_ai.evaluation.kuhn_poker import KuhnCFR
 
 
 def test_kuhn_bet_frequencies_monotone():
@@ -19,4 +20,26 @@ def test_kuhn_bet_frequencies_monotone():
 
     # also, strategies should not be degenerate at root
     assert j < 0.5 and kbet > 0.5
+
+
+def test_terminal_state_detection():
+    base = "JK"
+    assert not KuhnCFR._is_terminal(base)
+    assert not KuhnCFR._is_terminal(base + "p")
+    assert not KuhnCFR._is_terminal(base + "b")
+    assert not KuhnCFR._is_terminal(base + "pb")
+    assert KuhnCFR._is_terminal(base + "pp")
+    assert KuhnCFR._is_terminal(base + "bp")
+    assert KuhnCFR._is_terminal(base + "pbp")
+    assert KuhnCFR._is_terminal(base + "bb")
+    assert KuhnCFR._is_terminal(base + "pbb")
+
+
+def test_terminal_utility_signs():
+    assert KuhnCFR._terminal_utility_p1("JKbp") == 1  # P1 bet, P2 folded
+    assert KuhnCFR._terminal_utility_p1("JKpbp") == -1  # P2 bet, P1 folded
+    assert KuhnCFR._terminal_utility_p1("KJpp") == 1
+    assert KuhnCFR._terminal_utility_p1("JKpp") == -1
+    assert KuhnCFR._terminal_utility_p1("KJbb") == 2
+    assert KuhnCFR._terminal_utility_p1("JKbb") == -2
 
