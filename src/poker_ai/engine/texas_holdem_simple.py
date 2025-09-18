@@ -13,7 +13,7 @@ class TexasHoldem:
         self.num_players = num_players
         self.deck = DECK.copy()
         self.community_cards = []
-        self.players_hands = []
+        self.players_hands: list[list[str]] = []
         self.players_active = [True] * num_players
         self.bets = [0] * num_players
         self.current_bet = 0
@@ -22,15 +22,29 @@ class TexasHoldem:
         self.reset()
 
     def reset(self):
+        self.deck = DECK.copy()
         random.shuffle(self.deck)
         self.community_cards = []
-        self.players_hands = [self.deck[i * 2 : (i + 1) * 2] for i in range(self.num_players)]
+        self.players_hands = [[] for _ in range(self.num_players)]
+        for _ in range(2):
+            for player in range(self.num_players):
+                self.players_hands[player].append(self._draw_card())
         self.players_active = [True] * self.num_players
         self.bets = [0] * self.num_players
         self.current_bet = 0
         self.pot = 0
         self.betting_round = 0
         self.display_stage("Pre-Flop")
+
+    def _draw_card(self) -> str:
+        if not self.deck:
+            raise ValueError("The deck is empty; cannot draw more cards.")
+        return self.deck.pop()
+
+    def _burn_card(self) -> None:
+        if not self.deck:
+            raise ValueError("The deck is empty; cannot burn a card.")
+        self.deck.pop()
 
     def get_initial_state(self):
         state = np.zeros((self.num_players + 5, len(RANKS), len(SUITS)))  # Shape (7, 13, 4)
@@ -64,17 +78,20 @@ class TexasHoldem:
         print(f"Pot: {self.pot}")
 
     def deal_flop(self):
-        self.community_cards.extend(self.deck[1:4])  # Burn 1 card, deal 3
+        self._burn_card()
+        self.community_cards.extend(self._draw_card() for _ in range(3))
         self.betting_round += 1
         self.display_stage("Flop")
 
     def deal_turn(self):
-        self.community_cards.append(self.deck[5])  # Burn 1 card, deal 1
+        self._burn_card()
+        self.community_cards.append(self._draw_card())
         self.betting_round += 1
         self.display_stage("Turn")
 
     def deal_river(self):
-        self.community_cards.append(self.deck[7])  # Burn 1 card, deal 1
+        self._burn_card()
+        self.community_cards.append(self._draw_card())
         self.betting_round += 1
         self.display_stage("River")
 
