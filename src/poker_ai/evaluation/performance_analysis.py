@@ -116,13 +116,31 @@ def run_tournament(
                 player_strategies=[strat_i, strat_j],
                 verbose=False,
             )
+            player_paths = [path_i, path_j]
             for _ in range(games_per_match):
+                previous_chips = list(game.rules.player_chips)
                 game.play_game()
-                chips = game.rules.player_chips
-                if chips[0] > chips[1]:
-                    scores[path_i] += 1
-                elif chips[1] > chips[0]:
-                    scores[path_j] += 1
+                updated_chips = list(game.rules.player_chips)
+                deltas = [after - before for before, after in zip(previous_chips, updated_chips)]
+
+                positive_winners = [idx for idx, delta in enumerate(deltas) if delta > 0]
+                winner_index: int | None = None
+
+                if len(positive_winners) == 1:
+                    winner_index = positive_winners[0]
+                elif len(positive_winners) == 0:
+                    winner_info = getattr(game, "last_winner", None)
+                    if isinstance(winner_info, int):
+                        winner_index = winner_info
+                    elif isinstance(winner_info, list) and len(winner_info) == 1:
+                        winner_index = winner_info[0]
+
+                if (
+                    winner_index is not None
+                    and 0 <= winner_index < len(player_paths)
+                    and deltas[winner_index] > 0
+                ):
+                    scores[player_paths[winner_index]] += 1
     return scores
 
 

@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import torch
@@ -13,7 +14,10 @@ for p in (src_path, project_root):
         sys.path.insert(0, p)
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
+from poker_ai.evaluation.performance_analysis import (
+    ModelPerformanceAnalyzer,
+    run_tournament,
+)
 
 
 class DummyTrainer:
@@ -63,6 +67,46 @@ class TestPerformanceAnalyzer(unittest.TestCase):
             )
             analyzer.on_iteration_end(trainer, 1)
             self.assertEqual(os.listdir(tmpdir), [])
+
+    def test_run_tournament_uses_per_hand_winners(self):
+        class DummyEvalStrategy:
+            is_human = False
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class DummyGame:
+            def __init__(self, num_players, starting_stack, player_strategies, verbose=False):
+                self.rules = SimpleNamespace(
+                    player_chips=[starting_stack for _ in range(num_players)]
+                )
+                self.hands_played = 0
+                self.last_winner = None
+
+            def play_game(self):
+                if self.hands_played == 0:
+                    self.rules.player_chips[0] += 200
+                    self.rules.player_chips[1] -= 200
+                    self.last_winner = 0
+                elif self.hands_played == 1:
+                    self.rules.player_chips[0] -= 150
+                    self.rules.player_chips[1] += 150
+                    self.last_winner = 1
+                else:
+                    self.last_winner = None
+                self.hands_played += 1
+
+        with patch(
+            "poker_ai.evaluation.performance_analysis.EvalStrategy",
+            DummyEvalStrategy,
+        ), patch(
+            "poker_ai.evaluation.performance_analysis.TexasHoldem",
+            DummyGame,
+        ):
+            scores = run_tournament(["model_a", "model_b"], games_per_match=2)
+
+        self.assertEqual(scores["model_a"], 1)
+        self.assertEqual(scores["model_b"], 1)
 
 
 if __name__ == "__main__":
