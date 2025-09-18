@@ -8,9 +8,10 @@ import json
 import logging
 import os
 import random
-from typing import Optional, cast
+from typing import Optional
 
 from gatc_holdem.engine.rules import min_raise_to
+from gatc_poker.pots import compute_side_pots as gatc_compute_side_pots
 
 # ``treys`` provides fast poker hand evaluation but is optional in our test
 # environment.  To keep the engine lightweight, we attempt to import the real
@@ -814,27 +815,21 @@ class TexasHoldem:
         return score, sorted(hole + board), rank_class
 
     def _compute_side_pots(self) -> list[dict[str, object]]:
-        """Compute side pots from total contributions. Returns a list of dicts:
-        [{ 'amount': int, 'eligible': set(player_indices) }, ...]
-        Pots are ordered from smallest (main) to largest side pot."""
-        contrib = self.rules.total_bets_this_hand[:]
-        thresholds = sorted({c for c in contrib if c > 0})
-        pots: list[dict[str, object]] = []
-        prev = 0
-        for t in thresholds:
-            elig = {i for i, c in enumerate(contrib) if c >= t}
-            if not elig:
-                prev = t
-                continue
-            layer = (t - prev) * len(elig)
-            if layer > 0:
-                pots.append({"amount": layer, "eligible": elig})
-            prev = t
-        for p in pots:
-            p["eligible"] = {
-                i for i in cast(set[int], p["eligible"]) if self.rules.active_players[i]
-            }
-        return pots
+        """Compute side pots using the shared helper from :mod:`gatc_poker`."""
+
+        contributions: dict[int, int] = {}
+        for idx, amount in enumerate(self.rules.total_bets_this_hand):
+            chips = int(amount)
+            if chips > 0:
+                contributions[idx] = chips
+        in_showdown = {
+            idx for idx, active in enumerate(self.rules.active_players) if active
+        }
+        pots = gatc_compute_side_pots(contributions, in_showdown)
+        return [
+            {"amount": pot.amount, "eligible": set(pot.eligible)}
+            for pot in pots
+        ]
 
     def perform_showdown(self) -> tuple[dict[int, int], dict[int, int]]:
         """Evaluate all active players' hands and build side pots.
@@ -859,8 +854,8 @@ class TexasHoldem:
 
         winnings: dict[int, int] = {i: 0 for i in range(self.num_players)}
         for pot in pots:
-            amount: int = int(pot["amount"])  # type: ignore
-            elig: set[int] = pot["eligible"]  # type: ignore
+            amount = int(pot["amount"])
+            elig = set(pot["eligible"])
             if not elig or amount <= 0:
                 continue
             best_score = min(scores[i][0] for i in elig)
@@ -1023,11 +1018,11 @@ class TexasHoldem:
         redistributed: dict[int, int] = {i: 0 for i in range(self.num_players)}
 
         for idx, pot in enumerate(pots):
-            amount = int(cast(int, pot["amount"]))
+            amount = int(pot["amount"])
             if amount <= 0:
                 continue
 
-            eligible = cast(set[int], pot["eligible"])
+            eligible = set(pot["eligible"])
             pot_name = "main pot" if idx == 0 else f"side pot {idx}"
 
             if winner_player_index in eligible or not eligible:
