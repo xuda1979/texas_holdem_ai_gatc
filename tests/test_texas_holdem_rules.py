@@ -23,6 +23,28 @@ def test_post_blinds() -> None:
     assert rules.total_bets_this_hand == [10, 5]
 
 
+def test_post_blinds_short_stacks() -> None:
+    rules = TexasHoldemRules(num_players=2, starting_stack=100)
+    rules.small_blind = 5
+    rules.big_blind = 10
+    rules.player_chips = [7, 3]  # Big blind seat first, then small blind seat
+    rules.bets = [0, 0]
+    rules.total_bets_this_hand = [0, 0]
+
+    structured_actions = rules.post_blinds()
+
+    assert rules.pot == 10
+    assert rules.player_chips == [0, 0]
+    assert rules.bets == [7, 3]
+    assert rules.total_bets_this_hand == [7, 3]
+    assert rules.current_bet == 7
+    assert rules.previous_raise_amount == 7
+    assert structured_actions == [
+        ("1", ("bet", 3)),
+        ("0", ("bet", 7)),
+    ]
+
+
 def test_showdown_awards_blinds() -> None:
     game = TexasHoldem(num_players=2, starting_stack=100, verbose=False)
     game.rules.small_blind = 5
