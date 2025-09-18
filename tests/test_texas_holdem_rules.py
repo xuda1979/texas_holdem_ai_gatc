@@ -45,6 +45,30 @@ def test_post_blinds_short_stacks() -> None:
     ]
 
 
+def test_post_blinds_skips_eliminated_players() -> None:
+    rules = TexasHoldemRules(num_players=4, starting_stack=100)
+    rules.small_blind = 5
+    rules.big_blind = 10
+    rules.dealer_button = 0
+    rules.player_chips = [100, 0, 0, 50]
+    rules.active_players = [True, False, False, True]
+    rules.bets = [0, 0, 0, 0]
+    rules.total_bets_this_hand = [0, 0, 0, 0]
+
+    structured_actions = rules.post_blinds()
+
+    assert rules.bets == [10, 0, 0, 5]
+    assert rules.player_chips == [90, 0, 0, 45]
+    assert rules.pot == 15
+    assert rules.current_bet == 10
+    assert rules.previous_raise_amount == 10
+    assert rules.current_player == 3
+    assert structured_actions == [
+        ("3", ("bet", 5)),
+        ("0", ("bet", 10)),
+    ]
+
+
 def test_showdown_awards_blinds() -> None:
     game = TexasHoldem(num_players=2, starting_stack=100, verbose=False)
     game.rules.small_blind = 5
