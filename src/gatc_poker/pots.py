@@ -26,27 +26,54 @@ def compute_side_pots(contrib: dict[int, int], in_showdown: set[int]) -> list[Si
 
     contributions = {int(p): max(0, int(a)) for p, a in contrib.items()}
 
-    # Build sorted positive contribution levels
-    levels = sorted({a for a in contributions.values() if a > 0})
+    # Track players grouped by their exact contribution so we can update the
+    # "who is still matching this level" sets without rescanning everything.
+    players_by_amount: dict[int, set[int]] = {}
+    positive_players: set[int] = set()
+    showdown_players: set[int] = set()
+    for pid, amount in contributions.items():
+        if amount <= 0:
+            continue
+        players_by_amount.setdefault(amount, set()).add(pid)
+        positive_players.add(pid)
+        if pid in in_showdown:
+            showdown_players.add(pid)
+
+    if not positive_players or not showdown_players:
+        return []
+
+    # Sorted unique contribution levels ("thresholds")
+    levels = sorted(players_by_amount)
     pots: list[SidePot] = []
     prev = 0
+    carry = 0
+    current_all = set(positive_players)
+    current_showdown = set(showdown_players)
 
     for lvl in levels:
+        removal = players_by_amount.get(prev)
+        if removal:
+            current_all.difference_update(removal)
+            current_showdown.difference_update(removal)
+
         delta = lvl - prev
-        if delta <= 0:
+        if delta <= 0 or not current_all:
             prev = lvl
             continue
 
-        # Eligible seats for this pot: players who reached at least this level and didn't fold
-        participants = {p for p, a in contributions.items() if a >= lvl and p in in_showdown}
-        if not participants:
-            prev = lvl
-            continue
-
-        # Amount in this band for all contributors (including folded players' chips)
-        amount = sum(max(min(a, lvl) - prev, 0) for a in contributions.values())
-        if amount > 0:
-            pots.append(SidePot(amount=amount, eligible=frozenset(participants)))
+        band_total = delta * len(current_all)
+        eligible = frozenset(current_showdown)
+        if eligible:
+            amount = band_total + carry
+            if amount > 0:
+                pots.append(SidePot(amount=amount, eligible=eligible))
+            carry = 0
+        else:
+            carry += band_total
         prev = lvl
+
+    if carry and pots:
+        last = pots[-1]
+        pots[-1] = SidePot(amount=last.amount + carry, eligible=last.eligible)
 
     return pots
