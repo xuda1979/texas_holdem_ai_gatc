@@ -32,16 +32,6 @@ class _GameStateSnapshot:
     pending_showdown: Any
 
 
-@dataclass
-class _GameStateSnapshot:
-    """Lightweight snapshot for restoring ``TexasHoldem`` traversal state."""
-
-    rules: TexasHoldemRules
-    end_game_early: bool
-    winner: Any
-    pending_showdown: Any
-
-
 class SelfPlay:
     """Orchestrates MCCFR traversals for training data generation."""
 
@@ -109,17 +99,39 @@ class SelfPlay:
 
         return self.cfr_trainer.replay_buffer
 
-    def _get_policy(self, game: TexasHoldem, player_id: int) -> torch.Tensor:
+    def _get_policy(
+        self,
+        game: TexasHoldem,
+        player_id: int,
+        normalization_scale: float | None = None,
+        *,
+        return_mask: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        """Return the regret-matched policy for ``player_id``.
+
+        Parameters
+        ----------
+        game:
+            Active :class:`TexasHoldem` instance.
+        player_id:
+            Index of the acting player.
+        normalization_scale:
+            Optional chip scale used when constructing the infoset features.  Passing
+            a value avoids recomputing the preferred scale when the caller already
+            inferred it for the current node.
+        return_mask:
+            When ``True`` the boolean mask of legal abstract actions (on CPU) is
+            returned alongside the policy.  This allows callers to reuse the mask
+            without recomputing it, reducing repeated environment queries.
         """
-        Gets the current policy for a player at a given game state.
-        This is done by querying the advantage network and applying regret matching.
-        """
-        # a. Get the infoset tensor for the current player
-        # This function needs to be robust and handle the game state correctly
+
         model_config = self.cfr_trainer.config.get("model", {})
         max_seq_len = model_config.get("max_seq_len", 256)
         d_raw_feature = model_config.get("d_raw_feature", 18)
-        normalization_scale = self._normalization_scale_for_game(game)
+
+        if normalization_scale is None:
+            normalization_scale = self._normalization_scale_for_game(game)
+
         hole, community, history_tensor = prepare_transformer_input(
             game,
             player_id,
@@ -128,20 +140,16 @@ class SelfPlay:
             normalization_scale=normalization_scale,
         )
 
-        # b. Get advantages from the network (support older trainer signatures)
         try:
             advantages = self.cfr_trainer.get_advantages(hole, community, history_tensor)
         except TypeError:  # pragma: no cover - backwards compat
             advantages = self.cfr_trainer.get_advantages(history_tensor)
 
-        # c. Get a mask for legal actions
-        legal_actions_mask = get_legal_actions_mask(
+        legal_actions_mask_cpu = get_legal_actions_mask(
             game, player_id, self.cfr_trainer.num_actions
         )
-        legal_actions_mask = legal_actions_mask.to(advantages.device)
+        legal_actions_mask = legal_actions_mask_cpu.to(advantages.device)
 
-        # d. Regret matching over legal actions only while avoiding propagating -inf/NaN
-        #    when masking out illegal moves.
         positive_advantages = torch.clamp(advantages, min=0.0)
         positive_advantages = torch.where(
             legal_actions_mask,
@@ -149,8 +157,6 @@ class SelfPlay:
             torch.zeros_like(positive_advantages, device=advantages.device),
         )
 
-        # e. Normalize across legal actions.  If all regrets are non-positive, revert to
-        #    a uniform policy over legal actions only.
         sum_positive = positive_advantages.sum()
         policy = torch.zeros_like(advantages, device=advantages.device)
         if sum_positive.item() > 0:
@@ -159,6 +165,9 @@ class SelfPlay:
             num_legal = int(legal_actions_mask.sum().item())
             if num_legal > 0:
                 policy[legal_actions_mask] = 1.0 / num_legal
+
+        if return_mask:
+            return policy, legal_actions_mask_cpu
         return policy
 
     def _is_betting_round_over(self, game: TexasHoldem) -> bool:
@@ -269,16 +278,26 @@ class SelfPlay:
 
         # --- Decision Node ---
         current_player = game.rules.current_player
-        policy = self._get_policy(game, current_player)
-
-        if current_player == traverser_id:
-            action_utilities = torch.zeros(self.cfr_trainer.num_actions)
-
-            legal_actions_mask = get_legal_actions_mask(
+        normalization_scale = self._normalization_scale_for_game(game)
+        policy_result = self._get_policy(
+            game,
+            current_player,
+            normalization_scale=normalization_scale,
+            return_mask=True,
+        )
+        if isinstance(policy_result, tuple):
+            policy, legal_actions_mask_cpu = policy_result
+        else:  # pragma: no cover - defensive fallback for mocked tests
+            policy = policy_result
+            legal_actions_mask_cpu = get_legal_actions_mask(
                 game, current_player, self.cfr_trainer.num_actions
             )
+
+        if current_player == traverser_id:
+            action_utilities = torch.zeros_like(policy)
+            legal_actions_mask = legal_actions_mask_cpu
             for action_idx in range(self.cfr_trainer.num_actions):
-                if not legal_actions_mask[action_idx]:
+                if not legal_actions_mask[action_idx].item():
                     continue
 
                 undo_stack.append(self._snapshot_state(game))
@@ -302,7 +321,11 @@ class SelfPlay:
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
             hole_s, community_s, state_tensor = prepare_transformer_input(
-                game, traverser_id, max_seq_len, d_raw_feature
+                game,
+                traverser_id,
+                max_seq_len,
+                d_raw_feature,
+                normalization_scale=normalization_scale,
             )
             if hasattr(self.cfr_trainer, "replay_buffer"):
                 try:
