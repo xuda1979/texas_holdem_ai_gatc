@@ -6,9 +6,32 @@ from typing import Any
 from .self_play import SelfPlay
 
 
-def _run_hand(args: dict[str, Any]) -> list[Any]:
-    sp: SelfPlay = args["self_play"]
-    return sp.play_hand_for_training()
+def _run_multiple_hands(args: dict[str, Any]) -> list[list[Any]]:
+    """Worker helper to play a batch of hands.
+
+    Creating a :class:`SelfPlay` instance is relatively expensive because the
+    underlying trainer, game engine configuration and replay buffers have to be
+    serialised when passed to a worker process.  The previous implementation
+    spawned one task per hand which resulted in the same objects being pickled
+    and unpickled repeatedly.  Grouping all hands assigned to a worker together
+    ensures that we only perform the expensive serialisation once per worker
+    instead of once per hand.
+    """
+
+    cfr_trainer = args["cfr_trainer"]
+    game_engine_config = args["game_engine_config"]
+    training_config = args["training_config"]
+    num_hands = args["num_hands"]
+
+    if num_hands <= 0:
+        return []
+
+    sp = SelfPlay(
+        cfr_trainer,
+        game_engine_config,
+        training_config=training_config,
+    )
+    return [sp.play_hand_for_training() for _ in range(num_hands)]
 
 
 class DistributedSelfPlay:
@@ -24,18 +47,39 @@ class DistributedSelfPlay:
 
     def run(self, num_hands: int, num_workers: int = 2) -> list[list[Any]]:
         """Execute multiple hands in parallel and collect results."""
-        hands_per_worker = [num_hands // num_workers for _ in range(num_workers)]
-        for i in range(num_hands % num_workers):
-            hands_per_worker[i] += 1
-        tasks = []
-        for count in hands_per_worker:
-            sp = SelfPlay(
-                self.cfr_trainer,
-                self.game_engine_config,
-                training_config=self.training_config,
-            )
-            for _ in range(count):
-                tasks.append({"self_play": sp})
-        with Pool(processes=num_workers) as pool:
-            results = pool.map(_run_hand, tasks)
+
+        if num_hands <= 0:
+            return []
+
+        if num_workers <= 0:
+            raise ValueError("num_workers must be a positive integer")
+
+        # Avoid spawning more worker processes than necessary; excess workers
+        # would only increase scheduling overhead without producing additional
+        # parallelism when ``num_hands`` is small.
+        num_workers = min(num_workers, num_hands)
+
+        base, remainder = divmod(num_hands, num_workers)
+        hands_per_worker = [base + (1 if i < remainder else 0) for i in range(num_workers)]
+
+        tasks = [
+            {
+                "cfr_trainer": self.cfr_trainer,
+                "game_engine_config": self.game_engine_config,
+                "training_config": self.training_config,
+                "num_hands": count,
+            }
+            for count in hands_per_worker
+            if count
+        ]
+
+        if not tasks:
+            return []
+
+        with Pool(processes=len(tasks)) as pool:
+            worker_results = pool.map(_run_multiple_hands, tasks)
+
+        results: list[list[Any]] = []
+        for batch in worker_results:
+            results.extend(batch)
         return results
