@@ -59,6 +59,12 @@ class PokerGameGUI:
 
         # Attributes expected by legacy tests
         self.human_player_index = 0
+        # ``game_engine`` historically pointed at the engine *class* so that
+        # older tests could verify the import succeeded.  Modern code expects
+        # this attribute to reference the live game instance once a match has
+        # started, so we initialise it with the class for backwards
+        # compatibility and update it to point at the running game when one is
+        # created.
         self.game_engine = TexasHoldem
         # Card image cache
         self.card_images = {}
@@ -113,14 +119,22 @@ class PokerGameGUI:
 
         return f"{rank}{suit_map[suit]}"
 
+    def _get_active_engine(self):
+        """Return the active game engine instance if one is running."""
+        game = getattr(self, "game", None)
+        if game and hasattr(game, "rules"):
+            return game
+
+        engine = getattr(self, "game_engine", None)
+        if engine and hasattr(engine, "rules"):
+            return engine
+
+        return None
+
     def _handle_player_action(self, action: str, amount: int | None = None):
         """Process an action for the human player."""
-        engine = getattr(self, "game_engine", None)
-        if (
-            not engine
-            or not hasattr(engine, "rules")
-            or not hasattr(engine.rules, "current_player")
-        ):
+        engine = self._get_active_engine()
+        if engine is None or not hasattr(engine.rules, "current_player"):
             messagebox.showwarning("Game Error", "No active game found.")
             return
 
@@ -140,7 +154,7 @@ class PokerGameGUI:
 
     def _sync_gui_with_engine_state(self):
         """Synchronize cached state values with the game engine."""
-        engine = getattr(self, "game_engine", None)
+        engine = self._get_active_engine()
         if not engine:
             return
         rules = engine.rules
@@ -351,6 +365,7 @@ class PokerGameGUI:
 
         # Create game
         self.game = TexasHoldem(total_players, starting_stack, player_strategies)
+        self.game_engine = self.game
 
         # Setup game GUI
         self.setup_game_gui()
@@ -366,6 +381,7 @@ class PokerGameGUI:
         for _ in range(ai_count):
             player_strategies.append(RandomAIStrategy())
         self.game = TexasHoldem(total_players, starting_stack, player_strategies)
+        self.game_engine = self.game
         self.setup_game_gui()
         self.play_hand()
 
