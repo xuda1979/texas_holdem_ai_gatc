@@ -114,26 +114,35 @@ class TexasHoldemRules:
         small_blind_player = (self.dealer_button + 1) % self.num_players
         big_blind_player = (self.dealer_button + 2) % self.num_players
 
+        def _post_blind(player_index: int, blind_amount: int, label: str) -> int:
+            available_chips = self.player_chips[player_index]
+            contribution = min(available_chips, blind_amount)
+            self.player_chips[player_index] -= contribution
+            if self.player_chips[player_index] < 0:  # Safety guard in case of negative values
+                self.player_chips[player_index] = 0
+            self.bets[player_index] = contribution
+            self.pot += contribution
+            self.total_bets_this_hand[player_index] += contribution
+            self.betting_history.append((str(player_index), ("bet", contribution)))
+            if contribution < blind_amount:
+                self._log(
+                    f"Player {player_index + 1} posts {label} blind of {contribution} chips (all-in)."
+                )
+            else:
+                self._log(
+                    f"Player {player_index + 1} posts {label} blind of {blind_amount} chips."
+                )
+            structured_blind_actions.append((str(player_index), ("bet", contribution)))
+            return contribution
+
         # Small Blind
-        self.player_chips[small_blind_player] -= self.small_blind
-        self.bets[small_blind_player] = self.small_blind
-        self.pot += self.small_blind
-        self.total_bets_this_hand[small_blind_player] += self.small_blind
-        self.betting_history.append((str(small_blind_player), ("bet", self.small_blind)))
-        self._log(f"Player {small_blind_player + 1} posts small blind of {self.small_blind} chips.")
-        structured_blind_actions.append((str(small_blind_player), ("bet", self.small_blind)))
+        _post_blind(small_blind_player, self.small_blind, "small")
 
         # Big Blind
-        self.player_chips[big_blind_player] -= self.big_blind
-        self.bets[big_blind_player] = self.big_blind
-        self.pot += self.big_blind
-        self.total_bets_this_hand[big_blind_player] += self.big_blind
-        self.betting_history.append((str(big_blind_player), ("bet", self.big_blind)))
-        self._log(f"Player {big_blind_player + 1} posts big blind of {self.big_blind} chips.")
-        structured_blind_actions.append((str(big_blind_player), ("bet", self.big_blind)))
+        big_blind_contribution = _post_blind(big_blind_player, self.big_blind, "big")
 
-        self.current_bet = self.big_blind
-        self.previous_raise_amount = self.big_blind
+        self.current_bet = big_blind_contribution
+        self.previous_raise_amount = big_blind_contribution
         self.current_player = (big_blind_player + 1) % self.num_players
         return structured_blind_actions
 
