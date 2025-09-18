@@ -9,6 +9,8 @@ project specification in :mod:`texas.tex`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 import torch
 import torch.nn as nn
 
@@ -85,10 +87,10 @@ ROUND_TO_ID = {"pre-flop": 0, "flop": 1, "turn": 2, "river": 3}
 # For feature construction as per prompt's examples for d_raw_feature=3:
 # Card features: [encoded_card_value, 0, 0]
 # Action features: [player_id_numeric, action_id_numeric, amount_normalized]
-# Pot feature: [pot_value_normalized, 0, 1] (type indicator 1)
-# Current Bet feature: [bet_value_normalized, 0, 2] (type indicator 2)
-# Player Stack feature: [stack_value_normalized, 0, 3] (type indicator 3)
-# Round feature: [round_id, 0, 4] (type indicator 4)
+# Pot feature: [pot_value_normalized, type_id, 0] (type indicator 1)
+# Current Bet feature: [bet_value_normalized, type_id, 0] (type indicator 2)
+# Player Stack feature: [stack_value_normalized, type_id, 0] (type indicator 3)
+# Round feature: [round_id, type_id, 0] (type indicator 4)
 
 # Let's define these type indicators explicitly
 TYPE_ID_CARD = 0.0  # Default type for cards, if needed in the third position.
@@ -171,7 +173,9 @@ def _encode_card(card_str: str) -> list[float]:
     return rank_vec + suit_vec
 
 
-def _get_numeric_player_id(player_id: str | int, all_player_ids_in_order: list[str]) -> int:
+def _get_numeric_player_id(
+    player_id: str | int, all_player_ids_in_order: Sequence[str] | Mapping[str, int]
+) -> int:
     """Convert ``player_id`` to its index in the ordered list.
 
     Parameters
@@ -181,13 +185,22 @@ def _get_numeric_player_id(player_id: str | int, all_player_ids_in_order: list[s
         depending on the game engine implementation.  We normalise it to a
         string for comparison.
     all_player_ids_in_order:
-        List of player identifiers (as strings) in seat order.
+        Either a sequence of player identifiers (as strings) in seat order, or
+        a mapping from player identifier string to its index.  Passing a
+        mapping avoids repeated linear searches when this conversion is needed
+        frequently.
     """
 
     pid_str = str(player_id)
+
+    if isinstance(all_player_ids_in_order, Mapping):
+        lookup = all_player_ids_in_order
+    else:
+        lookup = {str(pid): idx for idx, pid in enumerate(all_player_ids_in_order)}
+
     try:
-        return all_player_ids_in_order.index(pid_str)
-    except ValueError as exc:  # pragma: no cover - defensive programming
+        return lookup[pid_str]
+    except KeyError as exc:  # pragma: no cover - defensive programming
         raise ValueError(
             f"Player ID '{pid_str}' not found in the game's ordered player list."
         ) from exc
@@ -299,6 +312,7 @@ def prepare_transformer_input(  # noqa: C901
                 num_players = getattr(getattr(game_state, "rules", None), "num_players", 0)
             player_order = list(range(int(num_players)))
     player_order = [str(pid) for pid in player_order]
+    player_index_lookup = {pid: idx for idx, pid in enumerate(player_order)}
 
     original_player_id = current_player_id
     current_player_id = str(current_player_id)
@@ -319,7 +333,7 @@ def prepare_transformer_input(  # noqa: C901
     if current_player_obj is None:
         rules_view = getattr(game_state, "rules", game_state)
         try:
-            idx = _get_numeric_player_id(current_player_id, player_order)
+            idx = _get_numeric_player_id(current_player_id, player_index_lookup)
         except ValueError as exc:  # pragma: no cover - defensive
             raise ValueError(f"Player {current_player_id} not found in game_state.") from exc
         hands = getattr(rules_view, "hands", None)
@@ -358,7 +372,6 @@ def prepare_transformer_input(  # noqa: C901
     # ------------------------------------------------------------------
     raw_sequence: list[list[float]] = []
 
-    all_player_ids_ordered = list(player_order)
     scale = _resolve_normalization_scale(game_state, normalization_scale)
 
     def _pad_feature(values: list[float]) -> list[float]:
@@ -370,28 +383,32 @@ def prepare_transformer_input(  # noqa: C901
     # Betting history encoding
     for p_id_str, action_tuple in betting_history:
         action_name, amount_val = action_tuple
-        numeric_p_id = float(_get_numeric_player_id(p_id_str, all_player_ids_ordered))
+        numeric_p_id = float(_get_numeric_player_id(p_id_str, player_index_lookup))
         action_id = float(ACTION_TO_ID.get(action_name.lower(), -1))  # -1 for unknown
         normalized_amount = float(amount_val / scale if amount_val is not None else 0.0)
         raw_sequence.append(_pad_feature([numeric_p_id, action_id, normalized_amount]))
 
     # Pot size
     normalized_pot = float(pot / scale)
-    raw_sequence.append(_pad_feature([normalized_pot, TYPE_ID_POT]))
+    raw_sequence.append(_pad_feature([normalized_pot, TYPE_ID_POT, 0.0]))
 
     # Current bet faced by player
     player_bet_in_round = getattr(current_player_obj, "current_bet_in_round", 0)
     effective_bet_faced = max(0, current_bet - player_bet_in_round)
     normalized_bet_faced = float(effective_bet_faced / scale)
-    raw_sequence.append(_pad_feature([normalized_bet_faced, TYPE_ID_CURRENT_BET]))
+    raw_sequence.append(
+        _pad_feature([normalized_bet_faced, TYPE_ID_CURRENT_BET, 0.0])
+    )
 
     # Player stack
     normalized_stack = float(current_player_obj.stack / scale)
-    raw_sequence.append(_pad_feature([normalized_stack, TYPE_ID_PLAYER_STACK]))
+    raw_sequence.append(
+        _pad_feature([normalized_stack, TYPE_ID_PLAYER_STACK, 0.0])
+    )
 
     # Betting round indicator
     round_id_numeric = float(ROUND_TO_ID.get(betting_round.lower(), -1))
-    raw_sequence.append(_pad_feature([round_id_numeric, TYPE_ID_ROUND]))
+    raw_sequence.append(_pad_feature([round_id_numeric, TYPE_ID_ROUND, 0.0]))
 
     # ------------------------------------------------------------------
     # Pad sequence and create mask
