@@ -41,6 +41,12 @@ def best_of(players_hole: dict[int, list[str]], board: list[str]) -> list[int]:
     Validates cards and rejects duplicates across all players + board.
     """
     board_norm = [_normalize(c) for c in board]
+    if len(board_norm) != len(set(board_norm)):
+        raise ValueError("Duplicate card detected on the board")
+
+    # Cache eval7.Card objects so we only construct each physical card once.
+    card_cache: dict[str, eval7.Card] = {c: eval7.Card(c) for c in board_norm}
+    board_cards = [card_cache[c] for c in board_norm]
     seen = set(board_norm)
     scores: dict[int, int] = {}
 
@@ -48,11 +54,14 @@ def best_of(players_hole: dict[int, list[str]], board: list[str]) -> list[int]:
         if len(hole) != 2:
             raise ValueError(f"Player {pid} must have exactly 2 hole cards")
         hole_norm = [_normalize(c) for c in hole]
+        if len(hole_norm) != len(set(hole_norm)):
+            raise ValueError(f"Player {pid} has duplicate hole cards")
         for c in hole_norm:
             if c in seen:
                 raise ValueError(f"Duplicate card detected: {c}")
             seen.add(c)
-        scores[pid] = eval7.evaluate([eval7.Card(c) for c in (hole_norm + board_norm)])
+        hole_cards = [card_cache.setdefault(c, eval7.Card(c)) for c in hole_norm]
+        scores[pid] = eval7.evaluate(hole_cards + board_cards)
 
     max_score = max(scores.values())
     return [pid for pid, sc in scores.items() if sc == max_score]
