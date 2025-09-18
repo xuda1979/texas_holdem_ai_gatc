@@ -94,6 +94,29 @@ class TexasHoldemRules:
         ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
         return CardDeck([rank + suit for suit in suits for rank in ranks])
 
+    def _next_player_with_chips(
+        self, start_index: int, *, include_start: bool = False
+    ) -> int | None:
+        """Return the next active seat with chips starting after ``start_index``.
+
+        Eliminated players keep their seat numbers but have ``active_players`` set
+        to ``False`` and their chip stack reduced to zero.  Blinds and action order
+        must therefore skip over such seats when rotating around the table.  The
+        search wraps around at the end of the table and gives up when no eligible
+        player is found.
+        """
+
+        if self.num_players <= 0:
+            return None
+
+        step_start = start_index if include_start else (start_index + 1) % self.num_players
+        idx = step_start
+        for _ in range(self.num_players):
+            if self.active_players[idx] and self.player_chips[idx] > 0:
+                return idx
+            idx = (idx + 1) % self.num_players
+        return None
+
     def shuffle_deck(self):
         # Ensure the deck is actually shuffled
         random.shuffle(self.deck)
@@ -107,12 +130,17 @@ class TexasHoldemRules:
         for _ in range(2):
             for i in range(self.num_players):
                 if self.active_players[i]:
-                    self.hands[i].append(self.deck.pop(0))
+                    self.hands[i].append(self.deck.pop())
 
     def post_blinds(self):
         structured_blind_actions = []
-        small_blind_player = (self.dealer_button + 1) % self.num_players
-        big_blind_player = (self.dealer_button + 2) % self.num_players
+        small_blind_player = self._next_player_with_chips(self.dealer_button)
+        if small_blind_player is None:
+            return []
+
+        big_blind_player = self._next_player_with_chips(small_blind_player)
+        if big_blind_player is None:
+            big_blind_player = small_blind_player
 
         def _post_blind(player_index: int, blind_amount: int, label: str) -> int:
             available_chips = self.player_chips[player_index]
@@ -143,7 +171,11 @@ class TexasHoldemRules:
 
         self.current_bet = big_blind_contribution
         self.previous_raise_amount = big_blind_contribution
-        self.current_player = (big_blind_player + 1) % self.num_players
+
+        next_player = self._next_player_with_chips(big_blind_player)
+        if next_player is None:
+            next_player = big_blind_player
+        self.current_player = next_player
         return structured_blind_actions
 
     def bet(self, player_index, amount):
@@ -214,27 +246,27 @@ class TexasHoldemRules:
     def deal_community_cards(self, round_stage):
         if round_stage == "flop":
             # Burn a card
-            burned = self.deck.pop(0)
+            burned = self.deck.pop()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the flop (3 cards)
             for _ in range(3):
-                card = self.deck.pop(0)
+                card = self.deck.pop()
                 self.community_cards.append(card)
                 self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == "turn":
             # Burn a card
-            burned = self.deck.pop(0)
+            burned = self.deck.pop()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the turn (1 card)
-            card = self.deck.pop(0)
+            card = self.deck.pop()
             self.community_cards.append(card)
             self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == "river":
             # Burn a card
-            burned = self.deck.pop(0)
+            burned = self.deck.pop()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the river (1 card)
-            card = self.deck.pop(0)
+            card = self.deck.pop()
             self.community_cards.append(card)
             self._log(f"Dealt community card: {self._format_card(card)}.")
         else:
@@ -937,7 +969,10 @@ class TexasHoldem:
         self.rules.community_cards = []
         self.rules.pot = 0
         self.rules.bets = [0] * self.num_players
-        self.rules.current_player = (self.rules.dealer_button + 1) % self.num_players
+        next_player = self.rules._next_player_with_chips(self.rules.dealer_button)
+        if next_player is None:
+            next_player = self.rules.dealer_button
+        self.rules.current_player = next_player
         self.rules.current_bet = 0
         self.rules.previous_raise_amount = 0
         self.rules.betting_history = []
