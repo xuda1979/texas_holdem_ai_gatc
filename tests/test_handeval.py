@@ -26,3 +26,14 @@ def test_board_plays_everyone_ties() -> None:
     }
     winners = best_of(players, board)
     assert set(winners) == {0, 1, 2}
+
+
+def test_duplicate_board_cards_raise() -> None:
+    board = ["As", "As", "Kd", "Qc", "Jd"]
+    players = {
+        0: ["2c", "3d"],
+        1: ["4h", "5s"],
+    }
+
+    with pytest.raises(ValueError, match="Duplicate card"):
+        best_of(players, board)
