@@ -10,6 +10,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "eval7>=0.1.10",
     "fastapi>=0.115",
+    "httpx>=0.28",
     "numpy>=1.25",
     "pillow>=10.0",
     "prometheus-client>=0.22",
