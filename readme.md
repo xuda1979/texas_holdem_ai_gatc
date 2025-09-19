@@ -54,6 +54,7 @@ To control the computation device you can use:
 
 - `--gpus` to train on available GPUs (uses all GPUs via `DataParallel`).
 - `--npus` to train on available NPUs (uses all NPUs via `DataParallel`).
+- `--tpu` to launch training on a TPU VM using `torch_xla` (mutually exclusive with the flags above).
 
 For faster iteration during small experiments you can lower the minimum replay
 buffer required before training with:
@@ -62,6 +63,30 @@ buffer required before training with:
   have been collected (defaults to 256).
 
 Omitting these flags runs training on the CPU by default.
+
+### TPU training workflow
+
+Running on a Cloud TPU requires a TPU VM environment with the matching
+`torch`/`torch-xla` wheels installed. A typical setup looks like:
+
+1. [Create a TPU VM](https://cloud.google.com/tpu/docs/v4-users-guide#tpu-vm-create).
+2. Install the matching wheels (replace the versions with the release that
+   matches your VM image):
+   ```bash
+   pip install torch==2.2.0 torch-xla==2.2.0 torchvision==0.17.0 -f \
+     https://storage.googleapis.com/tpu-pytorch/wheels/colab.html
+   ```
+3. Clone this repository and install the project dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Run the trainer with TPU support:
+   ```bash
+   python -m poker_ai.cli.train --algorithm deep_cfr --tpu
+   ```
+
+When TPU mode is enabled the tournament evaluations fall back to the CPU so
+that saved checkpoints can still be ranked without XLA kernels.
 
 
 3. **Run tests**:

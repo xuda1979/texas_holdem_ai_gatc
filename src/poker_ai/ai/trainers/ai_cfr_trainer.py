@@ -17,6 +17,16 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 # CFR utilities live under the package namespace.
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
+
+def _load_xla_module():
+    try:
+        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found,unused-ignore]
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        raise RuntimeError(
+            "TPU training requested but torch_xla is not installed. Install the torch-xla package."
+        ) from exc
+    return xm
+
 # Load configuration.  If the YAML parser or file is missing we fall back to
 # a small default config so that importing this module never fails.
 try:
@@ -59,9 +69,30 @@ sys.modules[__package__ + ".config"] = config
 
 class AICFRTrainer:
     def __init__(self, device: str | None = None):
-        self.device = (
+        requested_device = (
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
+        self._xm = None
+        self._xla_device = None
+        if isinstance(requested_device, torch.device) and requested_device.type == "xla":
+            self._xm = _load_xla_module()
+            self._xla_device = requested_device
+        elif isinstance(requested_device, str) and requested_device.startswith("xla"):
+            self._xm = _load_xla_module()
+            ordinal: int | None = None
+            try:
+                _, ordinal_str = requested_device.split(":", 1)
+                ordinal = int(ordinal_str)
+            except (ValueError, IndexError):
+                ordinal = None
+            self._xla_device = (
+                self._xm.xla_device(ordinal) if ordinal is not None else self._xm.xla_device()
+            )
+        if self._xla_device is not None:
+            self.device = self._xla_device
+        else:
+            self.device = requested_device
+        self._using_xla = self._xla_device is not None
         model_config = config.get("model", {})  # Get model sub-config, or empty dict
         hidden_dim = model_config.get("hidden_dim", 128)  # Default if not found
         output_dim = model_config.get("num_actions", 10)  # Default if not found
@@ -117,10 +148,11 @@ class AICFRTrainer:
         if history_tensor.ndim == 2:
             history_tensor = history_tensor.unsqueeze(0)
 
-        hole_summary = hole_summary.to(self.device)
-        community_summary = community_summary.to(self.device)
-        history_tensor = history_tensor.to(self.device)
-        mask = mask.to(self.device) if mask is not None else None
+        target_device = self._xla_device or self.device
+        hole_summary = hole_summary.to(target_device)
+        community_summary = community_summary.to(target_device)
+        history_tensor = history_tensor.to(target_device)
+        mask = mask.to(target_device) if mask is not None else None
 
         with torch.no_grad():
             advantages = self.model(hole_summary, community_summary, history_tensor, src_mask=None)
@@ -158,10 +190,11 @@ class AICFRTrainer:
             if history_tensor.ndim == 2:
                 history_tensor = history_tensor.unsqueeze(0)
 
-            hole_summary = hole_summary.to(self.device)
-            community_summary = community_summary.to(self.device)
-            history_tensor = history_tensor.to(self.device)
-            payoffs = all_counterfactual_payoffs.to(self.device)
+            target_device = self._xla_device or self.device
+            hole_summary = hole_summary.to(target_device)
+            community_summary = community_summary.to(target_device)
+            history_tensor = history_tensor.to(target_device)
+            payoffs = all_counterfactual_payoffs.to(target_device)
 
             logits = self.model(
                 hole_summary,
@@ -173,7 +206,7 @@ class AICFRTrainer:
 
             legal_mask = None
             if mask is not None:
-                legal_mask = mask.to(self.device)
+                legal_mask = mask.to(target_device)
                 if legal_mask.dtype != torch.bool:
                     legal_mask = legal_mask.bool()
                 strategy_pred = torch.where(legal_mask, strategy_pred, torch.zeros_like(strategy_pred))
@@ -189,11 +222,12 @@ class AICFRTrainer:
                 payoffs = torch.where(legal_mask, payoffs, torch.zeros_like(payoffs))
 
             if info_set_id not in self.cumulative_regret:
+                init_device = self._xla_device or self.device
                 self.cumulative_regret[info_set_id] = torch.zeros(
-                    self.num_actions, device=self.device
+                    self.num_actions, device=init_device
                 )
                 self.cumulative_strategy[info_set_id] = torch.zeros(
-                    self.num_actions, device=self.device
+                    self.num_actions, device=init_device
                 )
 
             cumulative_regret = self.cumulative_regret[info_set_id]
@@ -219,7 +253,12 @@ class AICFRTrainer:
 
             self.optimizer.zero_grad()
             loss.backward()
-            self.optimizer.step()
+            if self._using_xla:
+                assert self._xm is not None
+                self._xm.optimizer_step(self.optimizer)
+                self._xm.mark_step()
+            else:
+                self.optimizer.step()
 
             logging.info(f"Training step completed. Loss: {loss.item()}")
             return float(loss.item())
@@ -283,7 +322,12 @@ class AICFRTrainer:
                     "trainer": "ai_cfr",
                 },
             }
-            torch.save(payload, model_path)
+            if self._using_xla:
+                assert self._xm is not None
+                self._xm.save(payload, model_path)
+                self._xm.mark_step()
+            else:
+                torch.save(payload, model_path)
             logging.info(f"Model saved to {model_path}")
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
@@ -291,12 +335,16 @@ class AICFRTrainer:
     def load_model(self):
         # Ensure config path is correct or make it an argument
         try:
+            map_location = self.device
+            if self._using_xla:
+                map_location = "cpu"
             payload = torch.load(
-                config["training"]["save_model_path"], map_location=self.device
+                config["training"]["save_model_path"], map_location=map_location
             )
             state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
             self.model.load_state_dict(state_dict)
-            self.model.to(self.device)
+            target_device = self._xla_device or self.device
+            self.model.to(target_device)
             self.model.eval()
             logging.info(f"Model loaded from {config['training']['save_model_path']}")
         except Exception as e:

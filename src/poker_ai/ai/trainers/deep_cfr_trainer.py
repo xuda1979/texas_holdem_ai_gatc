@@ -17,6 +17,16 @@ import torch
 import torch.optim as optim
 from torch.nn.utils import clip_grad_norm_
 
+
+def _load_xla_module():
+    try:
+        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found,unused-ignore]
+    except ImportError as exc:  # pragma: no cover - dependency missing in CPU/GPU environments
+        raise RuntimeError(
+            "TPU training requested but torch_xla is not installed. Install the torch-xla package."
+        ) from exc
+    return xm
+
 from poker_ai.ai.models.transformer import AdvantageNetwork
 
 
@@ -95,9 +105,30 @@ class DeepCFRTrainer:
         if buffer_capacity is not None:
             replay_buffer_capacity = buffer_capacity
 
-        self.device = device if device is not None else (
-            "cuda" if torch.cuda.is_available() else "cpu"
+        requested_device = (
+            device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
+        self._xm = None
+        self._xla_device = None
+        if isinstance(requested_device, torch.device) and requested_device.type == "xla":
+            self._xm = _load_xla_module()
+            self._xla_device = requested_device
+        elif isinstance(requested_device, str) and requested_device.startswith("xla"):
+            self._xm = _load_xla_module()
+            ordinal: int | None = None
+            try:
+                _, ordinal_str = requested_device.split(":", 1)
+                ordinal = int(ordinal_str)
+            except (ValueError, IndexError):
+                ordinal = None
+            self._xla_device = (
+                self._xm.xla_device(ordinal) if ordinal is not None else self._xm.xla_device()
+            )
+        if self._xla_device is not None:
+            self.device = self._xla_device
+        else:
+            self.device = requested_device
+        self._using_xla = self._xla_device is not None
         self.num_actions = num_actions
 
         # Each card summary is encoded as 17 features (13 rank + 4 suit).
@@ -162,10 +193,11 @@ class DeepCFRTrainer:
             if community_summary is not None and community_summary.ndim == 1:
                 community_summary = community_summary.unsqueeze(0)
 
+        target_device = self._xla_device or self.device
         out = self.advantage_net(
-            hole_summary.to(self.device),
-            community_summary.to(self.device),
-            history_tensor.to(self.device),
+            hole_summary.to(target_device),
+            community_summary.to(target_device),
+            history_tensor.to(target_device),
         )
         return out.squeeze(0).detach().cpu()
 
@@ -178,11 +210,12 @@ class DeepCFRTrainer:
 
         holes, communities, histories, regrets, iterations = zip(*batch)
 
-        holes = torch.stack(list(holes)).to(self.device)
-        communities = torch.stack(list(communities)).to(self.device)
-        histories = torch.stack(list(histories)).to(self.device)
-        regrets = torch.stack(list(regrets)).to(self.device)
-        iterations = torch.as_tensor(iterations, dtype=torch.float32, device=self.device).view(-1, 1)
+        target_device = self._xla_device or self.device
+        holes = torch.stack(list(holes)).to(target_device)
+        communities = torch.stack(list(communities)).to(target_device)
+        histories = torch.stack(list(histories)).to(target_device)
+        regrets = torch.stack(list(regrets)).to(target_device)
+        iterations = torch.as_tensor(iterations, dtype=torch.float32, device=target_device).view(-1, 1)
 
         adv_pred = self.advantage_net(holes, communities, histories)
         adv_pred = adv_pred - adv_pred.mean(dim=-1, keepdim=True)
@@ -194,7 +227,12 @@ class DeepCFRTrainer:
         self.optimizer.zero_grad(set_to_none=True)
         weighted_loss.backward()
         clip_grad_norm_(self.advantage_net.parameters(), max_norm=1.0)
-        self.optimizer.step()
+        if self._using_xla:
+            assert self._xm is not None  # for type checkers
+            self._xm.optimizer_step(self.optimizer)
+            self._xm.mark_step()
+        else:
+            self.optimizer.step()
 
         return float(weighted_loss.item())
 
@@ -212,15 +250,24 @@ class DeepCFRTrainer:
                 "trainer": "deep_cfr",
             },
         }
-        torch.save(payload, path)
+        if self._using_xla:
+            assert self._xm is not None
+            self._xm.save(payload, path)
+            self._xm.mark_step()
+        else:
+            torch.save(payload, path)
 
     def load_model(self, path: str) -> None:
-        state = torch.load(path, map_location=self.device)
+        map_location = self.device
+        if self._using_xla:
+            map_location = "cpu"
+        state = torch.load(path, map_location=map_location)
         if isinstance(state, dict) and "state_dict" in state:
             state_dict = state["state_dict"]
         else:
             state_dict = state
         self.advantage_net.load_state_dict(state_dict)
-        self.advantage_net.to(self.device)
+        target_device = self._xla_device or self.device
+        self.advantage_net.to(target_device)
         self.advantage_net.eval()
 
