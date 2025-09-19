@@ -20,7 +20,7 @@ All production code now lives under `src/poker_ai` to allow modular development.
 - `evaluation/` – exploitability and analysis tools.
 - `gatc_poker/` – rules-safe side pots and hand evaluation wrappers.
 - `config/` – configuration module containing `config.py` and `config.yaml`.
-- `cli/` – command line entry points (`train.py`, `play.py`, `self_play.py`).
+- `cli/` – command line entry points (`train.py`, `play.py`, `self_play.py`, `gcp_train.py`).
 
 
 ## Setup
@@ -93,7 +93,65 @@ Omitting these flags runs training on the CPU by default.
     ```bash
     play-poker --total-players 2 --num-humans 1
     train-poker --num-hands 500
+    poker-ai-gcp-train --help
     ```
+
+## Google Cloud Training Workflow
+
+The repository now ships with a thin wrapper around the `gcloud` CLI to simplify
+launching remote GPU and TPU workers.  The helper ensures that the Google Cloud
+SDK is available before executing any commands and mirrors the most common
+operations (create, run, delete).
+
+1. **Create infrastructure**
+
+   - **GPU VM**
+
+     ```bash
+     poker-ai-gcp-train \
+       --project my-project \
+       --zone us-central1-a \
+       --name poker-ai-gpu \
+       --accelerator gpu \
+       --machine-type n1-standard-8 \
+       create --gpu-type nvidia-tesla-t4
+     ```
+
+   - **TPU VM**
+
+     ```bash
+     poker-ai-gcp-train \
+       --project my-project \
+       --zone us-central1-f \
+       --name poker-ai-tpu \
+       --accelerator tpu \
+       create --tpu-type v4-8 --tpu-version tpu-vm-base
+     ```
+
+2. **Run training remotely**
+
+   ```bash
+   poker-ai-gcp-train \
+     --project my-project \
+     --zone us-central1-a \
+     --name poker-ai-gpu \
+     --accelerator gpu \
+     --bucket my-checkpoint-bucket \
+     run "python -m poker_ai.cli.train --num-hands 2000"
+   ```
+
+   The `run` command synchronises the repository into `~/poker-ai` on the
+   remote machine, exports `CHECKPOINT_BUCKET` when provided, and executes the
+   supplied training command through SSH.
+
+3. **Clean up resources**
+
+   ```bash
+   poker-ai-gcp-train --project my-project --zone us-central1-a --name poker-ai-gpu delete
+   ```
+
+Always run the `delete` sub-command after finishing training to avoid unwanted
+cloud charges.
 
 ### Trained Model
 
