@@ -21,6 +21,16 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
 
+def _load_xla_module():
+    try:
+        import torch_xla.core.xla_model as xm  # type: ignore[import-not-found,unused-ignore]
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        raise RuntimeError(
+            "TPU training requested but torch_xla is not installed. Install the torch-xla package."
+        ) from exc
+    return xm
+
+
 class SingleNetworkCFRTrainer:
     """CFR trainer that uses one network to approximate action regrets."""
 
@@ -32,9 +42,30 @@ class SingleNetworkCFRTrainer:
         lr: float = 1e-3,
         device: str | None = None,
     ) -> None:
-        self.device = (
+        requested_device = (
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
+        self._xm = None
+        self._xla_device = None
+        if isinstance(requested_device, torch.device) and requested_device.type == "xla":
+            self._xm = _load_xla_module()
+            self._xla_device = requested_device
+        elif isinstance(requested_device, str) and requested_device.startswith("xla"):
+            self._xm = _load_xla_module()
+            ordinal: int | None = None
+            try:
+                _, ordinal_str = requested_device.split(":", 1)
+                ordinal = int(ordinal_str)
+            except (ValueError, IndexError):
+                ordinal = None
+            self._xla_device = (
+                self._xm.xla_device(ordinal) if ordinal is not None else self._xm.xla_device()
+            )
+        if self._xla_device is not None:
+            self.device = self._xla_device
+        else:
+            self.device = requested_device
+        self._using_xla = self._xla_device is not None
 
         # ``AdvantageNetwork`` expects separate history and card summaries.  The
         # simplified single-network approach reuses ``input_feature_dim`` for both
@@ -59,8 +90,9 @@ class SingleNetworkCFRTrainer:
         self.num_layers = 2
         self.max_seq_len = 256
 
-        self.cumulative_regret = torch.zeros(num_actions, device=self.device)
-        self.cumulative_strategy = torch.zeros(num_actions, device=self.device)
+        init_device = self._xla_device or self.device
+        self.cumulative_regret = torch.zeros(num_actions, device=init_device)
+        self.cumulative_strategy = torch.zeros(num_actions, device=init_device)
 
         # Minimal configuration dictionary consumed by ``SelfPlay`` and the
         # evaluation utilities.
@@ -96,14 +128,15 @@ class SingleNetworkCFRTrainer:
         if history_tensor.ndim == 2:
             history_tensor = history_tensor.unsqueeze(0)
 
+        target_device = self._xla_device or self.device
         logits = self.model(
-            hole_summary.to(self.device),
-            community_summary.to(self.device),
-            history_tensor.to(self.device),
+            hole_summary.to(target_device),
+            community_summary.to(target_device),
+            history_tensor.to(target_device),
         ).squeeze(0)
 
         if mask is not None:
-            legal_mask = mask.to(logits.device)
+            legal_mask = mask.to(target_device)
             if legal_mask.dtype != torch.bool:
                 legal_mask = legal_mask.bool()
             logits = torch.where(legal_mask, logits, torch.full_like(logits, -1e9))
@@ -118,10 +151,11 @@ class SingleNetworkCFRTrainer:
         counterfactual_payoffs: torch.Tensor,
         legal_actions_mask: torch.Tensor | None = None,
     ) -> float:
-        hole_summary = hole_summary.to(self.device)
-        community_summary = community_summary.to(self.device)
-        history_tensor = history_tensor.to(self.device)
-        payoffs = counterfactual_payoffs.to(self.device)
+        target_device = self._xla_device or self.device
+        hole_summary = hole_summary.to(target_device)
+        community_summary = community_summary.to(target_device)
+        history_tensor = history_tensor.to(target_device)
+        payoffs = counterfactual_payoffs.to(target_device)
 
         if hole_summary.ndim == 1:
             hole_summary = hole_summary.unsqueeze(0)
@@ -135,7 +169,7 @@ class SingleNetworkCFRTrainer:
 
         mask = None
         if legal_actions_mask is not None:
-            mask = legal_actions_mask.to(self.device)
+            mask = legal_actions_mask.to(target_device)
             if mask.dtype != torch.bool:
                 mask = mask.bool()
             strategy_pred = torch.where(mask, strategy_pred, torch.zeros_like(strategy_pred))
@@ -165,7 +199,12 @@ class SingleNetworkCFRTrainer:
         loss = nn.functional.mse_loss(strategy_pred, target_strategy.detach())
         self.optimizer.zero_grad()
         loss.backward()
-        self.optimizer.step()
+        if self._using_xla:
+            assert self._xm is not None
+            self._xm.optimizer_step(self.optimizer)
+            self._xm.mark_step()
+        else:
+            self.optimizer.step()
         return float(loss.item())
 
     def train(self, batch_size: int = 256) -> float:
@@ -202,16 +241,25 @@ class SingleNetworkCFRTrainer:
                 "trainer": "single_network",
             },
         }
-        torch.save(payload, path)
+        if self._using_xla:
+            assert self._xm is not None
+            self._xm.save(payload, path)
+            self._xm.mark_step()
+        else:
+            torch.save(payload, path)
 
     def load_model(self, path: str) -> None:
-        payload = torch.load(path, map_location=self.device)
+        map_location = self.device
+        if self._using_xla:
+            map_location = "cpu"
+        payload = torch.load(path, map_location=map_location)
         if isinstance(payload, dict) and "state_dict" in payload:
             state_dict = payload["state_dict"]
         else:
             state_dict = payload
         self.model.load_state_dict(state_dict)
-        self.model.to(self.device)
+        target_device = self._xla_device or self.device
+        self.model.to(target_device)
         self.model.eval()
 
 

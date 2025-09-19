@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use available NPUs. Wraps model in DataParallel if multiple NPUs are present.",
     )
+    parser.add_argument(
+        "--tpu",
+        action="store_true",
+        help="Use a TPU via torch_xla for training.",
+    )
     return parser.parse_args()
 
 
@@ -82,7 +87,7 @@ def initialize_trainer(
     config:
         Loaded configuration dictionary.
     device:
-        The computation device identifier (``cpu``, ``cuda`` or ``npu``).
+        The computation device identifier (``cpu``, ``cuda``, ``npu`` or ``xla``).
     use_data_parallel:
         If ``True`` the underlying model will be wrapped with
         :class:`torch.nn.DataParallel` to leverage multiple devices.
@@ -154,19 +159,36 @@ def main() -> None:  # noqa: C901
     ):
         if isinstance(getattr(args, attr, None), MagicMock):
             setattr(args, attr, None)
-    for flag in ("gpus", "npus"):
+    for flag in ("gpus", "npus", "tpu"):
         if isinstance(getattr(args, flag, None), MagicMock):
             setattr(args, flag, False)
 
     device: str = "cpu"
     use_data_parallel = False
+    device_printable = device
+
+    if args.tpu and (args.gpus or args.npus):
+        raise ValueError("Cannot specify --tpu with --gpus or --npus.")
 
     if args.gpus and args.npus:
         raise ValueError("Cannot specify both --gpus and --npus.")
 
-    if args.npus:
+    if args.tpu:
+        try:
+            import torch_xla.core.xla_model as xm  # type: ignore[attr-defined]
+        except ImportError as exc:  # pragma: no cover - dependency not installed
+            raise RuntimeError(
+                "torch_xla is required for TPU training. Install the torch-xla package first."
+            ) from exc
+
+        xla_device = xm.xla_device()
+        device = "xla"
+        device_printable = f"{device} ({xla_device})"
+        print(f"TPU training enabled on device {xla_device}.")
+    elif args.npus:
         if hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
+            device_printable = device
             npu_count = torch.npu.device_count()
             if npu_count > 1:
                 use_data_parallel = True
@@ -181,6 +203,7 @@ def main() -> None:  # noqa: C901
     elif args.gpus:
         if torch.cuda.is_available():
             device = "cuda"
+            device_printable = device
             gpu_count = torch.cuda.device_count()
             if gpu_count > 1:
                 use_data_parallel = True
@@ -192,6 +215,10 @@ def main() -> None:  # noqa: C901
                 "Warning: --gpus specified, but no GPU devices are available. "
                 "Falling back to CPU."
             )
+
+    analyzer_device = device if device != "xla" else "cpu"
+    if device == "xla" and analyzer_device == "cpu":
+        print("ModelPerformanceAnalyzer evaluations will run on the CPU while training on TPU.")
 
     # Load configuration
     config = load_configuration(args.config)
@@ -255,7 +282,7 @@ def main() -> None:  # noqa: C901
     print(f"Players per hand: random {min_players}-{max_players}")
     print(f"Starting stack: {starting_stack}")
     print(f"Blinds: SB={small_blind}, BB={big_blind}")
-    print(f"Using device: {device}")
+    print(f"Using device: {device_printable}")
     print(f"Min buffer before training: {min_buffer_before_train}")
 
     # Initialization
@@ -272,7 +299,10 @@ def main() -> None:  # noqa: C901
         cfr_trainer = cast(
             Any,
             initialize_trainer(
-                args.algorithm, config, device, use_data_parallel=use_data_parallel
+                args.algorithm,
+                config,
+                device,
+                use_data_parallel=use_data_parallel,
             ),
         )
         print(f"{args.algorithm} trainer initialized.")
@@ -297,7 +327,7 @@ def main() -> None:  # noqa: C901
         models_dir="models",
         save_every_iterations=save_model_every_samples,
         tournament_threshold=10,
-        device=device,
+        device=analyzer_device,
     )
 
     last_save_time = time.time()
