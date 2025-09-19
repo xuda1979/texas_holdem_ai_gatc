@@ -10,11 +10,14 @@ def calculate_strategy(cumulative_regret, num_actions, legal_actions_mask=None):
     :param legal_actions_mask: Optional boolean mask indicating which actions are legal.
     :return: A probability distribution (strategy) over actions.
     """
+    device = cumulative_regret.device
+    dtype = cumulative_regret.dtype
+
     mask = None
+    has_legal = False
     if legal_actions_mask is not None:
-        mask = legal_actions_mask.to(cumulative_regret.device)
-        if mask.dtype != torch.bool:
-            mask = mask.bool()
+        mask = legal_actions_mask.to(device=device, dtype=torch.bool)
+        has_legal = bool(mask.any())
 
     positive_regret = torch.clamp(cumulative_regret, min=0)
     if mask is not None:
@@ -26,11 +29,12 @@ def calculate_strategy(cumulative_regret, num_actions, legal_actions_mask=None):
         strategy = positive_regret / sum_positive_regret
     else:
         # If all regrets are non-positive, return a uniform random strategy over legal actions
-        if mask is not None and mask.any():
-            mask_float = mask.float()
-            strategy = mask_float / mask_float.sum()
+        if mask is not None and has_legal:
+            mask_float = mask.to(dtype=dtype)
+            total = mask_float.sum()
+            strategy = mask_float / total
         else:
-            strategy = torch.ones(num_actions, device=cumulative_regret.device) / num_actions
+            strategy = torch.ones(num_actions, device=device, dtype=dtype) / num_actions
 
     if mask is not None:
         strategy = torch.where(mask, strategy, torch.zeros_like(strategy))
@@ -150,7 +154,11 @@ def compute_average_strategy(cumulative_strategy):
     else:
         # Return a uniform random strategy if no strategy has been accumulated
         num_actions = cumulative_strategy.size(0)
-        return torch.ones(num_actions) / num_actions
+        return torch.ones(
+            num_actions,
+            device=cumulative_strategy.device,
+            dtype=cumulative_strategy.dtype,
+        ) / num_actions
 
 
 def cfr_iteration(game, cumulative_regret, cumulative_strategy, num_actions, num_iterations):
