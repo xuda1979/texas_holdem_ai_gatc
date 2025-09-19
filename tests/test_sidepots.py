@@ -22,8 +22,11 @@ def test_folded_players_not_eligible_in_side_pots() -> None:
     pots = build_side_pots(contrib, in_hand)
     # levels: 200 (eligible 0,1), 1000 (eligible 0,1) => two pots
     assert len(pots) == 2
-    assert pots[0].amount == 400 and set(pots[0].eligible) == {0, 1}
+    # Folded player's 200 chips still contribute to the main pot contested
+    # between the remaining players.
+    assert pots[0].amount == 600 and set(pots[0].eligible) == {0, 1}
     assert pots[1].amount == 1600 and set(pots[1].eligible) == {0, 1}
+    assert sum(p.amount for p in pots) == sum(contrib)
 
 
 def test_odd_chip_goes_left_of_button_among_winners() -> None:
