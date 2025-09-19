@@ -1,11 +1,16 @@
+"""Health monitoring helpers for training stability checks."""
+
+from __future__ import annotations
+
 import math
 from typing import Any, Iterable, Optional
 
 try:
     import torch
+
     _HAS_TORCH = True
-except Exception:
-    torch = None
+except Exception:  # pragma: no cover - torch optional dependency
+    torch = None  # type: ignore[assignment]
     _HAS_TORCH = False
 
 
