@@ -77,9 +77,14 @@ def build_side_pots(contributions: list[int], in_hand: list[bool]) -> list[Pot]:
     prev = 0
     for level in levels:
         delta = level - prev
-        eligible = [i for i, c in enumerate(contributions) if c >= level and in_hand[i]]
+        if delta <= 0:
+            prev = level
+            continue
+
+        contributors = [i for i, c in enumerate(contributions) if c >= level]
+        eligible = [i for i in contributors if in_hand[i]]
         if len(eligible) >= 2:
-            amount = delta * len(eligible)
+            amount = delta * len(contributors)
             pots.append(Pot(amount=amount, eligible=tuple(eligible)))
         prev = level
     return pots
