@@ -14,6 +14,7 @@ from poker_ai.gui.playStrategy import (
     ModelAIStrategy,
     RandomAIStrategy,
 )
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,11 +41,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model(model_path: str) -> ModelAIStrategy | None:
+def load_model(model_path: str | None) -> ModelAIStrategy | None:
     """Load a saved AI model using :func:`load_model_strategy`."""
+
+    if model_path is None:
+        return None
 
     strategy, _ = load_model_strategy(model_path)
     if isinstance(strategy, ModelAIStrategy):
+        print(f"Loaded AI model from {model_path}\n")
         return strategy
     return None
 
@@ -55,7 +60,28 @@ def main() -> None:  # noqa: C901
 
     cfg = load_config(args.config)
 
-    model_strategy = load_model(args.model_path) if args.model_path else None
+    model_path = args.model_path
+    latest: tuple[str, float] | None = None
+    if model_path is None:
+        latest = find_latest_model_checkpoint()
+        if latest is not None:
+            model_path, _ = latest
+            print(f"Using latest available AI model at {model_path}\n")
+        else:
+            print("No saved AI model found. AI players will use random decisions.\n")
+
+    model_strategy = load_model(model_path)
+    if model_strategy is None and model_path is not None:
+        if args.model_path:
+            print(
+                f"Failed to load model from {model_path}. "
+                "Falling back to random AI players.\n"
+            )
+        elif latest is not None:
+            print(
+                f"The detected AI model at {model_path} could not be loaded. "
+                "Using random AI players instead.\n"
+            )
 
     total_players = args.total_players
     if total_players is None:
