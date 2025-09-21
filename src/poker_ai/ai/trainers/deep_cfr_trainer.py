@@ -135,8 +135,8 @@ class DeepCFRTrainer:
         self.card_feature_dim = 17
         self.history_feature_dim = input_feature_dim
         self.hidden_dim = hidden_dim
-        self.num_heads = 4
-        self.num_layers = 2
+        self.num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
+        self.num_layers = AdvantageNetwork.DEFAULT_NUM_LAYERS
         self.max_seq_len = 256
 
         self.advantage_net = AdvantageNetwork(

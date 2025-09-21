@@ -74,20 +74,21 @@ class SingleNetworkCFRTrainer:
         # Hole and community summaries are encoded with 17 features (13 ranks +
         # 4 suits) in :func:`prepare_transformer_input`.
         self.card_feature_dim = 17
+        inferred_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
         self.model = AdvantageNetwork(
             history_feature_dim=self.history_feature_dim,
             card_feature_dim=self.card_feature_dim,
             hidden_dim=hidden_dim,
-            num_heads=4,
-            num_layers=2,
+            num_heads=inferred_heads,
+            num_layers=AdvantageNetwork.DEFAULT_NUM_LAYERS,
             num_actions=num_actions,
         ).to(self.device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.num_actions = num_actions
         self.hidden_dim = hidden_dim
-        self.num_heads = 4
-        self.num_layers = 2
+        self.num_heads = inferred_heads
+        self.num_layers = AdvantageNetwork.DEFAULT_NUM_LAYERS
         self.max_seq_len = 256
 
         init_device = self._xla_device or self.device

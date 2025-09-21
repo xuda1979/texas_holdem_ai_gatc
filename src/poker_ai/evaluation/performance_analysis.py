@@ -35,9 +35,17 @@ class EvalStrategy(PlayerStrategy):
         self.config: dict[str, object] = dict(metadata)
         self.history_feature_dim = int(metadata.get("history_feature_dim", 18))  # type: ignore[arg-type]
         self.card_feature_dim = int(metadata.get("card_feature_dim", self.history_feature_dim))  # type: ignore[arg-type]
-        hidden_dim = int(metadata.get("hidden_dim", 128))  # type: ignore[arg-type]
-        num_heads = int(metadata.get("num_heads", 4))  # type: ignore[arg-type]
-        num_layers = int(metadata.get("num_layers", 2))  # type: ignore[arg-type]
+        hidden_dim = int(
+            metadata.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
+        )  # type: ignore[arg-type]
+        num_heads_raw = metadata.get("num_heads")
+        if num_heads_raw is None:
+            num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
+        else:
+            num_heads = int(num_heads_raw)
+        num_layers = int(
+            metadata.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+        )  # type: ignore[arg-type]
         self.num_actions = int(metadata.get("num_actions", 10))  # type: ignore[arg-type]
         self.max_seq_len = int(metadata.get("max_seq_len", 256))  # type: ignore[arg-type]
 

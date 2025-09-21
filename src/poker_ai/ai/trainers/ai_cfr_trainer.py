@@ -44,11 +44,13 @@ except Exception:
     config = {
         "logging": {"log_file": "aicfr_trainer.log"},
         "model": {
-            "hidden_dim": 128,
+            "hidden_dim": 768,
             "num_actions": 10,
             "learning_rate": 0.001,
             "d_raw_feature": 18,
             "max_seq_len": 256,
+            "num_layers": AdvantageNetwork.DEFAULT_NUM_LAYERS,
+            "num_heads": AdvantageNetwork.DEFAULT_NUM_HEADS,
         },
         "training": {"save_model_path": "aicfr_model.pth"},
     }
@@ -94,17 +96,25 @@ class AICFRTrainer:
             self.device = requested_device
         self._using_xla = self._xla_device is not None
         model_config = config.get("model", {})  # Get model sub-config, or empty dict
-        hidden_dim = model_config.get("hidden_dim", 128)  # Default if not found
-        output_dim = model_config.get("num_actions", 10)  # Default if not found
-        learning_rate = model_config.get("learning_rate", 0.001)  # Default if not found
+        hidden_dim = int(
+            model_config.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
+        )
+        output_dim = int(model_config.get("num_actions", 10))
+        learning_rate = float(model_config.get("learning_rate", 0.001))
 
         # Feature dimensions for history sequence and card set summaries
         d_raw_feature = model_config.get("d_raw_feature", 18)
         d_card_feature = model_config.get("d_card_feature", 17)
 
         self.hidden_dim = hidden_dim
-        self.num_heads = model_config.get("num_heads", 8)
-        self.num_layers = model_config.get("num_layers", 2)
+        num_heads_config = model_config.get("num_heads")
+        if num_heads_config is None:
+            self.num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
+        else:
+            self.num_heads = int(num_heads_config)
+        self.num_layers = int(
+            model_config.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+        )
 
         self.model = AdvantageNetwork(
             history_feature_dim=d_raw_feature,

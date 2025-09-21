@@ -7,6 +7,8 @@ from typing import Any, cast
 
 import torch
 
+from poker_ai.ai.models.transformer import AdvantageNetwork
+
 from poker_ai.config import load_config
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 
@@ -105,10 +107,10 @@ def initialize_trainer(
         # the configuration file cannot be loaded (e.g. when PyYAML is not
         # installed).  Using a smaller default previously resulted in repeated
         # warnings from ``prepare_transformer_input``.
-        d_raw = model_cfg.get("d_raw_feature", 18)
-        hidden = model_cfg.get("hidden_dim", 128)
-        num_actions = model_cfg.get("num_actions", 10)
-        lr = model_cfg.get("learning_rate", 1e-3)
+        d_raw = int(model_cfg.get("d_raw_feature", 18))
+        hidden = int(model_cfg.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM))
+        num_actions = int(model_cfg.get("num_actions", 10))
+        lr = float(model_cfg.get("learning_rate", 1e-3))
         trainer = DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
@@ -116,10 +118,10 @@ def initialize_trainer(
         model_cfg = config.get("model", {})
         # Match the default described above for Deep CFR to ensure consistent
         # feature dimensions across training approaches.
-        d_raw = model_cfg.get("d_raw_feature", 18)
-        hidden = model_cfg.get("hidden_dim", 128)
-        num_actions = model_cfg.get("num_actions", 10)
-        lr = model_cfg.get("learning_rate", 1e-3)
+        d_raw = int(model_cfg.get("d_raw_feature", 18))
+        hidden = int(model_cfg.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM))
+        num_actions = int(model_cfg.get("num_actions", 10))
+        lr = float(model_cfg.get("learning_rate", 1e-3))
         trainer = SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr, device=device)
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")

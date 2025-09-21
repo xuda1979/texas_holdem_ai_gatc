@@ -36,9 +36,17 @@ def load_model_strategy(
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Invalid model metadata: {exc}") from exc
 
-        hidden_dim = int(metadata_obj.get("hidden_dim", 128))
-        num_heads = int(metadata_obj.get("num_heads", 4))
-        num_layers = int(metadata_obj.get("num_layers", 2))
+        hidden_dim = int(
+            metadata_obj.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
+        )
+        num_heads_value = metadata_obj.get("num_heads")
+        if num_heads_value is None:
+            num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
+        else:
+            num_heads = int(num_heads_value)
+        num_layers = int(
+            metadata_obj.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+        )
         max_seq_len = int(metadata_obj.get("max_seq_len", 256))
 
         state_dict = payload.get("state_dict")
