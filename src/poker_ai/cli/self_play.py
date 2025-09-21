@@ -25,6 +25,7 @@ from poker_ai.utils.state_representation import (
     infer_normalization_scale,
     prepare_transformer_input,
 )
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
 
 class TransformerStrategy:
@@ -93,17 +94,31 @@ def parse_args():
 
 def load_transformer_model(cfg):
     model_name = cfg.get("model", {}).get("name", "texas_holdem_transformer_ai")
-    weights_path = get_model_path(model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if os.path.exists(weights_path):
+    default_path = get_model_path(model_name)
+
+    candidate_path: str | None = None
+    last_mtime: float | None = None
+
+    if os.path.exists(default_path):
+        candidate_path = default_path
+        last_mtime = os.path.getmtime(default_path)
+    else:
+        latest = find_latest_model_checkpoint(prefix=model_name)
+        if latest is None:
+            latest = find_latest_model_checkpoint()
+        if latest is not None:
+            candidate_path, last_mtime = latest
+
+    if candidate_path is not None:
         try:
-            strategy = load_existing_model(weights_path, device)
-            last_mtime = os.path.getmtime(weights_path)
-            return strategy, weights_path, last_mtime
+            strategy = load_existing_model(candidate_path, device)
+            return strategy, candidate_path, last_mtime
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"Failed to load existing model: {exc}. Initializing a new model.")
+
     strategy = initialize_new_model(device)
-    return strategy, weights_path, None
+    return strategy, default_path, None
 
 
 def get_model_path(model_name):
@@ -180,22 +195,33 @@ def save_weights(transformer_strategy, weight_path):
 
 
 def reload_weights_if_updated(transformer_strategy, weights_path, last_mtime):
-    """Reload model weights if the file at ``weights_path`` changed."""
-    if os.path.exists(weights_path):
-        current_mtime = os.path.getmtime(weights_path)
-        if last_mtime is None or current_mtime > last_mtime:
-            try:
-                metadata, state = _load_state_and_metadata(weights_path, transformer_strategy.device)
-                transformer_strategy.model.load_state_dict(state)
-                transformer_strategy.config.update(metadata)
-                print(
-                    f"[Model Reloaded] {datetime.now().isoformat()} - "
-                    f"Loaded weights from {weights_path}"
-                )
-                return current_mtime
-            except Exception as e:
-                print(f"[Model Reloaded] Failed to reload weights: {e}")
-    return last_mtime
+    """Reload to the most recent checkpoint if a newer file is available."""
+    latest = find_latest_model_checkpoint()
+    if latest is None:
+        return weights_path, last_mtime
+
+    latest_path, latest_mtime = latest
+    should_reload = (
+        weights_path != latest_path
+        or last_mtime is None
+        or latest_mtime > last_mtime
+    )
+
+    if not should_reload:
+        return weights_path, last_mtime
+
+    try:
+        metadata, state = _load_state_and_metadata(latest_path, transformer_strategy.device)
+        transformer_strategy.model.load_state_dict(state)
+        transformer_strategy.config.update(metadata)
+        print(
+            f"[Model Reloaded] {datetime.now().isoformat()} - "
+            f"Loaded weights from {latest_path}"
+        )
+        return latest_path, latest_mtime
+    except Exception as e:
+        print(f"[Model Reloaded] Failed to reload weights: {e}")
+        return weights_path, last_mtime
 
 
 def _metadata_from_config(config_dict: Mapping[str, Any]) -> dict[str, Any]:
@@ -379,7 +405,9 @@ def main():
 
     print("Starting self-play simulation. Press Ctrl+C to terminate.")
     while True:
-        last_mtime = reload_weights_if_updated(transformer_strategy, weights_path, last_mtime)
+        weights_path, last_mtime = reload_weights_if_updated(
+            transformer_strategy, weights_path, last_mtime
+        )
         simulate_game(transformer_strategy)
         time.sleep(1)
 
