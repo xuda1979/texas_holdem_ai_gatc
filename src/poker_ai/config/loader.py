@@ -30,9 +30,11 @@ _FALLBACK_CONFIG: dict[str, Any] = {
     "model": {
         "directory": "trained_models/",
         "filename_prefix": "cfr_model",
-        "hidden_dim": 128,
+        "hidden_dim": 768,
         "num_actions": 10,
         "d_raw_feature": 18,
+        "num_layers": 12,
+        "num_heads": 12,
     },
     "player_strategies": ["cfr_trained", "random"],
     "simulation": {

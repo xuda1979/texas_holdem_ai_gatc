@@ -27,7 +27,9 @@ model:
   directory: "trained_models/"
   filename_prefix: "cfr_model"
   # Parameters for TransformerAverageStrategy (used by AICFRTrainer)
-  hidden_dim: 128
+  hidden_dim: 768
+  num_heads: 12
+  num_layers: 12
   num_actions: 10 # Should match the game's action space
   d_raw_feature: 18 # Updated to match one-hot card encoding output
 

@@ -14,7 +14,38 @@ class AdvantageNetwork(nn.Module):
     The card summaries are projected and concatenated with a pooled
     representation of ``history_seq`` before the final linear layer outputs the
     advantages for each abstract action.
+
+    ``DEFAULT_NUM_LAYERS`` exposes the project's canonical transformer depth so
+    that other modules can adopt the same default without duplicating literals.
+    Updating the default depth in this module automatically informs all callers
+    that reference the attribute.
     """
+
+    DEFAULT_NUM_LAYERS = 12
+    DEFAULT_HIDDEN_DIM = 768
+    DEFAULT_NUM_HEADS = 12
+
+    @staticmethod
+    def recommended_num_heads(
+        hidden_dim: int, preferred: int | None = None
+    ) -> int:
+        """Return a head count that evenly divides ``hidden_dim``.
+
+        When loading legacy checkpoints that do not record the original head
+        count, callers can request the highest divisor up to ``preferred``.
+        ``preferred`` defaults to :data:`DEFAULT_NUM_HEADS`, ensuring the
+        transformer remains compatible with historical smaller models while
+        using twelve heads for the new XL configuration.
+        """
+
+        target = preferred or AdvantageNetwork.DEFAULT_NUM_HEADS
+        if hidden_dim <= 0:
+            return 1
+        target = min(target, hidden_dim)
+        for candidate in range(target, 0, -1):
+            if hidden_dim % candidate == 0:
+                return candidate
+        return 1
 
     def __init__(
         self,

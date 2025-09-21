@@ -95,14 +95,12 @@ class AIStrategy(PlayerStrategy):
             base.setdefault("num_layers", len(layer_indices))
 
         if "num_layers" not in base:
-            base["num_layers"] = 2
+            base["num_layers"] = AdvantageNetwork.DEFAULT_NUM_LAYERS
 
         if "num_heads" not in base:
-            for candidate in (8, 6, 5, 4, 3, 2):
-                if base["hidden_dim"] % candidate == 0:
-                    base["num_heads"] = candidate
-                    break
-            base.setdefault("num_heads", 1)
+            base["num_heads"] = AdvantageNetwork.recommended_num_heads(
+                base["hidden_dim"]
+            )
 
         base.setdefault("max_seq_len", 256)
         base.setdefault("d_raw_feature", base["history_feature_dim"])

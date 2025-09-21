@@ -12,7 +12,7 @@ class OpponentModel(nn.Module):
             input_feature_dim=input_feature_dim,
             hidden_dim=hidden_dim,
             num_heads=4,
-            num_layers=2,
+            num_layers=4,
             num_actions=num_actions,
         )
 

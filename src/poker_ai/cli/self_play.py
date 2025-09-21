@@ -131,9 +131,9 @@ def initialize_new_model(device):
     model_config = {
         "history_feature_dim": 18,
         "card_feature_dim": 17,
-        "hidden_dim": 128,
-        "num_heads": 2,
-        "num_layers": 2,
+        "hidden_dim": AdvantageNetwork.DEFAULT_HIDDEN_DIM,
+        "num_heads": AdvantageNetwork.DEFAULT_NUM_HEADS,
+        "num_layers": AdvantageNetwork.DEFAULT_NUM_LAYERS,
         "num_actions": 10,
         "max_seq_len": 256,
         "d_raw_feature": 18,
@@ -206,9 +206,15 @@ def _metadata_from_config(config_dict: Mapping[str, Any]) -> dict[str, Any]:
         )
     )
     card = int(config_dict.get("card_feature_dim", config_dict.get("d_card_feature", 17)))
-    hidden = int(config_dict.get("hidden_dim", 128))
-    num_heads = int(config_dict.get("num_heads", 2))
-    num_layers = int(config_dict.get("num_layers", 2))
+    hidden = int(config_dict.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM))
+    num_heads_value = config_dict.get("num_heads")
+    if num_heads_value is None:
+        num_heads = AdvantageNetwork.recommended_num_heads(hidden)
+    else:
+        num_heads = int(num_heads_value)
+    num_layers = int(
+        config_dict.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+    )
     num_actions = int(config_dict.get("num_actions", 10))
     max_seq_len = int(config_dict.get("max_seq_len", 256))
 
@@ -260,9 +266,17 @@ def _normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("Invalid model metadata: missing num_actions") from exc
 
     card_feature_dim = int(metadata.get("card_feature_dim", history_feature_dim))
-    hidden_dim = int(metadata.get("hidden_dim", 128))
-    num_heads = int(metadata.get("num_heads", 4))
-    num_layers = int(metadata.get("num_layers", 2))
+    hidden_dim = int(
+        metadata.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
+    )
+    num_heads_value = metadata.get("num_heads")
+    if num_heads_value is None:
+        num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
+    else:
+        num_heads = int(num_heads_value)
+    num_layers = int(
+        metadata.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+    )
     max_seq_len = int(metadata.get("max_seq_len", 256))
 
     normalized = dict(metadata)

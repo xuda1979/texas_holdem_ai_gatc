@@ -27,7 +27,7 @@ class DummyTrainer:
             card_feature_dim=18,
             hidden_dim=128,
             num_heads=4,
-            num_layers=2,
+            num_layers=AdvantageNetwork.DEFAULT_NUM_LAYERS,
             num_actions=10,
         )
 

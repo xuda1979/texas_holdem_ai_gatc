@@ -22,7 +22,7 @@ def test_advantage_network_forward_pass():
     hidden_dim = 128
     num_actions = 10
     num_heads = 4
-    num_layers = 2
+    num_layers = AdvantageNetwork.DEFAULT_NUM_LAYERS
 
     # Input tensor parameters
     max_seq_len = 20
