@@ -162,12 +162,28 @@ operations (create, run, delete).
      --name poker-ai-gpu \
      --accelerator gpu \
      --bucket my-checkpoint-bucket \
-     run "python -m poker_ai.cli.train --num-hands 2000"
+     run "python tools/google_accelerator_train.py --accelerator gpu --install-deps --num-hands 2000"
    ```
 
    The `run` command synchronises the repository into `~/poker-ai` on the
    remote machine, exports `CHECKPOINT_BUCKET` when provided, and executes the
-   supplied training command through SSH.
+   supplied training command through SSH.  The helper script automatically
+   installs the correct accelerator wheels when `--install-deps` is supplied
+   and appends the proper `--gpus`/`--tpu` flag for the training CLI.  To run on
+   a TPU VM swap `--accelerator gpu` for `--accelerator tpu` in both the wrapper
+   and the training command.
+
+   You can also SSH into the instance manually and run the helper from the
+   repository root:
+
+   ```bash
+   python tools/google_accelerator_train.py --accelerator tpu --install-deps --num-hands 5000
+   ```
+
+   Use `--dry-run` to preview the `pip`/training commands without executing
+   them.  Additional options such as `--config`, `--save-model-every`, and
+   `--train-args "--min-buffer-before-train 128"` are forwarded directly to the
+   underlying `poker_ai.cli.train` module.
 
 3. **Clean up resources**
 
