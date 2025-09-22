@@ -318,7 +318,9 @@ class AICFRTrainer:
         try:
             if model_path is None:
                 model_path = self.config["training"]["save_model_path"]
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            directory = os.path.dirname(model_path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
             payload = {
                 "state_dict": self.model.state_dict(),
                 "metadata": {
@@ -342,23 +344,42 @@ class AICFRTrainer:
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 
-    def load_model(self):
-        # Ensure config path is correct or make it an argument
+    def load_model(self, model_path: str | None = None) -> bool:
+        """Load model weights from ``model_path``.
+
+        Returns ``True`` when weights were successfully loaded.  When the
+        supplied path is missing or loading fails a warning is logged and
+        ``False`` is returned so callers can fall back to fresh initialisation.
+        """
+
+        training_cfg = self.config.get("training", {}) if isinstance(self.config, dict) else {}
+        target_path = model_path or training_cfg.get("save_model_path")
+        if not target_path:
+            logging.warning("No model path provided to load_model; skipping load.")
+            return False
+
+        map_location = "cpu" if self._using_xla else self.device
         try:
-            map_location = self.device
-            if self._using_xla:
-                map_location = "cpu"
-            payload = torch.load(
-                config["training"]["save_model_path"], map_location=map_location
-            )
-            state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
+            payload = torch.load(target_path, map_location=map_location)
+        except FileNotFoundError:
+            logging.warning(f"Model file {target_path} does not exist; starting from scratch.")
+            return False
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logging.error(f"Error loading model from {target_path}: {exc}", exc_info=True)
+            return False
+
+        state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
+        try:
             self.model.load_state_dict(state_dict)
-            target_device = self._xla_device or self.device
-            self.model.to(target_device)
-            self.model.eval()
-            logging.info(f"Model loaded from {config['training']['save_model_path']}")
-        except Exception as e:
-            logging.error(f"Error loading model: {str(e)}", exc_info=True)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logging.error(f"Failed to apply state_dict from {target_path}: {exc}", exc_info=True)
+            return False
+
+        target_device = self._xla_device or self.device
+        self.model.to(target_device)
+        self.model.eval()
+        logging.info(f"Model loaded from {target_path}")
+        return True
 
     def get_final_average_strategy(self, info_set_id: str):
         """Return the average strategy for a given information set."""

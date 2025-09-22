@@ -3,6 +3,7 @@
 import argparse
 import os
 import time
+from pathlib import Path
 from typing import Any, cast
 
 import torch
@@ -11,6 +12,7 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 
 from poker_ai.config import load_config
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -146,6 +148,78 @@ def initialize_trainer(
     return trainer
 
 
+def _resume_trainer_from_checkpoint(
+    trainer: object, training_cfg: dict[str, Any], model_cfg: dict[str, Any]
+) -> str | None:
+    """Attempt to load the newest checkpoint so training can resume."""
+
+    loader = getattr(trainer, "load_model", None)
+    if not callable(loader):
+        return None
+
+    candidates: dict[str, float] = {}
+
+    raw_path = training_cfg.get("save_model_path")
+    if isinstance(raw_path, (str, os.PathLike)):
+        try:
+            path_obj = Path(raw_path)
+            if path_obj.exists():
+                resolved = str(path_obj.resolve())
+                candidates[resolved] = path_obj.stat().st_mtime
+        except OSError:
+            pass
+
+    directory_hint = model_cfg.get("directory")
+    prefix_hint = model_cfg.get("filename_prefix")
+    latest = find_latest_model_checkpoint(directory=directory_hint, prefix=prefix_hint)
+    if latest is not None:
+        latest_path, latest_mtime = latest
+        try:
+            resolved_latest = str(Path(latest_path).resolve())
+        except OSError:
+            resolved_latest = latest_path
+        candidates[resolved_latest] = latest_mtime
+
+    if not candidates:
+        return None
+
+    checkpoint_path, _ = max(candidates.items(), key=lambda item: item[1])
+
+    try:
+        result = loader(checkpoint_path)
+    except FileNotFoundError:
+        print(f"Checkpoint {checkpoint_path} not found; starting from scratch.")
+        return None
+    except Exception as exc:
+        print(f"Failed to load checkpoint {checkpoint_path}: {exc}")
+        return None
+
+    if result is False:
+        print(f"Trainer declined to load checkpoint {checkpoint_path}; starting fresh.")
+        return None
+
+    print(f"Resumed trainer from checkpoint: {checkpoint_path}")
+    return checkpoint_path
+
+
+def _update_latest_model_checkpoint(trainer: object, latest_path: str | None) -> None:
+    """Persist the latest weights to ``latest_path`` if possible."""
+
+    if not latest_path:
+        return
+
+    saver = getattr(trainer, "save_model", None)
+    if not callable(saver):
+        return
+
+    try:
+        saver(latest_path)
+    except Exception as exc:
+        print(f"Warning: Failed to update latest model checkpoint at {latest_path}: {exc}")
+    else:
+        print(f"Latest model checkpoint updated: {latest_path}")
+
+
 def main() -> None:  # noqa: C901
     print("--- Starting Poker AI Training Session ---")
 
@@ -267,6 +341,10 @@ def main() -> None:  # noqa: C901
         )
     training_params["min_buffer_before_train"] = min_buffer_before_train
 
+    model_config = config.get("model", {})
+    training_params.setdefault("model_directory", model_config.get("directory"))
+    training_params.setdefault("model_filename_prefix", model_config.get("filename_prefix"))
+
     # Game Engine Parameters for SelfPlay
     min_players = game_engine_config.get("min_players", 2)
     max_players = game_engine_config.get("max_players", 10)
@@ -315,6 +393,8 @@ def main() -> None:  # noqa: C901
         traceback.print_exc()
         return
 
+    _resume_trainer_from_checkpoint(cfr_trainer, training_params, model_config)
+
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
     self_play_env = SelfPlay(
@@ -334,6 +414,12 @@ def main() -> None:  # noqa: C901
 
     last_save_time = time.time()
     iteration = 0
+    latest_model_path_raw = training_params.get("save_model_path")
+    latest_model_path = (
+        os.fspath(latest_model_path_raw)
+        if isinstance(latest_model_path_raw, (str, os.PathLike))
+        else None
+    )
     try:
         for iteration in range(1, num_iterations + 1):
             print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
@@ -342,11 +428,13 @@ def main() -> None:  # noqa: C901
             self_play_env.play_hand_for_training(iteration)
 
             # Conditional saving logic
+            latest_checkpoint_needs_update = False
             if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
                 path = f"models/{args.algorithm}_hand_{iteration}.pth"
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 cfr_trainer.save_model(path)
                 print(f"Model saved to {path} at iteration {iteration}")
+                latest_checkpoint_needs_update = True
 
             if (
                 save_model_every_minutes > 0
@@ -359,6 +447,10 @@ def main() -> None:  # noqa: C901
                     f"Model saved to {path} due to time interval at iteration {iteration}"
                 )
                 last_save_time = time.time()
+                latest_checkpoint_needs_update = True
+
+            if latest_checkpoint_needs_update:
+                _update_latest_model_checkpoint(cfr_trainer, latest_model_path)
 
             analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
     except Exception as e:
@@ -376,6 +468,7 @@ def main() -> None:  # noqa: C901
         try:
             cfr_trainer.save_model(final_model_path)
             print(f"Final model saved successfully to {final_model_path}")
+            _update_latest_model_checkpoint(cfr_trainer, latest_model_path)
         except Exception as e:
             print(f"Error saving final model: {e}")
 

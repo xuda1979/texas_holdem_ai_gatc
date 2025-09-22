@@ -3,8 +3,10 @@
 # ruff: noqa
 
 import copy
+import os
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, List, Optional
 
 import torch
@@ -16,6 +18,7 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 from poker_ai.utils.state_representation import (
     infer_normalization_scale,
     prepare_transformer_input,
@@ -54,6 +57,36 @@ class SelfPlay:
         except (TypeError, ValueError):  # pragma: no cover - defensive
             min_buffer = 256
         self.min_buffer_before_train = max(1, min_buffer)
+
+        raw_checkpoint_path = cfg.get("save_model_path")
+        if isinstance(raw_checkpoint_path, (str, os.PathLike)):
+            self._configured_checkpoint_path: str | None = os.fspath(raw_checkpoint_path)
+        else:
+            self._configured_checkpoint_path = None
+
+        raw_directory = cfg.get("model_directory") or cfg.get("model_dir")
+        if isinstance(raw_directory, (str, os.PathLike)):
+            self._checkpoint_directory: str | None = os.fspath(raw_directory)
+        else:
+            self._checkpoint_directory = None
+
+        raw_prefix = (
+            cfg.get("model_filename_prefix")
+            or cfg.get("model_prefix")
+            or cfg.get("filename_prefix")
+        )
+        self._checkpoint_prefix: str | None = str(raw_prefix) if raw_prefix else None
+
+        try:
+            check_interval_raw = cfg.get("latest_model_check_interval", 1)
+            check_interval = int(check_interval_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            check_interval = 1
+        self._latest_model_check_interval = max(0, check_interval)
+        self._latest_checkpoint_path: str | None = None
+        self._latest_checkpoint_mtime: float | None = None
+
+        self._maybe_reload_trainer_weights(iteration=0, force=True)
  
 
     def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
@@ -76,6 +109,7 @@ class SelfPlay:
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
+        self._maybe_reload_trainer_weights(iteration)
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
         game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
@@ -354,3 +388,89 @@ class SelfPlay:
         snapshot = undo_stack.pop()
         self._restore_state(game, snapshot)
         return value
+
+
+    def _maybe_reload_trainer_weights(self, iteration: int, *, force: bool = False) -> None:
+        """Reload trainer weights if a newer checkpoint is available."""
+
+        loader = getattr(self.cfr_trainer, "load_model", None)
+        if not callable(loader):
+            return
+
+        if not force:
+            interval = self._latest_model_check_interval
+            if interval <= 0:
+                return
+            if iteration > 0 and iteration % interval != 0:
+                return
+
+        checkpoint_path, checkpoint_mtime = self._resolve_latest_checkpoint()
+        if checkpoint_path is None:
+            return
+
+        resolved_current: str | None = None
+        if self._latest_checkpoint_path is not None:
+            try:
+                resolved_current = str(Path(self._latest_checkpoint_path).resolve())
+            except OSError:  # pragma: no cover - filesystem edge case
+                resolved_current = self._latest_checkpoint_path
+
+        try:
+            resolved_candidate = str(Path(checkpoint_path).resolve())
+        except OSError:  # pragma: no cover - filesystem edge case
+            resolved_candidate = checkpoint_path
+
+        if not force and resolved_current == resolved_candidate:
+            if (
+                self._latest_checkpoint_mtime is not None
+                and checkpoint_mtime is not None
+                and checkpoint_mtime <= self._latest_checkpoint_mtime
+            ):
+                return
+
+        try:
+            result = loader(checkpoint_path)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"[SelfPlay] Failed to load model from {checkpoint_path}: {exc}")
+            return
+
+        if result is False:
+            return
+
+        print(f"[SelfPlay] Loaded model weights from {checkpoint_path}")
+        self._latest_checkpoint_path = resolved_candidate
+        self._latest_checkpoint_mtime = checkpoint_mtime
+
+    def _resolve_latest_checkpoint(self) -> tuple[str | None, float | None]:
+        """Return the newest checkpoint path considering configured hints."""
+
+        candidates: dict[str, float] = {}
+
+        if self._configured_checkpoint_path is not None:
+            configured_path = Path(self._configured_checkpoint_path)
+            if configured_path.exists():
+                try:
+                    resolved = str(configured_path.resolve())
+                except OSError:  # pragma: no cover - filesystem edge case
+                    resolved = str(configured_path)
+                try:
+                    candidates[resolved] = configured_path.stat().st_mtime
+                except OSError:  # pragma: no cover - filesystem edge case
+                    pass
+
+        latest = find_latest_model_checkpoint(
+            directory=self._checkpoint_directory, prefix=self._checkpoint_prefix
+        )
+        if latest is not None:
+            latest_path, latest_mtime = latest
+            try:
+                resolved_latest = str(Path(latest_path).resolve())
+            except OSError:  # pragma: no cover - filesystem edge case
+                resolved_latest = latest_path
+            candidates[resolved_latest] = latest_mtime
+
+        if not candidates:
+            return None, None
+
+        best_path, best_mtime = max(candidates.items(), key=lambda item: item[1])
+        return best_path, best_mtime
