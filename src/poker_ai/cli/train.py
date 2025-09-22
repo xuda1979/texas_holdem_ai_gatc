@@ -1,6 +1,8 @@
 """Main command-line interface for training models via self-play."""
 
 import argparse
+import glob
+import inspect
 import os
 import time
 from typing import Any, cast
@@ -144,6 +146,94 @@ def initialize_trainer(
             print("Warning: Could not find model to wrap for DataParallel.")
 
     return trainer
+
+
+def _find_latest_model_path(config: dict, algorithm: str) -> str | None:
+    """Return the most recently modified model checkpoint path if available."""
+
+    candidate_paths: list[str] = []
+
+    training_cfg = config.get("training", {})
+    save_path = training_cfg.get("save_model_path")
+    if isinstance(save_path, str):
+        candidate_paths.append(save_path)
+
+    model_cfg = config.get("model", {})
+    directory = model_cfg.get("directory")
+    if isinstance(directory, str) and directory:
+        candidate_paths.extend(glob.glob(os.path.join(directory, "*.pth")))
+        filename_prefix = model_cfg.get("filename_prefix")
+        if isinstance(filename_prefix, str) and filename_prefix:
+            candidate_paths.extend(
+                glob.glob(os.path.join(directory, f"{filename_prefix}*.pth"))
+            )
+
+    candidate_paths.extend(glob.glob(os.path.join("models", "*.pth")))
+
+    # Deduplicate while preserving order and keep only existing files
+    seen: set[str] = set()
+    existing_paths: list[str] = []
+    for path in candidate_paths:
+        if not isinstance(path, str) or not path:
+            continue
+        normalized = os.path.normpath(path)
+        if normalized in seen or not os.path.isfile(normalized):
+            continue
+        seen.add(normalized)
+        existing_paths.append(normalized)
+
+    if not existing_paths:
+        return None
+
+    latest_path = max(existing_paths, key=os.path.getmtime)
+    return latest_path
+
+
+def _load_latest_model(trainer: object, config: dict, algorithm: str) -> bool:
+    """Attempt to load the latest saved model for the given trainer."""
+
+    load_attr = getattr(trainer, "load_model", None)
+    if load_attr is None:
+        return False
+
+    latest_path = _find_latest_model_path(config, algorithm)
+    if latest_path is None:
+        return False
+
+    try:
+        signature = inspect.signature(load_attr)
+    except (TypeError, ValueError):
+        signature = None
+
+    try:
+        if signature is not None and len(signature.parameters) > 1:
+            load_attr(latest_path)
+        else:
+            training_cfg = getattr(trainer, "config", {})
+            original_path: str | None = None
+            if isinstance(training_cfg, dict):
+                training_section = training_cfg.setdefault("training", {})
+                if isinstance(training_section, dict):
+                    original_path = training_section.get("save_model_path")
+                    training_section["save_model_path"] = latest_path
+            load_attr()
+            if isinstance(training_cfg, dict):
+                training_section = training_cfg.get("training")
+                if isinstance(training_section, dict):
+                    if original_path is None:
+                        training_section.pop("save_model_path", None)
+                    else:
+                        training_section["save_model_path"] = original_path
+        print(f"Loaded existing model from {latest_path}.")
+        return True
+    except FileNotFoundError:
+        print(
+            "Latest model checkpoint was found in configuration but the file is missing. "
+            "Starting from a fresh model."
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"Failed to load existing model from {latest_path}: {exc}")
+    return False
 
 
 def main() -> None:  # noqa: C901
@@ -314,6 +404,11 @@ def main() -> None:  # noqa: C901
 
         traceback.print_exc()
         return
+
+    if _load_latest_model(cfr_trainer, config, args.algorithm):
+        print("Resumed training from the latest available checkpoint.")
+    else:
+        print("No existing checkpoint found. Starting training from scratch.")
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
