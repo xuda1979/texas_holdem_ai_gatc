@@ -1,6 +1,6 @@
 import os
 import sys
-
+import time
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -35,12 +35,16 @@ class DummyTrainer:
         self.config = {"model": {"max_seq_len": 10, "d_raw_feature": 2}}
         self.num_actions = 2
         self.replay_buffer = self.Buffer()
+        self.loaded_paths: list[str | None] = []
 
     def get_advantages(self, hole, community, history):
         return torch.zeros(self.num_actions)
 
     def train(self, state_tensor=None, cf_payoffs=None, batch_size=None):
         return None
+
+    def load_model(self, path: str | None = None):
+        self.loaded_paths.append(path)
 
 
 def test_play_hand_for_training_runs():
@@ -91,6 +95,59 @@ def test_play_hand_for_training_respects_custom_buffer_threshold():
         sp.play_hand_for_training(iteration=123)
 
     trainer.train.assert_called_once_with(batch_size=2)
+
+
+def test_self_play_reloads_latest_checkpoint_when_updated(tmp_path):
+    trainer = DummyTrainer()
+    trainer.train = MagicMock(return_value=None)
+    model_path = tmp_path / "model.pth"
+    model_path.write_bytes(b"initial")
+
+    training_cfg = {
+        "save_model_path": str(model_path),
+        "reload_model_every_hands": 1,
+        "min_buffer_before_train": 1,
+    }
+
+    class DummyGame:
+        def __init__(self, num_players: int, starting_stack: int) -> None:
+            self.rules = SimpleNamespace(
+                big_blind=0,
+                small_blind=0,
+                num_players=num_players,
+                dealer_button=0,
+                active_players=[True] * num_players,
+                player_chips=[starting_stack] * num_players,
+                community_cards=[],
+                current_player=0,
+            )
+
+        def initialize_game(self) -> None:
+            return None
+
+        def clone(self) -> "DummyGame":
+            return self
+
+    with (
+        patch("poker_ai.selfplay.self_play.random.randint", return_value=2),
+        patch("poker_ai.selfplay.self_play.TexasHoldem", DummyGame),
+        patch.object(SelfPlay, "_traverse_mccfr", return_value=0),
+    ):
+        sp = SelfPlay(
+            trainer,
+            {"num_players": 2, "starting_stack": 50},
+            training_config=training_cfg,
+        )
+
+        assert trainer.loaded_paths[-1] == str(model_path)
+        trainer.loaded_paths.clear()
+
+        time.sleep(0.01)
+        model_path.write_bytes(b"updated")
+
+        sp.play_hand_for_training(iteration=1)
+
+    assert trainer.loaded_paths[-1] == str(model_path)
 
 
 def test_extract_game_data_uses_betting_history_directly():

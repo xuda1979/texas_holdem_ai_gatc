@@ -3,8 +3,10 @@
 # ruff: noqa
 
 import copy
+import logging
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, List, Optional
 
 import torch
@@ -48,12 +50,181 @@ class SelfPlay:
         self.min_players = game_engine_config.get("min_players", 2)
         self.max_players = game_engine_config.get("max_players", 10)
         cfg = training_config or {}
+        self.training_config = cfg
         min_buffer_raw = cfg.get("min_buffer_before_train", 256)
         try:
             min_buffer = int(min_buffer_raw)
         except (TypeError, ValueError):  # pragma: no cover - defensive
             min_buffer = 256
         self.min_buffer_before_train = max(1, min_buffer)
+        self._model_reload_interval = self._determine_model_reload_interval(cfg)
+        self._last_loaded_model_path: Path | None = None
+        self._last_loaded_model_mtime: float | None = None
+        self._maybe_refresh_model(iteration=0, force=True)
+
+    def _determine_model_reload_interval(self, cfg: dict[str, Any]) -> int:
+        """Return the frequency (in hands) for refreshing model weights."""
+
+        interval_raw = (
+            cfg.get("reload_model_every_hands")
+            or cfg.get("check_for_new_model_every_hands")
+            or cfg.get("save_model_every_n_hands")
+        )
+        try:
+            interval = int(interval_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            interval = 1
+        if interval <= 0:
+            interval = 1
+        return interval
+
+    def _candidate_model_paths(self) -> list[Path]:
+        """Return possible checkpoint files to inspect for refreshes."""
+
+        candidates: list[Path] = []
+        direct_paths: list[str] = []
+        training_cfg = self.training_config if isinstance(self.training_config, dict) else {}
+        direct_paths.extend(
+            [
+                training_cfg.get("latest_model_path"),
+                training_cfg.get("save_model_path"),
+            ]
+        )
+
+        trainer_cfg = getattr(self.cfr_trainer, "config", {})
+        model_cfg: dict[str, Any] = {}
+        if isinstance(trainer_cfg, dict):
+            training_section = trainer_cfg.get("training")
+            if isinstance(training_section, dict):
+                direct_paths.append(training_section.get("save_model_path"))
+            maybe_model_cfg = trainer_cfg.get("model")
+            if isinstance(maybe_model_cfg, dict):
+                model_cfg = maybe_model_cfg
+
+        model_directory = training_cfg.get("model_directory") or model_cfg.get("directory")
+        filename_prefix = training_cfg.get("model_filename_prefix") or model_cfg.get(
+            "filename_prefix"
+        )
+
+        for path_str in direct_paths:
+            if not path_str:
+                continue
+            candidate = Path(path_str).expanduser()
+            if candidate.is_file():
+                candidates.append(candidate)
+
+        directories_to_search: list[Path] = []
+        if isinstance(model_directory, str) and model_directory:
+            directories_to_search.append(Path(model_directory).expanduser())
+        directories_to_search.append(Path("models"))
+
+        patterns: list[str] = ["*.pth"]
+        if isinstance(filename_prefix, str) and filename_prefix:
+            patterns.append(f"{filename_prefix}*.pth")
+
+        for directory in directories_to_search:
+            try:
+                if not directory.is_dir():
+                    continue
+            except OSError:  # pragma: no cover - defensive
+                continue
+            for pattern in patterns:
+                for path in directory.glob(pattern):
+                    if path.is_file():
+                        candidates.append(path)
+
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for path in candidates:
+            try:
+                resolved = str(path.resolve())
+            except OSError:  # pragma: no cover - defensive
+                resolved = str(path)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            unique.append(path)
+        return unique
+
+    def _find_latest_model_checkpoint(self) -> Path | None:
+        """Return the most recently modified checkpoint file if available."""
+
+        candidates = self._candidate_model_paths()
+        if not candidates:
+            return None
+
+        latest_path = None
+        latest_mtime = float("-inf")
+        for path in candidates:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+                latest_path = path
+        return latest_path
+
+    def _load_model_from_path(self, path: Path) -> bool:
+        """Invoke the trainer's load routine for ``path`` if possible."""
+
+        load_attr = getattr(self.cfr_trainer, "load_model", None)
+        if load_attr is None:
+            return False
+
+        try:
+            load_attr(str(path))
+        except TypeError:
+            load_attr()
+        except FileNotFoundError:
+            logging.warning("Checkpoint %s disappeared before it could be loaded.", path)
+            return False
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logging.error("Failed to load model from %s: %s", path, exc)
+            return False
+        return True
+
+    def _maybe_refresh_model(self, iteration: int, *, force: bool = False) -> None:
+        """Reload the latest checkpoint when due or when forced."""
+
+        if not force:
+            if self._model_reload_interval <= 0:
+                return
+            if iteration <= 0:
+                return
+            if iteration % self._model_reload_interval != 0:
+                return
+
+        latest_path = self._find_latest_model_checkpoint()
+        if latest_path is None:
+            return
+
+        try:
+            latest_mtime = latest_path.stat().st_mtime
+        except OSError:
+            return
+
+        if (
+            not force
+            and self._last_loaded_model_path is not None
+            and self._last_loaded_model_mtime is not None
+        ):
+            try:
+                same_path = latest_path.resolve() == self._last_loaded_model_path
+            except OSError:  # pragma: no cover - defensive
+                same_path = False
+            if same_path and latest_mtime <= self._last_loaded_model_mtime:
+                return
+
+        if not self._load_model_from_path(latest_path):
+            return
+
+        try:
+            resolved = latest_path.resolve()
+        except OSError:  # pragma: no cover - defensive
+            resolved = latest_path
+        self._last_loaded_model_path = resolved
+        self._last_loaded_model_mtime = latest_mtime
  
 
     def _normalization_scale_for_game(self, game: TexasHoldem) -> float:
@@ -76,6 +247,7 @@ class SelfPlay:
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
+        self._maybe_refresh_model(iteration)
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
         game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)

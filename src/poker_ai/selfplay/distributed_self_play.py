@@ -31,7 +31,7 @@ def _run_multiple_hands(args: dict[str, Any]) -> list[list[Any]]:
         game_engine_config,
         training_config=training_config,
     )
-    return [sp.play_hand_for_training() for _ in range(num_hands)]
+    return [sp.play_hand_for_training(iteration=i + 1) for i in range(num_hands)]
 
 
 class DistributedSelfPlay:
