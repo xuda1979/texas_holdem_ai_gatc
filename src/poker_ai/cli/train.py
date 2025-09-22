@@ -148,6 +148,15 @@ def initialize_trainer(
     return trainer
 
 
+def _safe_resolve(path: str) -> str:
+    """Return a best-effort resolved filesystem path."""
+
+    try:
+        return str(Path(path).resolve())
+    except OSError:
+        return path
+
+
 def _resume_trainer_from_checkpoint(
     trainer: object, training_cfg: dict[str, Any], model_cfg: dict[str, Any]
 ) -> str | None:
@@ -174,10 +183,7 @@ def _resume_trainer_from_checkpoint(
     latest = find_latest_model_checkpoint(directory=directory_hint, prefix=prefix_hint)
     if latest is not None:
         latest_path, latest_mtime = latest
-        try:
-            resolved_latest = str(Path(latest_path).resolve())
-        except OSError:
-            resolved_latest = latest_path
+        resolved_latest = _safe_resolve(latest_path)
         candidates[resolved_latest] = latest_mtime
 
     if not candidates:
@@ -352,6 +358,13 @@ def main() -> None:  # noqa: C901
     big_blind = game_engine_config.get("big_blind", 10)
     small_blind = game_engine_config.get("small_blind", 5)
 
+    latest_model_path_raw = training_params.get("save_model_path")
+    latest_model_path = (
+        os.fspath(latest_model_path_raw)
+        if isinstance(latest_model_path_raw, (str, os.PathLike))
+        else None
+    )
+
     print("\n--- Configuration ---")
     print(f"Total training iterations: {num_iterations}")
     print(f"Save model every: {save_model_every_samples} iterations")
@@ -393,7 +406,12 @@ def main() -> None:  # noqa: C901
         traceback.print_exc()
         return
 
-    _resume_trainer_from_checkpoint(cfr_trainer, training_params, model_config)
+    resumed_checkpoint = _resume_trainer_from_checkpoint(
+        cfr_trainer, training_params, model_config
+    )
+    if resumed_checkpoint is not None and latest_model_path:
+        if _safe_resolve(latest_model_path) != _safe_resolve(resumed_checkpoint):
+            _update_latest_model_checkpoint(cfr_trainer, latest_model_path)
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
@@ -414,12 +432,6 @@ def main() -> None:  # noqa: C901
 
     last_save_time = time.time()
     iteration = 0
-    latest_model_path_raw = training_params.get("save_model_path")
-    latest_model_path = (
-        os.fspath(latest_model_path_raw)
-        if isinstance(latest_model_path_raw, (str, os.PathLike))
-        else None
-    )
     try:
         for iteration in range(1, num_iterations + 1):
             print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
@@ -449,10 +461,16 @@ def main() -> None:  # noqa: C901
                 last_save_time = time.time()
                 latest_checkpoint_needs_update = True
 
+            analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
+
+            if (
+                save_model_every_samples > 0
+                and iteration % save_model_every_samples == 0
+            ):
+                latest_checkpoint_needs_update = True
+
             if latest_checkpoint_needs_update:
                 _update_latest_model_checkpoint(cfr_trainer, latest_model_path)
-
-            analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
     except Exception as e:
         import traceback
 
