@@ -185,6 +185,49 @@ operations (create, run, delete).
    `--train-args "--min-buffer-before-train 128"` are forwarded directly to the
    underlying `poker_ai.cli.train` module.
 
+   #### Helper script options
+
+   `tools/google_accelerator_train.py` accepts a handful of switches that are
+   helpful when running on freshly provisioned instances:
+
+   - `--accelerator {gpu,tpu}` (**required**) – determines whether the helper
+     appends `--gpus` or `--tpu` to the training command.
+   - `--install-deps` – installs `requirements.txt` and the matching PyTorch
+     wheels for the selected accelerator.  GPU runs default to CUDA 11.8 wheels
+     (`torch==2.2.1`, `torchvision==0.17.1`, `torchaudio==2.2.1`) while TPU runs
+     install `torch==2.2.1`, `torchvision==0.17.1`, and
+     `torch-xla==2.2.1` from the official wheel index.
+   - `--num-hands`, `--algorithm`, `--config`, and `--save-model-every` – mirror
+     the standard training CLI flags and override values from configuration
+     files.
+   - `--bucket my-gcs-bucket` – exports `CHECKPOINT_BUCKET` so that the trainer
+     automatically uploads checkpoints to Cloud Storage after each save.
+   - `--train-args "<extra flags>"` – appends additional arguments to the
+     training command.  This is useful for enabling features such as
+     `--min-buffer-before-train 128` or custom evaluation intervals without
+     editing the helper.
+   - `--extra-pip-args ...` – forwarded directly to the PyTorch installation
+     command.  For example, pass `--extra-pip-args --pre` to install preview
+     wheels or `--extra-pip-args --index-url https://download.pytorch.org/whl/cu121`
+     for a different CUDA runtime.
+
+   All commands executed by the helper are echoed to stdout.  Combine
+   `--dry-run` with `--install-deps` to verify that the correct wheels would be
+   installed before touching the system package cache.
+
+   Example: install nightly CUDA wheels and lower the minimum replay buffer on a
+   GPU VM:
+
+   ```bash
+   python tools/google_accelerator_train.py \
+     --accelerator gpu \
+     --install-deps \
+     --extra-pip-args --pre \
+     --extra-pip-args --index-url https://download.pytorch.org/whl/nightly/cu121 \
+     --train-args "--min-buffer-before-train 128" \
+     --num-hands 4000
+   ```
+
 3. **Clean up resources**
 
    ```bash
