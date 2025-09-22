@@ -342,21 +342,23 @@ class AICFRTrainer:
         except Exception as e:
             logging.error(f"Error saving model: {str(e)}", exc_info=True)
 
-    def load_model(self):
+    def load_model(self, model_path: str | None = None):
         # Ensure config path is correct or make it an argument
         try:
+            training_cfg = self.config.get("training", {}) if isinstance(self.config, dict) else {}
+            path = model_path or training_cfg.get("save_model_path") or config["training"]["save_model_path"]
+            if not path:
+                raise FileNotFoundError("No model path available to load weights.")
             map_location = self.device
             if self._using_xla:
                 map_location = "cpu"
-            payload = torch.load(
-                config["training"]["save_model_path"], map_location=map_location
-            )
+            payload = torch.load(path, map_location=map_location)
             state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
             self.model.load_state_dict(state_dict)
             target_device = self._xla_device or self.device
             self.model.to(target_device)
             self.model.eval()
-            logging.info(f"Model loaded from {config['training']['save_model_path']}")
+            logging.info(f"Model loaded from {path}")
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
