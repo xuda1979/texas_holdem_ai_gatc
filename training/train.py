@@ -11,7 +11,18 @@ from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Simple self-play training")
     parser.add_argument("--num-hands", type=int, default=100, help="Number of hands to simulate")
-    parser.add_argument("--num-players", type=int, default=2, help="Number of players at the table")
+    parser.add_argument(
+        "--min-players",
+        type=int,
+        default=2,
+        help="Minimum number of players to include in randomly generated hands",
+    )
+    parser.add_argument(
+        "--max-players",
+        type=int,
+        default=10,
+        help="Maximum number of players to include in randomly generated hands",
+    )
     parser.add_argument("--starting-stack", type=int, default=1000, help="Starting chip stack")
     parser.add_argument(
         "--save-interval",
@@ -27,8 +38,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    min_players = max(2, args.min_players)
+    max_players = max(min_players, args.max_players)
+
     game_cfg = {
-        "num_players": args.num_players,
+        "min_players": min_players,
+        "max_players": max_players,
         "starting_stack": args.starting_stack,
     }
 
