@@ -363,7 +363,9 @@ class SelfPlay:
     def _advance_street(self, game: TexasHoldem) -> None:
         """Advance the existing game to the next street without allocating a clone."""
 
-        game.rules.end_betting_round_cleanup()
+        cleanup = getattr(game.rules, "end_betting_round_cleanup", None)
+        if callable(cleanup):
+            cleanup()
 
         community_cards = game.rules.community_cards
         if len(community_cards) == 0:
