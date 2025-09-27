@@ -1,3 +1,4 @@
+from .cash_table import CashPlayer, CashTable, LegalActions, PotLayer, RaiseBounds
 from .rules import (
     build_side_pots,
     min_bet,
@@ -7,6 +8,11 @@ from .rules import (
 )
 
 __all__ = [
+    "CashPlayer",
+    "CashTable",
+    "LegalActions",
+    "PotLayer",
+    "RaiseBounds",
     "min_bet",
     "min_raise_to",
     "raise_reopens_action",
