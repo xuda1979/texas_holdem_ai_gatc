@@ -51,6 +51,15 @@ class CashPlayer:
         self.folded = False
         self.all_in = False
 
+    def sit_out(self) -> None:
+        """Mark the player as no longer seated at the table."""
+
+        self.seated = False
+        self.in_hand = False
+        self.folded = True
+        self.all_in = False
+        self.committed = 0.0
+
 
 @dataclass
 class PotLayer:
@@ -302,6 +311,36 @@ class CashTable:
         player.stack += add
         player.bankroll -= add
         return add
+
+    def add_to_stack(self, pid: int, amount: float) -> float:
+        """Move an explicit ``amount`` from bankroll onto the table stack."""
+
+        player = self.players.get(pid)
+        if player is None:
+            raise KeyError(pid)
+        if amount <= 0:
+            return 0.0
+        max_top_up = self.max_buyin_bb * self.big_blind
+        desired = min(max_top_up, player.stack + amount)
+        move = max(0.0, desired - player.stack)
+        move = min(move, player.bankroll)
+        if move <= _EPSILON:
+            return 0.0
+        player.stack += move
+        player.bankroll -= move
+        return move
+
+    def cash_out(self, pid: int) -> float:
+        """Remove a player from the table and return the chips collected."""
+
+        player = self.players.get(pid)
+        if player is None:
+            raise KeyError(pid)
+        chips = player.stack
+        player.bankroll += chips
+        player.stack = 0.0
+        player.sit_out()
+        return chips
 
     @property
     def total_pot(self) -> float:

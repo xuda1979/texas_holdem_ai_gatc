@@ -6,6 +6,17 @@ game_engine:
   small_blind: 10
   big_blind: 20
 
+cash_game:
+  min_buyin_bb: 40
+  max_buyin_bb: 100
+  default_buyin_bb: 100
+  default_bankroll_buyins: 5
+  min_bankroll_buyins: 1
+  max_bankroll_buyins: 5
+  rake_pct: 0.05
+  rake_cap: 5
+  no_flop_no_drop: true
+
 # Training parameters for the CFR algorithm
 training:
   num_training_hands: 2000000 # Total number of hands to simulate for training

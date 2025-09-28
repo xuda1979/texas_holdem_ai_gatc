@@ -710,8 +710,10 @@ class PokerGameGUI:
     def next_hand(self):
         """Start the next hand."""
         if self.game:
-            self.game.reset_for_next_hand()
-            self.play_hand()
+            try:
+                self.play_hand()
+            except RuntimeError as exc:
+                messagebox.showinfo("Table Closed", str(exc))
 
     def run(self):
         """Start the GUI main loop."""
