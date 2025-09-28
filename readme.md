@@ -94,7 +94,10 @@ that saved checkpoints can still be ranked without XLA kernels.
    pytest -q
    ```
    Extensive unit tests exercise action validation, deck shuffling/dealing,
-   game-state transitions, hand evaluation error paths, and CLI defaults.
+   game-state transitions, hand evaluation error paths, and CLI defaults.  The
+   suite also verifies that all bundled card images and the poker table
+   background are present so missing art assets are caught automatically (see
+   `tests/gui/test_card_assets.py`).
 
 4. **Play against the AI**:
    ```bash
