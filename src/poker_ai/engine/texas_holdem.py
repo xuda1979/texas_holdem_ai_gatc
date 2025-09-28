@@ -10,6 +10,7 @@ import os
 import random
 from typing import Optional
 
+from gatc_holdem.engine import CashTable
 from gatc_holdem.engine.rules import min_raise_to
 from gatc_poker.pots import compute_side_pots as gatc_compute_side_pots
 
@@ -323,7 +324,15 @@ class MockPlayer:
 
 
 class TexasHoldem:
-    def __init__(self, num_players, starting_stack=1000, player_strategies=None, verbose=True):
+    def __init__(
+        self,
+        num_players,
+        starting_stack=1000,
+        player_strategies=None,
+        verbose=True,
+        *,
+        cash_config: dict | None = None,
+    ):
         self.rules = TexasHoldemRules(num_players, starting_stack, verbose=verbose)
         self.num_players = num_players
         self.starting_stack = starting_stack
@@ -342,6 +351,11 @@ class TexasHoldem:
         self._pending_showdown_winnings: Optional[dict[int, int]] = None
         if not os.path.exists("data"):
             os.makedirs("data")
+
+        self.cash_config = cash_config or {}
+        self.cash_table: CashTable | None = None
+        if self.cash_config.get("enabled", True):
+            self._initialize_cash_table()
 
     def _log(self, msg: str) -> None:
         if self.verbose:
@@ -375,11 +389,99 @@ class TexasHoldem:
         clone.winner = _copy_winner(self.winner)
         clone.last_winner = _copy_winner(self.last_winner)
 
+        clone.cash_config = self.cash_config
+        clone.cash_table = self.cash_table
+
         return clone
+
+    def _initialize_cash_table(self) -> None:
+        big_blind = self.cash_config.get("big_blind", self.rules.big_blind)
+        small_blind = self.cash_config.get("small_blind", self.rules.small_blind)
+        self.rules.small_blind = small_blind
+        self.rules.big_blind = big_blind
+
+        configured_min = max(1, int(self.cash_config.get("min_buyin_bb", 40)))
+        configured_max = max(configured_min, int(self.cash_config.get("max_buyin_bb", 100)))
+        default_buyin_bb = self.cash_config.get(
+            "default_buyin_bb",
+            max(1, int(round(self.starting_stack / float(big_blind)))) if big_blind else 1,
+        )
+        min_buyin_bb = min(configured_min, default_buyin_bb)
+        min_buyin_bb = max(1, min_buyin_bb)
+        max_buyin_bb = max(configured_max, min_buyin_bb)
+        default_buyin_bb = min(max(default_buyin_bb, min_buyin_bb), max_buyin_bb)
+
+        table_kwargs = {
+            "small_blind": small_blind,
+            "big_blind": big_blind,
+            "min_buyin_bb": min_buyin_bb,
+            "max_buyin_bb": max_buyin_bb,
+            "min_bankroll_buyins": self.cash_config.get("min_bankroll_buyins", 1),
+            "max_bankroll_buyins": self.cash_config.get("max_bankroll_buyins", 5),
+            "rake_pct": self.cash_config.get("rake_pct", 0.0),
+            "rake_cap": self.cash_config.get("rake_cap", 0.0),
+            "no_flop_no_drop": self.cash_config.get("no_flop_no_drop", True),
+        }
+        self.cash_table = CashTable(**table_kwargs)
+
+        default_bankroll_buyins = self.cash_config.get("default_bankroll_buyins", 5)
+
+        bankrolls = self.cash_config.get("bankrolls", {})
+        buyins = self.cash_config.get("buyins", {})
+
+        for pid in range(self.num_players):
+            bankroll = bankrolls.get(pid)
+            if bankroll is None:
+                bankroll = default_bankroll_buyins * default_buyin_bb * big_blind
+            buyin_bb = buyins.get(pid, default_buyin_bb)
+            self.cash_table.seat_player(pid, bankroll=bankroll, buyin_bb=buyin_bb)
+            stack = int(round(self.cash_table.players[pid].stack))
+            self.rules.player_chips[pid] = stack
+            self.rules.active_players[pid] = (
+                self.cash_table.players[pid].seated and stack > 0
+            )
+
+    def _sync_engine_from_cash_table(self) -> None:
+        if self.cash_table is None:
+            return
+        for pid in range(self.num_players):
+            player = self.cash_table.players.get(pid)
+            if player is None or not player.seated:
+                self.rules.player_chips[pid] = 0
+                self.rules.active_players[pid] = False
+                continue
+            stack = int(round(player.stack))
+            self.rules.player_chips[pid] = stack
+            self.rules.active_players[pid] = player.in_hand and stack > 0
+
+    def _sync_cash_table_post_hand(self) -> None:
+        if self.cash_table is None:
+            return
+        for pid in range(self.num_players):
+            chips = max(0.0, float(self.rules.player_chips[pid]))
+            player = self.cash_table.players.get(pid)
+            if player is None:
+                continue
+            player.stack = chips if player.seated else 0.0
+            player.committed = 0.0
+            player.folded = False
+            player.all_in = False
+            player.in_hand = False
+        self.cash_table.button_idx = self.rules.dealer_button
 
     def initialize_game(self):
         # Reset game state for new hand
         self.last_winner = None
+        if self.cash_table is not None:
+            active_players = [
+                pid
+                for pid, player in self.cash_table.players.items()
+                if player.seated and player.stack > 0
+            ]
+            if not active_players:
+                raise RuntimeError("No seated players with chips to start a hand")
+            self.cash_table.start_hand(active_players)
+            self._sync_engine_from_cash_table()
         self.rules.hands = [[] for _ in range(self.num_players)]
         self.rules.community_cards = []
         self.rules.pot = 0
@@ -959,8 +1061,25 @@ class TexasHoldem:
         """
 
         # Update active players based on remaining chips and rotate the dealer
-        self.rules.active_players = [chips > 0 for chips in self.rules.player_chips]
-        self.rules.dealer_button = (self.rules.dealer_button + 1) % self.num_players
+        if self.cash_table is not None:
+            self._sync_cash_table_post_hand()
+            for pid in range(self.num_players):
+                player = self.cash_table.players.get(pid)
+                if player is None or not player.seated:
+                    self.rules.player_chips[pid] = 0
+                    self.rules.active_players[pid] = False
+                else:
+                    stack = int(round(player.stack))
+                    self.rules.player_chips[pid] = stack
+                    self.rules.active_players[pid] = stack > 0
+            next_dealer = self.rules._next_player_with_chips(self.rules.dealer_button)
+            if next_dealer is None:
+                next_dealer = self.rules.dealer_button
+            self.rules.dealer_button = next_dealer
+            self.cash_table.button_idx = self.rules.dealer_button
+        else:
+            self.rules.active_players = [chips > 0 for chips in self.rules.player_chips]
+            self.rules.dealer_button = (self.rules.dealer_button + 1) % self.num_players
 
         # Reset game state
         self.rules.deck = self.rules._create_deck()
@@ -1201,9 +1320,63 @@ class TexasHoldem:
     def display_player_chips(self):
         self._log("\n--- Player Chip Counts ---")
         for i in range(self.num_players):
-            status = "Active" if self.rules.active_players[i] else "Eliminated"
-            self._log(f"Player {i + 1}: {self.rules.player_chips[i]} chips ({status})")
+            status = "Active" if self.rules.active_players[i] else "Sitting out"
+            bankroll_info = ""
+            if self.cash_table is not None:
+                player = self.cash_table.players.get(i)
+                if player is not None:
+                    bankroll_info = f" | Bankroll: {int(round(player.bankroll))}"
+                    if not player.seated:
+                        status = "Left table"
+            self._log(
+                f"Player {i + 1}: {self.rules.player_chips[i]} chips ({status}){bankroll_info}"
+            )
         self._log("---------------------------\n")
+
+    def rebuy_to_target(self, player_index: int, target_bb: int | None = None) -> float:
+        if self.cash_table is None:
+            return 0.0
+        player = self.cash_table.players.get(player_index)
+        if player is None or not player.seated:
+            return 0.0
+        if target_bb is None:
+            target_bb = self.cash_table.max_buyin_bb
+        added = self.cash_table.top_up(player_index, target_bb)
+        if added > 0:
+            self.rules.player_chips[player_index] = int(
+                round(self.cash_table.players[player_index].stack)
+            )
+            self.rules.active_players[player_index] = True
+        return added
+
+    def rebuy_amount(self, player_index: int, amount: float) -> float:
+        if self.cash_table is None:
+            return 0.0
+        added = self.cash_table.add_to_stack(player_index, amount)
+        if added > 0:
+            stack = int(round(self.cash_table.players[player_index].stack))
+            self.rules.player_chips[player_index] = stack
+            self.rules.active_players[player_index] = stack > 0
+        return added
+
+    def cash_out_player(self, player_index: int) -> float:
+        if self.cash_table is None:
+            return 0.0
+        player = self.cash_table.players.get(player_index)
+        if player is None:
+            return 0.0
+        payout = self.cash_table.cash_out(player_index)
+        self.rules.player_chips[player_index] = 0
+        self.rules.active_players[player_index] = False
+        return payout
+
+    def player_bankroll(self, player_index: int) -> float:
+        if self.cash_table is None:
+            return float(self.rules.player_chips[player_index])
+        player = self.cash_table.players.get(player_index)
+        if player is None:
+            return 0.0
+        return player.bankroll
 
     def show_player_hands(self):
         for i in range(self.num_players):

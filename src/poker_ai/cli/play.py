@@ -146,15 +146,50 @@ def main() -> None:  # noqa: C901
         else:
             player_strategies.append(RandomAIStrategy())
 
-    # Instantiate the game with chosen starting stack
-    game = TexasHoldem(total_players, starting_stack, cast(list[Any], player_strategies))
+    cash_defaults = cfg.get("cash_game", {})
+    base_small_blind = cash_defaults.get(
+        "small_blind", cfg.get("game_engine", {}).get("small_blind", 10)
+    )
+    base_big_blind = cash_defaults.get(
+        "big_blind", cfg.get("game_engine", {}).get("big_blind", 20)
+    )
+    default_buyin_bb = cash_defaults.get("default_buyin_bb")
+    if default_buyin_bb is None:
+        blind_for_buyin = base_big_blind or 1
+        default_buyin_bb = max(1, int(round(starting_stack / float(blind_for_buyin))))
+
+    cash_config = {
+        "small_blind": base_small_blind,
+        "big_blind": base_big_blind,
+        "min_buyin_bb": cash_defaults.get("min_buyin_bb", 40),
+        "max_buyin_bb": cash_defaults.get("max_buyin_bb", 100),
+        "default_buyin_bb": default_buyin_bb,
+        "default_bankroll_buyins": cash_defaults.get("default_bankroll_buyins", 5),
+        "min_bankroll_buyins": cash_defaults.get("min_bankroll_buyins", 1),
+        "max_bankroll_buyins": cash_defaults.get("max_bankroll_buyins", 5),
+        "rake_pct": cash_defaults.get("rake_pct", 0.0),
+        "rake_cap": cash_defaults.get("rake_cap", 0.0),
+        "no_flop_no_drop": cash_defaults.get("no_flop_no_drop", True),
+    }
+
+    # Instantiate the game with chosen starting stack as an initial buy-in
+    game = TexasHoldem(
+        total_players,
+        starting_stack,
+        cast(list[Any], player_strategies),
+        cash_config=cash_config,
+    )
 
     hands_to_play = args.num_hands
     hands_played = 0
 
     try:
         while hands_to_play == 0 or hands_played < hands_to_play:
-            game.play_game()
+            try:
+                game.play_game()
+            except RuntimeError as exc:
+                print(f"Session halted: {exc}")
+                break
             winner_info = getattr(game, "last_winner", None)
             if isinstance(winner_info, list) and winner_info:
                 players = ", ".join(f"Player {idx + 1}" for idx in winner_info)
@@ -164,11 +199,88 @@ def main() -> None:  # noqa: C901
             else:
                 print("Hand Summary: No winner determined.")
             print("\n--- Hand Completed ---")
+            if game.cash_table is not None:
+                table = game.cash_table
+                print("Current table status:")
+                for pid in range(total_players):
+                    player = table.players.get(pid)
+                    stack = int(round(game.rules.player_chips[pid]))
+                    bankroll = int(round(player.bankroll)) if player else 0
+                    status = "Seated" if player and player.seated else "Away"
+                    print(
+                        f"  Player {pid + 1}: stack={stack} | bankroll={bankroll} | status={status}"
+                    )
+                # Allow human players to manage their stacks
+                for pid in range(num_humans):
+                    player = table.players.get(pid)
+                    if player is None or not player.seated:
+                        continue
+                    while True:
+                        prompt = (
+                            f"Player {pid + 1} action (Enter=skip, 'max'=top up to {table.max_buyin_bb}bb, "
+                            "chip amount, or 'leave'): "
+                        )
+                        choice = input(prompt).strip().lower()
+                        if choice == "":
+                            break
+                        if choice == "leave":
+                            payout = game.cash_out_player(pid)
+                            print(
+                                f"Player {pid + 1} cashes out {int(round(payout))} chips and leaves the table."
+                            )
+                            break
+                        if choice == "max":
+                            added = game.rebuy_to_target(pid)
+                            if added > 0:
+                                print(
+                                    f"Player {pid + 1} tops up by {int(round(added))} chips."
+                                )
+                            else:
+                                print("Unable to top up (insufficient bankroll or already at max).")
+                            break
+                        try:
+                            chips = int(choice)
+                        except ValueError:
+                            print("Invalid input. Provide a number, 'max', or 'leave'.")
+                            continue
+                        added = game.rebuy_amount(pid, chips)
+                        if added > 0:
+                            print(
+                                f"Player {pid + 1} adds {int(round(added))} chips to their stack."
+                            )
+                        else:
+                            print("No chips added (check bankroll and table limits).")
+                        break
+
+                # Automatically rebuy AI players if they are bust but have bankroll
+                for pid in range(num_humans, total_players):
+                    player = table.players.get(pid)
+                    if (
+                        player
+                        and player.seated
+                        and player.stack < table.small_blind
+                        and player.bankroll > 0
+                    ):
+                        added = game.rebuy_to_target(pid)
+                        if added > 0:
+                            print(
+                                f"AI Player {pid + 1} auto-top-ups by {int(round(added))} chips."
+                            )
+
             hands_played += 1
             if hands_to_play != 0 and hands_played >= hands_to_play:
                 break
-            print("Resetting chips and starting a new hand.\n")
-            game.reset_for_next_hand()
+
+            if game.cash_table is not None:
+                remaining = [
+                    pid
+                    for pid, player in game.cash_table.players.items()
+                    if player.seated and player.stack > 0
+                ]
+                if not remaining:
+                    print("No seated players with chips remain. Ending session.")
+                    break
+            print("Starting next cash hand...\n")
     except KeyboardInterrupt:
         print("\nSimulation terminated by user.")
         sys.exit()
