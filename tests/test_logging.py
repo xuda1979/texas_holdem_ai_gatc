@@ -48,7 +48,7 @@ def test_training_logs_loss(tmp_path):
         handler.close()
 
         contents = log_file.read_text()
-        assert "Training step completed. Loss:" in contents
+        assert "Training step completed | loss=" in contents
     finally:
         ai_cfr_trainer.config = original_config_pkg
         ai_cfr_trainer.ai_cfr_trainer_module.config = original_config_module

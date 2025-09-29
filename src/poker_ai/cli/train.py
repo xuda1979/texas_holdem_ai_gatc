@@ -3,8 +3,10 @@
 import argparse
 import glob
 import inspect
+import logging
 import os
 import time
+from datetime import datetime
 from typing import Any, cast
 
 import torch
@@ -13,6 +15,11 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 
 from poker_ai.config import load_config
 from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
+from poker_ai.logging_utils import (
+    log_configuration_snapshot,
+    log_run_metadata,
+    setup_logging,
+)
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -129,6 +136,7 @@ def initialize_trainer(
         raise ValueError(f"Unknown algorithm: {algorithm}")
 
     if use_data_parallel:
+        logger = logging.getLogger(__name__)
         model_to_wrap = None
         if hasattr(trainer, "advantage_net"):
             model_to_wrap = trainer.advantage_net
@@ -136,14 +144,14 @@ def initialize_trainer(
             model_to_wrap = trainer.model
 
         if model_to_wrap:
-            print("Wrapping model with DataParallel for multi-device training.")
+            logger.info("Wrapping model with DataParallel for multi-device training.")
             wrapped_model = torch.nn.DataParallel(model_to_wrap)
             if hasattr(trainer, "advantage_net"):
                 trainer.advantage_net = wrapped_model
             elif hasattr(trainer, "model"):
                 trainer.model = wrapped_model
         else:
-            print("Warning: Could not find model to wrap for DataParallel.")
+            logger.warning("Could not find model to wrap for DataParallel.")
 
     return trainer
 
@@ -189,9 +197,12 @@ def _find_latest_model_path(config: dict, algorithm: str) -> str | None:
     return latest_path
 
 
-def _load_latest_model(trainer: object, config: dict, algorithm: str) -> bool:
+def _load_latest_model(
+    trainer: object, config: dict, algorithm: str, *, logger: logging.Logger | None = None
+) -> bool:
     """Attempt to load the latest saved model for the given trainer."""
 
+    logger = logger or logging.getLogger(__name__)
     load_attr = getattr(trainer, "load_model", None)
     if load_attr is None:
         return False
@@ -224,21 +235,19 @@ def _load_latest_model(trainer: object, config: dict, algorithm: str) -> bool:
                         training_section.pop("save_model_path", None)
                     else:
                         training_section["save_model_path"] = original_path
-        print(f"Loaded existing model from {latest_path}.")
+        logger.info("Loaded existing model from %s.", latest_path)
         return True
     except FileNotFoundError:
-        print(
+        logger.warning(
             "Latest model checkpoint was found in configuration but the file is missing. "
             "Starting from a fresh model."
         )
     except Exception as exc:  # pragma: no cover - defensive logging
-        print(f"Failed to load existing model from {latest_path}: {exc}")
+        logger.exception("Failed to load existing model from %s: %s", latest_path, exc)
     return False
 
 
 def main() -> None:  # noqa: C901
-    print("--- Starting Poker AI Training Session ---")
-
     args = parse_args()
     from unittest.mock import MagicMock
     for attr in (
@@ -255,15 +264,26 @@ def main() -> None:  # noqa: C901
         if isinstance(getattr(args, flag, None), MagicMock):
             setattr(args, flag, False)
 
-    device: str = "cpu"
-    use_data_parallel = False
-    device_printable = device
-
     if args.tpu and (args.gpus or args.npus):
         raise ValueError("Cannot specify --tpu with --gpus or --npus.")
 
     if args.gpus and args.npus:
         raise ValueError("Cannot specify both --gpus and --npus.")
+
+    config = load_configuration(args.config)
+    run_id = f"train-{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}"
+    setup_logging(config.get("logging"), component="train_cli", run_id=run_id)
+    logger = logging.getLogger(__name__)
+
+    args_dict = {k: getattr(args, k) for k in vars(args)}
+    log_run_metadata(config=config, extra_context={"args": args_dict, "run_id": run_id})
+    log_configuration_snapshot(config, logger=logger)
+
+    logger.info("Starting Poker AI training session")
+
+    device: str = "cpu"
+    use_data_parallel = False
+    device_printable = device
 
     if args.tpu:
         try:
@@ -276,7 +296,7 @@ def main() -> None:  # noqa: C901
         xla_device = xm.xla_device()
         device = "xla"
         device_printable = f"{device} ({xla_device})"
-        print(f"TPU training enabled on device {xla_device}.")
+        logger.info("TPU training enabled on device %s", xla_device)
     elif args.npus:
         if hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
@@ -284,13 +304,12 @@ def main() -> None:  # noqa: C901
             npu_count = torch.npu.device_count()
             if npu_count > 1:
                 use_data_parallel = True
-                print(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+                logger.info("Multi-NPU training enabled. Found %s NPUs.", npu_count)
             else:
-                print("NPU training enabled.")
+                logger.info("NPU training enabled.")
         else:
-            print(
-                "Warning: --npus specified, but no NPU devices are available. "
-                "Falling back to CPU."
+            logger.warning(
+                "--npus specified, but no NPU devices are available. Falling back to CPU."
             )
     elif args.gpus:
         if torch.cuda.is_available():
@@ -299,21 +318,19 @@ def main() -> None:  # noqa: C901
             gpu_count = torch.cuda.device_count()
             if gpu_count > 1:
                 use_data_parallel = True
-                print(f"Multi-GPU training enabled. Found {gpu_count} GPUs.")
+                logger.info("Multi-GPU training enabled. Found %s GPUs.", gpu_count)
             else:
-                print("GPU training enabled.")
+                logger.info("GPU training enabled.")
         else:
-            print(
-                "Warning: --gpus specified, but no GPU devices are available. "
-                "Falling back to CPU."
+            logger.warning(
+                "--gpus specified, but no GPU devices are available. Falling back to CPU."
             )
 
     analyzer_device = device if device != "xla" else "cpu"
     if device == "xla" and analyzer_device == "cpu":
-        print("ModelPerformanceAnalyzer evaluations will run on the CPU while training on TPU.")
-
-    # Load configuration
-    config = load_configuration(args.config)
+        logger.info(
+            "ModelPerformanceAnalyzer evaluations will run on the CPU while training on TPU."
+        )
 
     # Extract configurations with defaults
     # model_config is implicitly used by AICFRTrainer via its own global config load.
@@ -364,21 +381,20 @@ def main() -> None:  # noqa: C901
     big_blind = game_engine_config.get("big_blind", 10)
     small_blind = game_engine_config.get("small_blind", 5)
 
-    print("\n--- Configuration ---")
-    print(f"Total training iterations: {num_iterations}")
-    print(f"Save model every: {save_model_every_samples} iterations")
+    logger.info("Configuration summary: iterations=%s", num_iterations)
+    logger.info("Model snapshot interval (samples): %s", save_model_every_samples)
     if save_model_every_n_hands > 0:
-        print(f"Save model every {save_model_every_n_hands} hands")
+        logger.info("Model snapshot interval (hands): %s", save_model_every_n_hands)
     if save_model_every_minutes > 0:
-        print(f"Save model every {save_model_every_minutes} minutes")
-    print(f"Players per hand: random {min_players}-{max_players}")
-    print(f"Starting stack: {starting_stack}")
-    print(f"Blinds: SB={small_blind}, BB={big_blind}")
-    print(f"Using device: {device_printable}")
-    print(f"Min buffer before training: {min_buffer_before_train}")
+        logger.info("Model snapshot interval (minutes): %s", save_model_every_minutes)
+    logger.info("Players per hand: random %s-%s", min_players, max_players)
+    logger.info("Starting stack: %s", starting_stack)
+    logger.info("Blinds: SB=%s, BB=%s", small_blind, big_blind)
+    logger.info("Training device: %s", device_printable)
+    logger.info("Min buffer before training: %s", min_buffer_before_train)
 
     # Initialization
-    print("\n--- Initializing Components ---")
+    logger.info("Initializing components")
     game_config_for_selfplay = {
         "starting_stack": starting_stack,
         "big_blind": big_blind,
@@ -397,18 +413,15 @@ def main() -> None:  # noqa: C901
                 use_data_parallel=use_data_parallel,
             ),
         )
-        print(f"{args.algorithm} trainer initialized.")
+        logger.info("%s trainer initialized", args.algorithm)
     except Exception as e:
-        print(f"Error initializing trainer: {e}")
-        import traceback
-
-        traceback.print_exc()
+        logger.exception("Error initializing trainer: %s", e)
         return
 
-    if _load_latest_model(cfr_trainer, config, args.algorithm):
-        print("Resumed training from the latest available checkpoint.")
+    if _load_latest_model(cfr_trainer, config, args.algorithm, logger=logger):
+        logger.info("Resumed training from the latest available checkpoint.")
     else:
-        print("No existing checkpoint found. Starting training from scratch.")
+        logger.info("No existing checkpoint found. Starting training from scratch.")
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
@@ -419,7 +432,7 @@ def main() -> None:  # noqa: C901
     )
 
     # Training Loop
-    print("\n--- Starting Training Loop ---")
+    logger.info("Starting training loop")
     analyzer = ModelPerformanceAnalyzer(
         models_dir="models",
         save_every_iterations=save_model_every_samples,
@@ -431,7 +444,7 @@ def main() -> None:  # noqa: C901
     iteration = 0
     try:
         for iteration in range(1, num_iterations + 1):
-            print(f"\n--- MCCFR Iteration {iteration}/{num_iterations} ---")
+            logger.info("Starting MCCFR iteration %s/%s", iteration, num_iterations)
             # The play_hand_for_training method now runs one MCCFR traversal
             # and triggers the training step internally.
             self_play_env.play_hand_for_training(iteration)
@@ -441,7 +454,7 @@ def main() -> None:  # noqa: C901
                 path = f"models/{args.algorithm}_hand_{iteration}.pth"
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 cfr_trainer.save_model(path)
-                print(f"Model saved to {path} at iteration {iteration}")
+                logger.info("Model saved to %s at iteration %s", path, iteration)
 
             if (
                 save_model_every_minutes > 0
@@ -450,31 +463,29 @@ def main() -> None:  # noqa: C901
                 path = f"models/{args.algorithm}_time_{iteration}.pth"
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 cfr_trainer.save_model(path)
-                print(
-                    f"Model saved to {path} due to time interval at iteration {iteration}"
+                logger.info(
+                    "Model saved to %s due to time interval at iteration %s",
+                    path,
+                    iteration,
                 )
                 last_save_time = time.time()
 
             analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
     except Exception as e:
-        import traceback
-
-        print(f"Error during iteration {iteration}: {e}")
-        traceback.print_exc()
+        logger.exception("Error during iteration %s: %s", iteration, e)
         raise
     else:
         # Final save after the loop
-        print("\n--- Training session finished ---")
-        print("Saving final model...")
+        logger.info("Training session finished. Saving final model...")
         final_model_path = f"models/{args.algorithm}_final.pth"
         os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
         try:
             cfr_trainer.save_model(final_model_path)
-            print(f"Final model saved successfully to {final_model_path}")
+            logger.info("Final model saved successfully to %s", final_model_path)
         except Exception as e:
-            print(f"Error saving final model: {e}")
+            logger.exception("Error saving final model: %s", e)
 
-        print("\n--- Training Complete ---")
+        logger.info("Training complete")
 
 
 if __name__ == "__main__":
