@@ -709,11 +709,26 @@ class PokerGameGUI:
 
     def next_hand(self):
         """Start the next hand."""
-        if self.game:
-            try:
-                self.play_hand()
-            except RuntimeError as exc:
-                messagebox.showinfo("Table Closed", str(exc))
+        if not self.game:
+            return
+
+        try:
+            reset_method = getattr(self.game, "reset_for_next_hand", None)
+            if callable(reset_method):
+                reset_method()
+        except RuntimeError as exc:
+            # Surface engine level errors to the player but keep the GUI usable.
+            messagebox.showinfo("Table Closed", str(exc))
+            return
+
+        # Refresh the GUI so the player can see the new hand being dealt.
+        self.status_label.config(text="Dealing next hand...")
+        self.update_display()
+
+        try:
+            self.play_hand()
+        except RuntimeError as exc:
+            messagebox.showinfo("Table Closed", str(exc))
 
     def run(self):
         """Start the GUI main loop."""
