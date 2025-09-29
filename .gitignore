@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 logs/
 models/
+reports/
 *.egg-info/
 poker_ai.log

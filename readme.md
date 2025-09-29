@@ -99,18 +99,26 @@ that saved checkpoints can still be ranked without XLA kernels.
    background are present so missing art assets are caught automatically (see
    `tests/gui/test_card_assets.py`).
 
-4. **Play against the AI**:
+4. **生成解码与评估报告**:
+   ```bash
+   python tools/generate_decode_eval_report.py
+   ```
+   这条单行命令会运行与状态解码及评估工具相关的测试用例，并在
+   `reports/decode_eval_report.md` 中输出 Markdown 报告，方便查看本地变更对
+   解码与评估流程的影响。
+
+5. **Play against the AI**:
    ```bash
    python -m poker_ai.cli.play
    ```
 
-5. **Command-line play simulation**:
+6. **Command-line play simulation**:
     ```bash
     python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
     ```
     The script falls back to interactive prompts if arguments are omitted.
 
-6. **AI self-play without humans**:
+7. **AI self-play without humans**:
     ```bash
     python self_play.py
     ```
