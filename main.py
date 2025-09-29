@@ -1,59 +1,57 @@
+#!/usr/bin/env python3
+"""
+Thin wrapper that delegates to the real CLIs under `src/poker_ai/cli`.
+It also works from an uninstalled checkout by putting `src/` on sys.path.
+"""
 import argparse
+import os
+import sys
 
-import argparse
-
-from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer as CFRTrainer
-from poker_ai.engine.texas_holdem_simple import TexasHoldem
-
-
-def train_model(config, iterations, model_save_path) -> None:
-    trainer = CFRTrainer(config)
-    trainer.train(iterations=iterations)
-    trainer.save_model(model_save_path)
-    print(f"Model trained and saved to {model_save_path}")
-
-
-def play_game(config, model_path, num_players=2) -> None:
-    trainer = CFRTrainer(config)
-    trainer.load_model(model_path)
-
-    game = TexasHoldem(num_players=num_players)
-    game.play_round()
-
-    winner, best_hand = game.determine_winner()
-    print(f"The winner is Player {winner} with the hand: {best_hand}")
+# Ensure the `src` package directory is importable when running from repo root.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Train or play Texas Hold'em using CFR and deep learning."
-    )
-    parser.add_argument("--train", action="store_true", help="Train the model")
-    parser.add_argument("--play", action="store_true", help="Play a game with the trained model")
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
-        "--iterations", type=int, default=1000, help="Number of training iterations"
+        "--train",
+        action="store_true",
+        help="Delegate to poker_ai.cli.train (pass through extra flags)",
     )
     parser.add_argument(
-        "--model", type=str, default="texas_holdem_model.h5", help="Path to save/load the model"
+        "--play",
+        action="store_true",
+        help="Delegate to poker_ai.cli.play (pass through extra flags)",
     )
-    parser.add_argument("--num_players", type=int, default=2, help="Number of players in the game")
-
-    args = parser.parse_args()
-
-    config = {
-        "input_shape": (10, 10, 1),  # Update according to your game state encoding
-        "num_actions": 10,
-        "learning_rate": 0.001,
-        "num_res_blocks": 3,
-        "num_players": args.num_players,
-    }
+    args, unknown = parser.parse_known_args()
 
     if args.train:
-        train_model(config, args.iterations, args.model)
-    elif args.play:
-        play_game(config, args.model, num_players=args.num_players)
-    else:
-        print("Please specify either --train or --play")
+        # Hand over argument parsing to the training CLI.
+        from poker_ai.cli.train import main as train_main
+
+        sys.argv = ["train"] + unknown
+        train_main()
+        return
+
+    if args.play:
+        # Prefer the play CLI; gracefully fall back to a single-hand demo.
+        try:
+            from poker_ai.cli.play import main as play_main
+
+            sys.argv = ["play"] + unknown
+            play_main()
+        except Exception:
+            from poker_ai.engine.texas_holdem import TexasHoldem
+
+            game = TexasHoldem(num_players=2)
+            game.initialize_game()
+            game.play_round()
+            winner, best_hand = game.determine_winner()
+            print(f"The winner is Player {winner} with the hand: {best_hand}")
+        return
+
+    # If neither flag was provided, show a brief help.
+    parser.print_help()
 
 
 if __name__ == "__main__":

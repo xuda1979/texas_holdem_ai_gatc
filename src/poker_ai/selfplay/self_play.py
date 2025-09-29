@@ -507,7 +507,18 @@ class SelfPlay:
                 d_raw_feature,
                 normalization_scale=normalization_scale,
             )
-            if hasattr(self.cfr_trainer, "replay_buffer"):
+            if hasattr(self.cfr_trainer, "add_experience"):
+                self.cfr_trainer.add_experience(
+                    hole_s,
+                    community_s,
+                    state_tensor,
+                    action_values=action_utilities.detach().clone(),
+                    regrets=weighted_regrets.detach().clone(),
+                    legal_mask=legal_actions_mask,
+                    opponent_reach=opponent_reach,
+                    iteration=iteration,
+                )
+            elif hasattr(self.cfr_trainer, "replay_buffer"):
                 try:
                     self.cfr_trainer.replay_buffer.push(
                         hole_s,
