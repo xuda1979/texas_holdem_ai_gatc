@@ -163,29 +163,79 @@ class TexasHoldem:
         return combinations
 
     def hand_rank(self, hand):
-        """Determine the rank of a hand."""
-        ranks = "23456789TJQKA"
-        rank_count = Counter([ranks.index(r) for r, s in hand])
-        counts, values = zip(*sorted((cnt, rank) for rank, cnt in rank_count.items()), strict=False)
-        is_straight = len(counts) == 5 and (max(values) - min(values) == 4)
-        is_flush = len(set(s for r, s in hand)) == 1
+        """Determine the rank of a hand.
+
+        The original implementation assumed each ``card`` in ``hand`` was a
+        tuple of ``(rank, suit)`` values. In this project the simplified engine
+        represents cards as strings such as ``"T♠"`` or ``"A♥"`` which caused a
+        ``ValueError`` when unpacking the string into ``(rank, suit)``. The
+        broken unpacking also meant all ranking logic silently failed. This
+        method now accepts either tuple or string representations and performs
+        a full hand evaluation using the conventional poker ranking rules.
+        """
+
+        rank_lookup = {rank: idx for idx, rank in enumerate("23456789TJQKA")}
+
+        rank_values: list[int] = []
+        suits: list[str] = []
+
+        for card in hand:
+            if isinstance(card, str):
+                if len(card) < 2:
+                    raise ValueError(f"Invalid card representation: {card!r}")
+                rank_symbol, suit_symbol = card[0], card[-1]
+            else:
+                try:
+                    rank_symbol, suit_symbol = card  # type: ignore[misc]
+                except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+                    raise ValueError(
+                        f"Invalid card representation: {card!r}"
+                    ) from exc
+
+            if rank_symbol not in rank_lookup:
+                raise ValueError(f"Unknown rank symbol: {rank_symbol!r}")
+
+            rank_values.append(rank_lookup[rank_symbol])
+            suits.append(str(suit_symbol))
+
+        rank_values_sorted = sorted(rank_values, reverse=True)
+        rank_counter = Counter(rank_values)
+        counts_sorted = sorted(
+            rank_counter.items(), key=lambda item: (-item[1], -item[0])
+        )
+        counts = tuple(count for _, count in counts_sorted)
+        values = tuple(rank for rank, _ in counts_sorted)
+
+        unique_ranks = sorted(rank_counter)
+        straight_high: int | None = None
+        if len(unique_ranks) == 5:
+            if unique_ranks == [0, 1, 2, 3, 12]:
+                straight_high = 3  # Five-high straight (wheel)
+            elif unique_ranks[-1] - unique_ranks[0] == 4:
+                straight_high = unique_ranks[-1]
+
+        is_straight = straight_high is not None
+        is_flush = len(set(suits)) == 1
+
         if is_straight and is_flush:
-            return (9, max(values)) if max(values) != 12 else (10,)
+            if straight_high == rank_lookup["A"]:
+                return (10,)
+            return (9, straight_high)
         if counts == (4, 1):
             return (8, values[0], values[1])
         if counts == (3, 2):
             return (7, values[0], values[1])
         if is_flush:
-            return (6, values)
+            return (6, tuple(rank_values_sorted))
         if is_straight:
-            return (5, max(values))
+            return (5, straight_high)
         if counts == (3, 1, 1):
             return (4, values)
         if counts == (2, 2, 1):
             return (3, values)
         if counts == (2, 1, 1, 1):
             return (2, values)
-        return (1, values)
+        return (1, tuple(rank_values_sorted))
 
     def get_winner(self):
         """Determine the winner of the game."""
