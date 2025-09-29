@@ -199,7 +199,40 @@ class DeepCFRTrainer:
             community_summary.to(target_device),
             history_tensor.to(target_device),
         )
-        return out.squeeze(0).detach().cpu()
+        return out.squeeze(0)
+
+    def add_experience(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        *,
+        action_values: torch.Tensor | None = None,
+        regrets: torch.Tensor | None = None,
+        legal_mask: torch.Tensor | None = None,
+        opponent_reach: float | torch.Tensor = 1.0,
+        iteration: int = 0,
+    ) -> None:
+        """Unified adapter for self-play experiences."""
+
+        if regrets is None:
+            if action_values is None:
+                raise ValueError("DeepCFRTrainer.add_experience requires regrets or action_values.")
+            processed = action_values
+            if legal_mask is not None:
+                legal_mask = legal_mask.to(processed.device).bool()
+                processed = torch.where(legal_mask, processed, torch.zeros_like(processed))
+            processed = processed - processed.mean()
+            if isinstance(opponent_reach, torch.Tensor):
+                opponent_reach = float(opponent_reach.detach().cpu().item())
+            regrets = processed * float(opponent_reach)
+        self.replay_buffer.push(
+            hole_summary,
+            community_summary,
+            history_tensor,
+            regrets,
+            iteration,
+        )
 
     def train(self, batch_size: int = 256) -> float:
         """Perform one training step using samples from the replay buffer."""

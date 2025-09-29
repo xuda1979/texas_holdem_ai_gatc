@@ -373,6 +373,33 @@ class AICFRTrainer:
         except Exception as e:
             logging.error(f"Error loading model: {str(e)}", exc_info=True)
 
+    def add_experience(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        *,
+        action_values: torch.Tensor | None = None,
+        regrets: torch.Tensor | None = None,
+        legal_mask: torch.Tensor | None = None,
+        opponent_reach: float | torch.Tensor = 1.0,
+        iteration: int = 0,
+    ) -> None:
+        """Unified adapter for self-play experiences."""
+
+        target = action_values if action_values is not None else regrets
+        if target is None:
+            raise ValueError("AICFRTrainer.add_experience requires action_values or regrets.")
+        self.replay_buffer.push(
+            hole_summary,
+            community_summary,
+            history_tensor,
+            target,
+            legal_mask=legal_mask,
+            iteration=iteration,
+            opponent_reach=opponent_reach,
+        )
+
     def get_final_average_strategy(self, info_set_id: str):
         """Return the average strategy for a given information set."""
         cumulative_strategy = self.cumulative_strategy.get(info_set_id)
