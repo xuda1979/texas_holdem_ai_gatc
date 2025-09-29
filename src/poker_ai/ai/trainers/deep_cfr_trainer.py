@@ -222,7 +222,13 @@ class DeepCFRTrainer:
         regrets = regrets - regrets.mean(dim=-1, keepdim=True)
 
         loss_vals = (adv_pred - regrets) ** 2
-        weighted_loss = (loss_vals * iterations).sum() / iterations.sum()
+
+        weights = iterations.clamp_min(0.0)
+        weight_sum = weights.sum()
+        if weight_sum.item() <= torch.finfo(loss_vals.dtype).eps:
+            weighted_loss = loss_vals.mean()
+        else:
+            weighted_loss = (loss_vals * weights).sum() / weight_sum
 
         self.optimizer.zero_grad(set_to_none=True)
         weighted_loss.backward()
