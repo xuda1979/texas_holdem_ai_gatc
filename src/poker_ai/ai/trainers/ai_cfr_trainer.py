@@ -189,6 +189,7 @@ class AICFRTrainer:
         history_tensor: torch.Tensor,
         all_counterfactual_payoffs: torch.Tensor,
         mask: torch.Tensor | None = None,
+        opponent_reach: float = 1.0,
     ) -> float:
         """Train the model for one infoset and return the loss."""
 
@@ -247,6 +248,8 @@ class AICFRTrainer:
             action_regrets = payoffs - state_value
             if legal_mask is not None:
                 action_regrets = torch.where(legal_mask, action_regrets, torch.zeros_like(action_regrets))
+            reach_tensor = payoffs.new_tensor(float(opponent_reach))
+            action_regrets = action_regrets * reach_tensor
 
             cumulative_regret = update_regret(cumulative_regret, action_regrets)
             current_regret_matched_policy = calculate_strategy(
@@ -283,7 +286,14 @@ class AICFRTrainer:
             return 0.0
 
         losses: list[float] = []
-        for hole, community, history, payoffs, legal_mask, _iteration in batch:
+        for entry in batch:
+            opponent_reach = 1.0
+            if len(entry) == 7:
+                hole, community, history, payoffs, legal_mask, opponent_reach, _iteration = entry
+            elif len(entry) == 6:
+                hole, community, history, payoffs, legal_mask, _iteration = entry
+            else:  # pragma: no cover - defensive guard for unexpected buffer format
+                raise ValueError("Unexpected replay buffer entry format")
             info_set_id = self._build_info_set_id(hole, community, history)
             loss = self._train_single(
                 info_set_id,
@@ -292,6 +302,7 @@ class AICFRTrainer:
                 history,
                 payoffs,
                 mask=legal_mask,
+                opponent_reach=float(opponent_reach),
             )
             if loss is not None:
                 losses.append(float(loss))
@@ -389,23 +400,31 @@ class AICFRReplayBuffer:
         self.capacity = capacity
         self.buffer: list[tuple[torch.Tensor, ...]] = []
 
-    def push(self, *args: torch.Tensor | int) -> None:
-        if len(args) < 5:
-            raise TypeError("push expects at least 5 arguments")
-
-        hole, community, history, target, *remaining = args  # type: ignore[misc]
-        iteration = int(remaining.pop()) if remaining else 0
-        counterfactual_values = remaining.pop(0) if remaining else target
-        legal_mask = remaining.pop(0) if remaining else None
-
-        hole_cpu = hole.detach().cpu()
-        community_cpu = community.detach().cpu()
-        history_cpu = history.detach().cpu()
+    def push(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        counterfactual_values: torch.Tensor,
+        legal_mask: torch.Tensor | None = None,
+        iteration: int = 0,
+        *,
+        opponent_reach: float | torch.Tensor = 1.0,
+    ) -> None:
+        hole_cpu = hole_summary.detach().cpu()
+        community_cpu = community_summary.detach().cpu()
+        history_cpu = history_tensor.detach().cpu()
         cf_cpu = counterfactual_values.detach().cpu()
+
         if legal_mask is None:
             mask_cpu = torch.ones_like(cf_cpu, dtype=torch.bool)
         else:
             mask_cpu = legal_mask.detach().cpu().bool()
+
+        if torch.is_tensor(opponent_reach):
+            reach_value = float(opponent_reach.detach().cpu().item())
+        else:
+            reach_value = float(opponent_reach)
 
         entry = (
             hole_cpu,
@@ -413,6 +432,7 @@ class AICFRReplayBuffer:
             history_cpu,
             cf_cpu,
             mask_cpu,
+            reach_value,
             int(iteration),
         )
 

@@ -507,14 +507,18 @@ class SelfPlay:
                         hole_s,
                         community_s,
                         state_tensor,
-                        weighted_regrets,
                         action_utilities.detach().clone(),
-                        legal_actions_mask,
-                        iteration,
+                        legal_mask=legal_actions_mask,
+                        opponent_reach=opponent_reach,
+                        iteration=iteration,
                     )
                 except TypeError:
                     self.cfr_trainer.replay_buffer.push(
-                        hole_s, community_s, state_tensor, weighted_regrets, iteration
+                        hole_s,
+                        community_s,
+                        state_tensor,
+                        weighted_regrets,
+                        iteration,
                     )
 
             return node_value
