@@ -117,7 +117,13 @@ class SingleNetworkCFRTrainer:
 
         preds = self.model(holes, communities, histories)
         loss_vals = (preds - regrets) ** 2
-        weighted_loss = (loss_vals * iterations).sum() / iterations.sum()
+
+        weights = iterations.clamp_min(0.0)
+        weight_sum = weights.sum()
+        if weight_sum.item() <= torch.finfo(loss_vals.dtype).eps:
+            weighted_loss = loss_vals.mean()
+        else:
+            weighted_loss = (loss_vals * weights).sum() / weight_sum
 
         self.optimizer.zero_grad()
         weighted_loss.backward()
