@@ -38,7 +38,7 @@ try:
     else:
         raise FileNotFoundError
 except Exception:
-    logging.warning(
+    logging.getLogger(__name__).warning(
         "config.yaml not found or PyYAML unavailable. Using default config values for AICFRTrainer.",
     )
     config = {
@@ -56,13 +56,6 @@ except Exception:
     }
 
 
-# Setup logging
-log_file_path = config["logging"]["log_file"]
-log_dir = os.path.dirname(log_file_path)
-if log_dir and not os.path.exists(log_dir):
-    os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(filename=log_file_path, level=logging.INFO, filemode="a")
-
 # Expose config for package-level access so tests can override it
 import sys
 
@@ -71,6 +64,7 @@ sys.modules[__package__ + ".config"] = config
 
 class AICFRTrainer:
     def __init__(self, device: str | None = None):
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         requested_device = (
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
@@ -95,6 +89,12 @@ class AICFRTrainer:
         else:
             self.device = requested_device
         self._using_xla = self._xla_device is not None
+        self.logger.debug(
+            "Initializing AICFRTrainer on device %s (using_xla=%s)",
+            self.device,
+            self._using_xla,
+            extra={"component": "trainer"},
+        )
         model_config = config.get("model", {})  # Get model sub-config, or empty dict
         hidden_dim = int(
             model_config.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
@@ -273,11 +273,15 @@ class AICFRTrainer:
             else:
                 self.optimizer.step()
 
-            logging.info(f"Training step completed. Loss: {loss.item()}")
+            self.logger.info(
+                "Training step completed | loss=%.6f",
+                float(loss.item()),
+                extra={"component": "trainer"},
+            )
             return float(loss.item())
 
         except Exception as e:  # pragma: no cover - logging path
-            logging.error(f"Error during training: {str(e)}", exc_info=True)
+            self.logger.exception("Error during training: %s", str(e))
             raise
 
     def _train_from_buffer(self, batch_size: int) -> float:
@@ -349,9 +353,13 @@ class AICFRTrainer:
                 self._xm.mark_step()
             else:
                 torch.save(payload, model_path)
-            logging.info(f"Model saved to {model_path}")
+            self.logger.info(
+                "Model saved | path=%s",
+                model_path,
+                extra={"component": "trainer"},
+            )
         except Exception as e:
-            logging.error(f"Error saving model: {str(e)}", exc_info=True)
+            self.logger.exception("Error saving model: %s", str(e))
 
     def load_model(self, model_path: str | None = None):
         # Ensure config path is correct or make it an argument
@@ -369,9 +377,13 @@ class AICFRTrainer:
             target_device = self._xla_device or self.device
             self.model.to(target_device)
             self.model.eval()
-            logging.info(f"Model loaded from {path}")
+            self.logger.info(
+                "Model loaded | path=%s",
+                path,
+                extra={"component": "trainer"},
+            )
         except Exception as e:
-            logging.error(f"Error loading model: {str(e)}", exc_info=True)
+            self.logger.exception("Error loading model: %s", str(e))
 
     def add_experience(
         self,
@@ -404,17 +416,19 @@ class AICFRTrainer:
         """Return the average strategy for a given information set."""
         cumulative_strategy = self.cumulative_strategy.get(info_set_id)
         if cumulative_strategy is None:
-            logging.warning(
+            self.logger.warning(
                 "Requested average strategy for unknown information set '%s'. Returning uniform.",
                 info_set_id,
+                extra={"component": "trainer"},
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
 
         sum_cumulative_strategy = torch.sum(cumulative_strategy)
         if sum_cumulative_strategy == 0:
-            logging.warning(
+            self.logger.warning(
                 "Cumulative strategy is all zeros for information set '%s'. Returning uniform strategy.",
                 info_set_id,
+                extra={"component": "trainer"},
             )
             return torch.ones(self.num_actions, device=self.device) / self.num_actions
         return cumulative_strategy / sum_cumulative_strategy

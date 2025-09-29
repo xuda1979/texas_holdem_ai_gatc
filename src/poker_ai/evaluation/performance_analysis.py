@@ -1,6 +1,8 @@
 import glob
 import os
 
+import logging
+
 import torch
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
@@ -172,6 +174,7 @@ class ModelPerformanceAnalyzer:
         self.tournament_size = tournament_size
         self.games_per_match = games_per_match
         self.device = device
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
     def on_iteration_end(self, trainer, iteration: int) -> None:
         if self.save_every_iterations is None:
@@ -181,7 +184,7 @@ class ModelPerformanceAnalyzer:
         os.makedirs(self.models_dir, exist_ok=True)
         path = os.path.join(self.models_dir, f"model_{iteration}.pth")
         trainer.save_model(path)
-        print(f"Model saved to {path} at iteration {iteration}")
+        self.logger.info("Model saved to %s at iteration %s", path, iteration)
         self._maybe_run_tournament()
 
     def _maybe_run_tournament(self) -> None:
@@ -189,7 +192,7 @@ class ModelPerformanceAnalyzer:
         if len(model_paths) < self.tournament_threshold:
             return
         selected = model_paths[-self.tournament_size :]
-        print("Running model tournament...")
+        self.logger.info("Running model tournament with %s candidates", len(selected))
         results = run_tournament(selected, self.games_per_match, self.device)
         for model, score in results.items():
-            print(f"{model}: {score}")
+            self.logger.info("Tournament result | model=%s | wins=%s", model, score)

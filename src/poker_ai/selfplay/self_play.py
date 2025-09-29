@@ -43,6 +43,7 @@ class SelfPlay:
         game_engine_config: dict[str, Any],
         training_config: dict[str, Any] | None = None,
     ) -> None:
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.cfr_trainer = cfr_trainer
         self.starting_stack = game_engine_config.get("starting_stack", 1000)
         self.big_blind = game_engine_config.get("big_blind", 10)
@@ -61,6 +62,14 @@ class SelfPlay:
         self._last_loaded_model_path: Path | None = None
         self._last_loaded_model_mtime: float | None = None
         self._maybe_refresh_model(iteration=0, force=True)
+        self.logger.debug(
+            "Initialized SelfPlay | stack=%s | blinds=(%s,%s) | players=%s-%s",
+            self.starting_stack,
+            self.small_blind,
+            self.big_blind,
+            self.min_players,
+            self.max_players,
+        )
 
     def _determine_model_reload_interval(self, cfg: dict[str, Any]) -> int:
         """Return the frequency (in hands) for refreshing model weights."""
@@ -254,6 +263,9 @@ class SelfPlay:
         game.rules.big_blind = self.big_blind
         game.rules.small_blind = self.small_blind
         game.initialize_game()
+        self.logger.debug(
+            "Iteration %s | initialized game with %s players", iteration, num_players
+        )
 
         # 2. Perform a traversal for each player in the hand
         base_reach = [1.0] * num_players
@@ -264,10 +276,23 @@ class SelfPlay:
 
         # 3. After the traversals, run a training step on the collected data
 
-        if len(self.cfr_trainer.replay_buffer) >= self.min_buffer_before_train:
+        buffer_length = len(self.cfr_trainer.replay_buffer)
+        if buffer_length >= self.min_buffer_before_train:
             loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
             if loss is not None:
-                print(f"Iteration {iteration}: Training step complete. Loss: {loss:.4f}")
+                self.logger.info(
+                    "Iteration %s | training step complete | loss=%.6f | buffer=%s",
+                    iteration,
+                    float(loss),
+                    buffer_length,
+                )
+        else:
+            self.logger.debug(
+                "Iteration %s | buffer below threshold (%s/%s)",
+                iteration,
+                buffer_length,
+                self.min_buffer_before_train,
+            )
 
         return self.cfr_trainer.replay_buffer
 
