@@ -25,7 +25,7 @@ def calculate_strategy(cumulative_regret, num_actions, legal_actions_mask=None):
 
     sum_positive_regret = torch.sum(positive_regret)
 
-    if sum_positive_regret > 0:
+    if sum_positive_regret.item() > 0:
         strategy = positive_regret / sum_positive_regret
     else:
         # If all regrets are non-positive, return a uniform random strategy over legal actions
