@@ -259,7 +259,11 @@ class SelfPlay:
         self._maybe_refresh_model(iteration)
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
-        game = TexasHoldem(num_players=num_players, starting_stack=self.starting_stack)
+        game = TexasHoldem(
+            num_players=num_players,
+            starting_stack=self.starting_stack,
+            verbose=False,
+        )
         game.rules.big_blind = self.big_blind
         game.rules.small_blind = self.small_blind
         game.initialize_game()

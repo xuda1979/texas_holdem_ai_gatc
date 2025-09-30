@@ -333,7 +333,9 @@ class AICFRTrainer:
         try:
             if model_path is None:
                 model_path = self.config["training"]["save_model_path"]
-            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            dirpath = os.path.dirname(model_path)
+            if dirpath:
+                os.makedirs(dirpath, exist_ok=True)
             payload = {
                 "state_dict": self.model.state_dict(),
                 "metadata": {
