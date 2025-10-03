@@ -3,6 +3,7 @@
 # ruff: noqa
 
 import copy
+import inspect
 import logging
 import random
 from dataclasses import dataclass
@@ -259,11 +260,21 @@ class SelfPlay:
         self._maybe_refresh_model(iteration)
         # 1. Initialize a new hand with a random number of players
         num_players = random.randint(self.min_players, self.max_players)
-        game = TexasHoldem(
-            num_players=num_players,
-            starting_stack=self.starting_stack,
-            verbose=False,
-        )
+        constructor = TexasHoldem
+        try:
+            signature = inspect.signature(constructor)
+        except (TypeError, ValueError):  # pragma: no cover - dynamic classes
+            signature = None
+
+        kwargs = {"num_players": num_players, "starting_stack": self.starting_stack}
+        if signature is None or "verbose" in signature.parameters:
+            kwargs["verbose"] = False
+
+        try:
+            game = constructor(**kwargs)
+        except TypeError:
+            # Some lightweight test doubles only accept positional arguments.
+            game = constructor(num_players, self.starting_stack)
         game.rules.big_blind = self.big_blind
         game.rules.small_blind = self.small_blind
         game.initialize_game()

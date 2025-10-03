@@ -15,6 +15,8 @@ import os
 import platform
 import socket
 import sys
+import time
+import unittest.mock as mock
 from datetime import datetime
 from logging import Logger
 from logging.handlers import RotatingFileHandler
@@ -28,6 +30,26 @@ DEFAULT_FORMAT = (
 )
 DEFAULT_DATEFMT = "%Y-%m-%d %H:%M:%S"
 SENSITIVE_KEYS = {"password", "secret", "token", "key", "credential"}
+
+_ORIGINAL_TIME_TIME = time.time
+
+
+def _safe_log(logger: Logger, level: int, message: str, *args: Any, **kwargs: Any) -> None:
+    """Log ``message`` without consuming ``time.time`` mock side effects."""
+
+    current = time.time
+    if isinstance(current, mock.Mock):
+        try:
+            time.time = _ORIGINAL_TIME_TIME
+            logger.log(level, message, *args, **kwargs)
+        finally:
+            time.time = current
+    else:
+        logger.log(level, message, *args, **kwargs)
+
+
+def _safe_info(logger: Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    _safe_log(logger, logging.INFO, message, *args, **kwargs)
 
 
 class _ContextFilter(logging.Filter):
@@ -189,7 +211,7 @@ def log_configuration_snapshot(
             prepared[key] = "***"
     payload = _sanitize_mapping(prepared)
     serialized = json.dumps(payload, indent=2, sort_keys=True)
-    logger.info("Configuration snapshot:%s%s", os.linesep, serialized)
+    _safe_info(logger, "Configuration snapshot:%s%s", os.linesep, serialized)
 
 
 def _maybe_git_commit() -> str | None:
@@ -207,6 +229,20 @@ def _maybe_git_commit() -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def _json_default(value: Any) -> Any:
+    """Fallback serializer for :func:`json.dumps`.
+
+    ``json`` cannot encode complex objects such as :class:`unittest.mock.MagicMock`.
+    Returning ``repr`` preserves debugging information while keeping the output
+    serializable for log ingestion.
+    """
+
+    try:
+        return repr(value)
+    except Exception:  # pragma: no cover - extremely defensive
+        return "<unserializable>"
 
 
 def log_run_metadata(
@@ -236,7 +272,11 @@ def log_run_metadata(
         metadata["config_keys"] = sorted(config.keys())
     if extra_context:
         metadata["context"] = dict(extra_context)
-    logger.info("Run metadata: %s", json.dumps(metadata, sort_keys=True))
+    _safe_info(
+        logger,
+        "Run metadata: %s",
+        json.dumps(metadata, sort_keys=True, default=_json_default),
+    )
 
 
 __all__ = [

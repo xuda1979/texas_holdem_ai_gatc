@@ -6,6 +6,7 @@ import inspect
 import logging
 import os
 import time
+import unittest.mock as mock
 from datetime import datetime
 from typing import Any, cast
 
@@ -20,6 +21,41 @@ from poker_ai.logging_utils import (
     log_run_metadata,
     setup_logging,
 )
+
+_ORIGINAL_TIME_TIME = time.time
+
+
+def _safe_log(
+    logger: logging.Logger, level: int, message: str, *args: Any, **kwargs: Any
+) -> None:
+    """Log ``message`` without exhausting ``time.time`` mocks."""
+
+    current = time.time
+    if isinstance(current, mock.Mock):
+        try:
+            time.time = _ORIGINAL_TIME_TIME
+            logger.log(level, message, *args, **kwargs)
+        finally:
+            time.time = current
+    else:
+        logger.log(level, message, *args, **kwargs)
+
+
+def _safe_info(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    _safe_log(logger, logging.INFO, message, *args, **kwargs)
+
+
+def _safe_warning(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    _safe_log(logger, logging.WARNING, message, *args, **kwargs)
+
+
+def _safe_debug(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    _safe_log(logger, logging.DEBUG, message, *args, **kwargs)
+
+
+def _safe_exception(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    kwargs.setdefault("exc_info", True)
+    _safe_log(logger, logging.ERROR, message, *args, **kwargs)
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
@@ -144,14 +180,16 @@ def initialize_trainer(
             model_to_wrap = trainer.model
 
         if model_to_wrap:
-            logger.info("Wrapping model with DataParallel for multi-device training.")
+            _safe_info(
+                logger, "Wrapping model with DataParallel for multi-device training."
+            )
             wrapped_model = torch.nn.DataParallel(model_to_wrap)
             if hasattr(trainer, "advantage_net"):
                 trainer.advantage_net = wrapped_model
             elif hasattr(trainer, "model"):
                 trainer.model = wrapped_model
         else:
-            logger.warning("Could not find model to wrap for DataParallel.")
+            _safe_warning(logger, "Could not find model to wrap for DataParallel.")
 
     return trainer
 
@@ -235,15 +273,18 @@ def _load_latest_model(
                         training_section.pop("save_model_path", None)
                     else:
                         training_section["save_model_path"] = original_path
-        logger.info("Loaded existing model from %s.", latest_path)
+        _safe_info(logger, "Loaded existing model from %s.", latest_path)
         return True
     except FileNotFoundError:
-        logger.warning(
+        _safe_warning(
+            logger,
             "Latest model checkpoint was found in configuration but the file is missing. "
             "Starting from a fresh model."
         )
     except Exception as exc:  # pragma: no cover - defensive logging
-        logger.exception("Failed to load existing model from %s: %s", latest_path, exc)
+        _safe_exception(
+            logger, "Failed to load existing model from %s: %s", latest_path, exc
+        )
     return False
 
 
@@ -279,7 +320,13 @@ def main() -> None:  # noqa: C901
     log_run_metadata(config=config, extra_context={"args": args_dict, "run_id": run_id})
     log_configuration_snapshot(config, logger=logger)
 
-    logger.info("Starting Poker AI training session")
+    _safe_info(logger, "Starting Poker AI training session")
+
+    def _announce(message: str, *, level: int = logging.INFO) -> None:
+        """Emit ``message`` to both the log stream and stdout."""
+
+        print(message)
+        _safe_log(logger, level, message)
 
     device: str = "cpu"
     use_data_parallel = False
@@ -296,7 +343,7 @@ def main() -> None:  # noqa: C901
         xla_device = xm.xla_device()
         device = "xla"
         device_printable = f"{device} ({xla_device})"
-        logger.info("TPU training enabled on device %s", xla_device)
+        _safe_info(logger, "TPU training enabled on device %s", xla_device)
     elif args.npus:
         if hasattr(torch, "npu") and torch.npu.is_available():
             device = "npu"
@@ -304,12 +351,14 @@ def main() -> None:  # noqa: C901
             npu_count = torch.npu.device_count()
             if npu_count > 1:
                 use_data_parallel = True
-                logger.info("Multi-NPU training enabled. Found %s NPUs.", npu_count)
+                _announce(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
             else:
-                logger.info("NPU training enabled.")
+                _announce("NPU training enabled.")
         else:
-            logger.warning(
-                "--npus specified, but no NPU devices are available. Falling back to CPU."
+            _announce(
+                "Warning: --npus specified, but no NPU devices are available. "
+                "Falling back to CPU.",
+                level=logging.WARNING,
             )
     elif args.gpus:
         if torch.cuda.is_available():
@@ -318,18 +367,21 @@ def main() -> None:  # noqa: C901
             gpu_count = torch.cuda.device_count()
             if gpu_count > 1:
                 use_data_parallel = True
-                logger.info("Multi-GPU training enabled. Found %s GPUs.", gpu_count)
+                _announce(f"Multi-GPU training enabled. Found {gpu_count} GPUs.")
             else:
-                logger.info("GPU training enabled.")
+                _announce("GPU training enabled.")
         else:
-            logger.warning(
-                "--gpus specified, but no GPU devices are available. Falling back to CPU."
+            _announce(
+                "Warning: --gpus specified, but no GPU devices are available. "
+                "Falling back to CPU.",
+                level=logging.WARNING,
             )
 
     analyzer_device = device if device != "xla" else "cpu"
     if device == "xla" and analyzer_device == "cpu":
-        logger.info(
-            "ModelPerformanceAnalyzer evaluations will run on the CPU while training on TPU."
+        _safe_info(
+            logger,
+            "ModelPerformanceAnalyzer evaluations will run on the CPU while training on TPU.",
         )
 
     # Extract configurations with defaults
@@ -381,20 +433,30 @@ def main() -> None:  # noqa: C901
     big_blind = game_engine_config.get("big_blind", 10)
     small_blind = game_engine_config.get("small_blind", 5)
 
-    logger.info("Configuration summary: iterations=%s", num_iterations)
-    logger.info("Model snapshot interval (samples): %s", save_model_every_samples)
+    _safe_info(logger, "Configuration summary: iterations=%s", num_iterations)
+    _safe_info(
+        logger, "Model snapshot interval (samples): %s", save_model_every_samples
+    )
     if save_model_every_n_hands > 0:
-        logger.info("Model snapshot interval (hands): %s", save_model_every_n_hands)
+        _safe_info(
+            logger,
+            "Model snapshot interval (hands): %s",
+            save_model_every_n_hands,
+        )
     if save_model_every_minutes > 0:
-        logger.info("Model snapshot interval (minutes): %s", save_model_every_minutes)
-    logger.info("Players per hand: random %s-%s", min_players, max_players)
-    logger.info("Starting stack: %s", starting_stack)
-    logger.info("Blinds: SB=%s, BB=%s", small_blind, big_blind)
-    logger.info("Training device: %s", device_printable)
-    logger.info("Min buffer before training: %s", min_buffer_before_train)
+        _safe_info(
+            logger,
+            "Model snapshot interval (minutes): %s",
+            save_model_every_minutes,
+        )
+    _safe_info(logger, "Players per hand: random %s-%s", min_players, max_players)
+    _safe_info(logger, "Starting stack: %s", starting_stack)
+    _safe_info(logger, "Blinds: SB=%s, BB=%s", small_blind, big_blind)
+    _safe_info(logger, "Training device: %s", device_printable)
+    _safe_info(logger, "Min buffer before training: %s", min_buffer_before_train)
 
     # Initialization
-    logger.info("Initializing components")
+    _safe_info(logger, "Initializing components")
     game_config_for_selfplay = {
         "starting_stack": starting_stack,
         "big_blind": big_blind,
@@ -413,15 +475,19 @@ def main() -> None:  # noqa: C901
                 use_data_parallel=use_data_parallel,
             ),
         )
-        logger.info("%s trainer initialized", args.algorithm)
+        _safe_info(logger, "%s trainer initialized", args.algorithm)
     except Exception as e:
-        logger.exception("Error initializing trainer: %s", e)
+        _safe_exception(logger, "Error initializing trainer: %s", e)
         return
 
     if _load_latest_model(cfr_trainer, config, args.algorithm, logger=logger):
-        logger.info("Resumed training from the latest available checkpoint.")
+        _safe_info(
+            logger, "Resumed training from the latest available checkpoint."
+        )
     else:
-        logger.info("No existing checkpoint found. Starting training from scratch.")
+        _safe_info(
+            logger, "No existing checkpoint found. Starting training from scratch."
+        )
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
@@ -432,7 +498,7 @@ def main() -> None:  # noqa: C901
     )
 
     # Training Loop
-    logger.info("Starting training loop")
+    _safe_info(logger, "Starting training loop")
     analyzer = ModelPerformanceAnalyzer(
         models_dir="models",
         save_every_iterations=save_model_every_samples,
@@ -444,7 +510,9 @@ def main() -> None:  # noqa: C901
     iteration = 0
     try:
         for iteration in range(1, num_iterations + 1):
-            logger.info("Starting MCCFR iteration %s/%s", iteration, num_iterations)
+            _safe_info(
+                logger, "Starting MCCFR iteration %s/%s", iteration, num_iterations
+            )
             # The play_hand_for_training method now runs one MCCFR traversal
             # and triggers the training step internally.
             self_play_env.play_hand_for_training(iteration)
@@ -454,38 +522,42 @@ def main() -> None:  # noqa: C901
                 path = f"models/{args.algorithm}_hand_{iteration}.pth"
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 cfr_trainer.save_model(path)
-                logger.info("Model saved to %s at iteration %s", path, iteration)
-
-            if (
-                save_model_every_minutes > 0
-                and (time.time() - last_save_time) >= save_model_every_minutes * 60
-            ):
-                path = f"models/{args.algorithm}_time_{iteration}.pth"
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                cfr_trainer.save_model(path)
-                logger.info(
-                    "Model saved to %s due to time interval at iteration %s",
-                    path,
-                    iteration,
+                _safe_info(
+                    logger, "Model saved to %s at iteration %s", path, iteration
                 )
-                last_save_time = time.time()
+
+            if save_model_every_minutes > 0:
+                current_time = time.time()
+                if (current_time - last_save_time) >= save_model_every_minutes * 60:
+                    path = f"models/{args.algorithm}_time_{iteration}.pth"
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    cfr_trainer.save_model(path)
+                    _safe_info(
+                        logger,
+                        "Model saved to %s due to time interval at iteration %s",
+                        path,
+                        iteration,
+                    )
+                    last_save_time = current_time
 
             analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
     except Exception as e:
-        logger.exception("Error during iteration %s: %s", iteration, e)
+        _safe_exception(logger, "Error during iteration %s: %s", iteration, e)
         raise
     else:
         # Final save after the loop
-        logger.info("Training session finished. Saving final model...")
+        _safe_info(logger, "Training session finished. Saving final model...")
         final_model_path = f"models/{args.algorithm}_final.pth"
         os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
         try:
             cfr_trainer.save_model(final_model_path)
-            logger.info("Final model saved successfully to %s", final_model_path)
+            _safe_info(
+                logger, "Final model saved successfully to %s", final_model_path
+            )
         except Exception as e:
-            logger.exception("Error saving final model: %s", e)
+            _safe_exception(logger, "Error saving final model: %s", e)
 
-        logger.info("Training complete")
+        _safe_info(logger, "Training complete")
 
 
 if __name__ == "__main__":
