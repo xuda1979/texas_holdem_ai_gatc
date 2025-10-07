@@ -491,3 +491,8 @@ class AICFRReplayBuffer:
 
     def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self.buffer)
+
+    def clear(self) -> None:
+        """Remove all stored experiences from the buffer."""
+
+        self.buffer.clear()

@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import math
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +203,42 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use CPU-friendly defaults for model size and buffer capacity",
     )
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="Enable alternating simulation/training cycles for long-running jobs",
+    )
+    parser.add_argument(
+        "--duration-hours",
+        type=float,
+        default=100.0,
+        help=(
+            "Target duration in hours when running in continuous mode (default: 100)."
+        ),
+    )
+    parser.add_argument(
+        "--samples-per-cycle",
+        type=int,
+        default=10000,
+        help=(
+            "Number of simulated hands to generate before each training phase in continuous mode"
+        ),
+    )
+    parser.add_argument(
+        "--train-batch-size",
+        type=int,
+        default=256,
+        help="Batch size used for optimisation steps during continuous mode",
+    )
+    parser.add_argument(
+        "--train-steps-per-cycle",
+        type=int,
+        default=None,
+        help=(
+            "Number of optimisation batches to run after each generation cycle in continuous "
+            "mode. Defaults to covering the freshly generated samples."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -237,24 +275,147 @@ def main() -> None:
     if args.save_interval:
         training_cfg["save_model_every_n_hands"] = args.save_interval
 
+    training_cfg_for_env = training_cfg or None
+    train_during_generation = True
+    if args.continuous:
+        if training_cfg is None:
+            training_cfg = {}
+        training_cfg.setdefault("train_during_generation", False)
+        training_cfg_for_env = training_cfg
+        train_during_generation = False
+
     self_play_env = SelfPlay(
         cfr_trainer=trainer,
         game_engine_config=game_cfg,
-        training_config=training_cfg or None,
+        training_config=training_cfg_for_env,
+        train_during_generation=train_during_generation,
     )
 
     log_every = int(training_cfg.get("log_every_n_hands", 50))
+    if args.continuous:
+        _run_continuous_training(
+            self_play_env,
+            trainer,
+            duration_hours=args.duration_hours,
+            samples_per_cycle=args.samples_per_cycle,
+            batch_size=args.train_batch_size,
+            train_steps_per_cycle=args.train_steps_per_cycle,
+            log_every=log_every,
+        )
+        if log_file:
+            LOGGER.info("Detailed logs written to %s", log_file)
+    else:
+        for hand_idx in range(1, args.num_hands + 1):
+            self_play_env.play_hand_for_training(hand_idx)
+            if args.save_interval and hand_idx % args.save_interval == 0:
+                trainer.save_model()
+            if log_every and hand_idx % log_every == 0:
+                LOGGER.info("Completed %d hands", hand_idx)
+        trainer.save_model()
+        LOGGER.info(
+            "Training complete. Model saved to %s", training_cfg.get("save_model_path")
+        )
+        if log_file:
+            LOGGER.info("Detailed logs written to %s", log_file)
 
-    for hand_idx in range(1, args.num_hands + 1):
-        self_play_env.play_hand_for_training(hand_idx)
-        if args.save_interval and hand_idx % args.save_interval == 0:
-            trainer.save_model()
-        if log_every and hand_idx % log_every == 0:
-            LOGGER.info("Completed %d hands", hand_idx)
-    trainer.save_model()
-    LOGGER.info("Training complete. Model saved to %s", training_cfg.get("save_model_path"))
-    if log_file:
-        LOGGER.info("Detailed logs written to %s", log_file)
+
+def _run_continuous_training(
+    self_play_env: SelfPlay,
+    trainer: object,
+    *,
+    duration_hours: float,
+    samples_per_cycle: int,
+    batch_size: int,
+    train_steps_per_cycle: int | None,
+    log_every: int,
+) -> None:
+    """Alternate self-play data generation and training for a fixed duration."""
+
+    if duration_hours <= 0:
+        LOGGER.warning("Continuous mode requested with non-positive duration. Exiting early.")
+        return
+
+    samples_per_cycle = max(1, int(samples_per_cycle))
+    batch_size = max(1, int(batch_size))
+    if train_steps_per_cycle is not None:
+        train_steps_per_cycle = max(1, int(train_steps_per_cycle))
+
+    start_time = time.monotonic()
+    end_time = start_time + float(duration_hours) * 3600.0
+    cycle = 0
+    total_hands = 0
+
+    while True:
+        now = time.monotonic()
+        if now >= end_time:
+            break
+
+        cycle += 1
+        elapsed_hours = (now - start_time) / 3600.0
+        LOGGER.info(
+            "Starting cycle %s | elapsed %.2f/%.2f hours | target samples %s",
+            cycle,
+            elapsed_hours,
+            duration_hours,
+            samples_per_cycle,
+        )
+
+        replay_buffer = getattr(trainer, "replay_buffer", None)
+        if hasattr(replay_buffer, "clear"):
+            replay_buffer.clear()
+
+        cycle_start = time.monotonic()
+        hands_this_cycle = 0
+        for _ in range(samples_per_cycle):
+            total_hands += 1
+            hands_this_cycle += 1
+            self_play_env.play_hand_for_training(total_hands)
+            if log_every and total_hands % log_every == 0:
+                LOGGER.info("Generated %d hands so far", total_hands)
+            if time.monotonic() >= end_time:
+                break
+
+        buffer_len = len(replay_buffer) if hasattr(replay_buffer, "__len__") else 0
+        steps = train_steps_per_cycle
+        if steps is None:
+            steps = max(1, math.ceil(buffer_len / batch_size)) if buffer_len else 1
+
+        losses: list[float] = []
+        for step in range(1, steps + 1):
+            loss = trainer.train(batch_size=batch_size)
+            if loss is not None:
+                losses.append(float(loss))
+            LOGGER.debug(
+                "Cycle %s | training step %s/%s | loss=%s",
+                cycle,
+                step,
+                steps,
+                "{:.6f}".format(float(loss)) if loss is not None else "n/a",
+            )
+
+        trainer.save_model()
+        duration = time.monotonic() - cycle_start
+        mean_loss = sum(losses) / len(losses) if losses else 0.0
+        LOGGER.info(
+            (
+                "Cycle %s complete | hands=%s | buffer=%s | train_steps=%s | "
+                "mean_loss=%.6f | duration=%.2fs"
+            ),
+            cycle,
+            hands_this_cycle,
+            buffer_len,
+            steps,
+            mean_loss,
+            duration,
+        )
+
+    total_elapsed = time.monotonic() - start_time
+    LOGGER.info(
+        "Continuous training finished | cycles=%s | hands=%s | elapsed=%.2f hours",
+        cycle,
+        total_hands,
+        total_elapsed / 3600.0,
+    )
 
 
 if __name__ == "__main__":
