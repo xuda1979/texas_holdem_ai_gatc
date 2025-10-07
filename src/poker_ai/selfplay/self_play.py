@@ -43,6 +43,8 @@ class SelfPlay:
         cfr_trainer: object,
         game_engine_config: dict[str, Any],
         training_config: dict[str, Any] | None = None,
+        *,
+        train_during_generation: bool | None = None,
     ) -> None:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
         self.cfr_trainer = cfr_trainer
@@ -53,6 +55,16 @@ class SelfPlay:
         self.max_players = game_engine_config.get("max_players", 10)
         cfg = training_config or {}
         self.training_config = cfg
+        cfg_train_flag = None
+        if isinstance(cfg, dict):
+            cfg_train_flag = cfg.get("train_during_generation")
+        if train_during_generation is None:
+            train_during_generation = (
+                bool(cfg_train_flag) if isinstance(cfg_train_flag, bool) else True
+            )
+        self.train_during_generation = bool(train_during_generation)
+        if isinstance(cfg, dict):
+            cfg["train_during_generation"] = self.train_during_generation
         min_buffer_raw = cfg.get("min_buffer_before_train", 256)
         try:
             min_buffer = int(min_buffer_raw)
@@ -292,22 +304,23 @@ class SelfPlay:
         # 3. After the traversals, run a training step on the collected data
 
         buffer_length = len(self.cfr_trainer.replay_buffer)
-        if buffer_length >= self.min_buffer_before_train:
-            loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
-            if loss is not None:
-                self.logger.info(
-                    "Iteration %s | training step complete | loss=%.6f | buffer=%s",
+        if self.train_during_generation:
+            if buffer_length >= self.min_buffer_before_train:
+                loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
+                if loss is not None:
+                    self.logger.info(
+                        "Iteration %s | training step complete | loss=%.6f | buffer=%s",
+                        iteration,
+                        float(loss),
+                        buffer_length,
+                    )
+            else:
+                self.logger.debug(
+                    "Iteration %s | buffer below threshold (%s/%s)",
                     iteration,
-                    float(loss),
                     buffer_length,
+                    self.min_buffer_before_train,
                 )
-        else:
-            self.logger.debug(
-                "Iteration %s | buffer below threshold (%s/%s)",
-                iteration,
-                buffer_length,
-                self.min_buffer_before_train,
-            )
 
         return self.cfr_trainer.replay_buffer
 
