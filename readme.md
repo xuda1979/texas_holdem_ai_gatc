@@ -2,147 +2,262 @@
 
 [![CI](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml)
 
-## Overview
+## Table of Contents
+- [Introduction](#introduction)
+- [Key Capabilities](#key-capabilities)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Quick Start Commands](#quick-start-commands)
+- [Repository Layout](#repository-layout)
+- [Training Pipelines](#training-pipelines)
+  - [Core Training CLI](#core-training-cli)
+  - [Device Selection (CPU/GPU/NPU/TPU)](#device-selection-cpugpunputpu)
+  - [Distributed Self-Play](#distributed-self-play)
+  - [Saving and Loading Models](#saving-and-loading-models)
+- [Evaluation and Analysis](#evaluation-and-analysis)
+  - [Exploitability Utilities](#exploitability-utilities)
+  - [Decode and Evaluation Reports](#decode-and-evaluation-reports)
+- [Gameplay Options](#gameplay-options)
+  - [Command-Line Play](#command-line-play)
+  - [Graphical User Interface](#graphical-user-interface)
+- [Cloud and Remote Training](#cloud-and-remote-training)
+  - [Google Cloud Helper Workflow](#google-cloud-helper-workflow)
+- [Testing and Quality Assurance](#testing-and-quality-assurance)
+- [Development Workflow](#development-workflow)
+  - [Configuration Files](#configuration-files)
+  - [Running the Linters and Type Checks](#running-the-linters-and-type-checks)
+  - [Working with Examples](#working-with-examples)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-This project implements a Texas Hold'em AI using Counterfactual Regret Minimization (CFR) and neural networks built with **PyTorch**. It includes Transformer-based strategies and supports human vs. AI gameplay through a graphical user interface (GUI).
+## Introduction
 
-## Project Structure
+This repository hosts **Texas Hold'em AI GATC**, an end-to-end research platform for
+poker strategy development. The project combines classical game-theory
+approaches—Counterfactual Regret Minimization (CFR, CFR+, Deep CFR)—with modern
+Transformer-based neural networks written in **PyTorch**. It is designed to be a
+self-contained playground for experimentation, complete with tooling for
+self-play, exploitability analysis, GUI-based human vs. AI matches, and cloud
+training workflows.
 
-All production code now lives under `src/poker_ai` to allow modular development.
+## Key Capabilities
 
-- `engine/` – core game engine implementation.
-- `rules/` – poker rules and CFR utilities.
-- `ai/models/` – neural network models.
-- `ai/trainers/` – training algorithms and helpers.
-- `selfplay/` – parallel self‑play environment.
-- `gui/` – human vs. AI interface and GUI utilities.
-- `utils/` – supporting utilities.
-- `evaluation/` – exploitability and analysis tools.
-- `gatc_poker/` – rules-safe side pots and hand evaluation wrappers.
-- `config/` – configuration module containing `config.py` and `config.yaml`.
-- `cli/` – command line entry points (`train.py`, `play.py`, `self_play.py`, `gcp_train.py`).
+- Transformer-based neural networks for strategy and advantage estimation.
+- Deep CFR, Single Network CFR, CFR+ (with pruning), and discounted CFR+
+  solvers.
+- Curriculum learning for staged policy refinement and opponent modelling.
+- Distributed self-play workers for rapid data collection.
+- Optional GPU/NPU/TPU acceleration with minimal configuration.
+- Attention-driven state representation and betting-tree abstraction tools.
+- Command-line and GUI interfaces for human vs. AI play.
+- Utilities for exploitability evaluation, replay buffer inspection, and
+  checkpoint management.
 
+## Getting Started
 
-## Setup
+### Prerequisites
 
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- Python 3.10+
+- `pip` or `uv` for dependency management
+- (Optional) CUDA 11.8 compatible GPU drivers, NPUs, or access to a Cloud TPU VM
 
-2. **Run training**:
-    ```bash
-    python run_training.py
-    ```
-    The `run_training.py` wrapper ensures the `poker_ai` package can be imported
-    without installing the project. You can still invoke the module directly
-    with `python -m poker_ai.cli.train` if the package is installed.
+### Installation
 
-### Training CLI Options
+Clone the repository and install the Python dependencies:
 
-`poker_ai.cli.train` exposes several command-line flags. Use `-h` to see all options.
+```bash
+pip install -r requirements.txt
+```
 
-Example:
+We recommend using a virtual environment (e.g. `python -m venv .venv && source .venv/bin/activate`).
+
+### Quick Start Commands
+
+Run a short training session:
+
+```bash
+python run_training.py
+```
+
+Launch the command-line poker client:
+
+```bash
+python -m poker_ai.cli.play
+```
+
+Execute the full automated test suite:
+
+```bash
+pytest -q
+```
+
+Generate the decoder + evaluation report (Chinese documentation):
+
+```bash
+python tools/generate_decode_eval_report.py
+```
+
+## Repository Layout
+
+All production code lives under `src/poker_ai`, organised into modular
+sub-packages:
+
+- `engine/` – core poker engine, player state management, betting logic.
+- `rules/` – Texas Hold'em rules, hand evaluation, and CFR helpers.
+- `ai/models/` – Transformer, CNN, and advantage network architectures.
+- `ai/trainers/` – Deep CFR, Single Network CFR, CFR+ training routines.
+- `selfplay/` – multiprocessing self-play workers and replay buffers.
+- `evaluation/` – exploitability metrics, benchmarking utilities.
+- `gui/` – PyQt/Qt-based human vs. AI interface components.
+- `gatc_poker/` – side pot resolution and GATC-specific rule wrappers.
+- `cli/` – command-line entry points (`train.py`, `play.py`, `self_play.py`, `gcp_train.py`).
+- `config/` – configuration module (`config.py`, `config.yaml`).
+- `utils/` – shared helpers, logging utilities, checkpoint storage.
+
+Ancillary tooling lives at the repository root:
+
+- `tools/` – scripts for accelerator provisioning, profiling, and reporting.
+- `tests/` – comprehensive unit, integration, and GUI validation suites.
+- `examples/` – runnable snippets demonstrating API usage.
+- `trained_models/` – created automatically when saving checkpoints.
+
+## Training Pipelines
+
+### Core Training CLI
+
+The primary entry point is `poker_ai.cli.train`. View the available options with:
+
+```bash
+python -m poker_ai.cli.train -h
+```
+
+Typical usage:
 
 ```bash
 python -m poker_ai.cli.train --num-hands 500 --algorithm deep_cfr --save-model-every 50
 ```
 
-During training each hand uses a random number of players (between 2 and 10).
+The `run_training.py` wrapper ensures that the `poker_ai` package can be imported
+without installing the project system-wide. Use it for local experiments or
+switch to the module invocation after installing the package.
 
-To control the computation device you can use:
+### Device Selection (CPU/GPU/NPU/TPU)
 
-- `--gpus` to train on available GPUs (uses all GPUs via `DataParallel`).
-- `--npus` to train on available NPUs (uses all NPUs via `DataParallel`).
-- `--tpu` to launch training on a TPU VM using `torch_xla` (mutually exclusive with the flags above).
+The trainer auto-detects the requested accelerator based on command-line flags:
 
-For faster iteration during small experiments you can lower the minimum replay
-buffer required before training with:
+- `--gpus` – enables PyTorch `DataParallel` across available GPUs.
+- `--npus` – mirrors the GPU workflow for NPU devices.
+- `--tpu` – configures the training loop for Cloud TPU VMs via `torch_xla`.
 
-- `--min-buffer-before-train 64` to start optimization steps once 64 samples
-  have been collected (defaults to 256).
+For faster iteration lower the replay buffer warm-up with
+`--min-buffer-before-train 64`. When not specified, training defaults to the CPU.
 
-Omitting these flags runs training on the CPU by default.
+#### TPU Workflow Overview
 
-### TPU training workflow
-
-Running on a Cloud TPU requires a TPU VM environment with the matching
-`torch`/`torch-xla` wheels installed. A typical setup looks like:
-
-1. [Create a TPU VM](https://cloud.google.com/tpu/docs/v4-users-guide#tpu-vm-create).
-2. Install the matching wheels (replace the versions with the release that
-   matches your VM image):
+1. Provision a TPU VM that matches the PyTorch/XLA wheel versions.
+2. Install the required wheels:
    ```bash
    pip install torch==2.2.0 torch-xla==2.2.0 torchvision==0.17.0 -f \
      https://storage.googleapis.com/tpu-pytorch/wheels/colab.html
    ```
-3. Clone this repository and install the project dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Run the trainer with TPU support:
+3. Clone this repository, install dependencies, and run:
    ```bash
    python -m poker_ai.cli.train --algorithm deep_cfr --tpu
    ```
 
-When TPU mode is enabled the tournament evaluations fall back to the CPU so
-that saved checkpoints can still be ranked without XLA kernels.
+Tournament evaluations fall back to the CPU so checkpoints remain compatible
+outside of TPU environments.
 
+### Distributed Self-Play
 
-3. **Run tests**:
-   ```bash
-   pytest -q
-   ```
-   Extensive unit tests exercise action validation, deck shuffling/dealing,
-   game-state transitions, hand evaluation error paths, and CLI defaults.  The
-   suite also verifies that all bundled card images and the poker table
-   background are present so missing art assets are caught automatically (see
-   `tests/gui/test_card_assets.py`).
+Enable multiprocessing data generation by setting
+`training.distributed_workers` in `config.yaml` and then running:
 
-4. **生成解码与评估报告**:
-   ```bash
-   python tools/generate_decode_eval_report.py
-   ```
-   这条单行命令会运行与状态解码及评估工具相关的测试用例，并在
-   `reports/decode_eval_report.md` 中输出 Markdown 报告，方便查看本地变更对
-   解码与评估流程的影响。
+```bash
+python -m poker_ai.cli.train --num-hands 1000
+```
 
-5. **Play against the AI**:
-   ```bash
-   python -m poker_ai.cli.play
-   ```
+### Saving and Loading Models
 
-6. **Command-line play simulation**:
-    ```bash
-    python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
-    ```
-    The script falls back to interactive prompts if arguments are omitted.
+The command-line and GUI clients look for a checkpoint at
+`trained_models/cfr_model.pth`. The path is created automatically when using the
+training scripts. Custom checkpoints can be loaded via the
+`--load-model-path` flag.
 
-7. **AI self-play without humans**:
-    ```bash
-    python self_play.py
-    ```
-    This runs continuous self-play using the latest model weights and saves
-    simulated game histories.
+## Evaluation and Analysis
 
-    After installation via `setup.py`, you can also use the entry points:
-    ```bash
-    play-poker --total-players 2 --num-humans 1
-    train-poker --num-hands 500
-    poker-ai-gcp-train --help
-    ```
+### Exploitability Utilities
 
-## Google Cloud Training Workflow
+The `poker_ai.evaluation` package includes helpers for computing exploitability
+against simplified matrices:
 
-The repository now ships with a thin wrapper around the `gcloud` CLI to simplify
-launching remote GPU and TPU workers.  The helper ensures that the Google Cloud
-SDK is available before executing any commands and mirrors the most common
-operations (create, run, delete).
+```python
+from poker_ai.evaluation.exploitability import calculate_exploitability
+strategy = [0.5, 0.5]
+matrix = [[1, -1], [-1, 1]]
+print(calculate_exploitability(strategy, matrix))
+```
+
+### Decode and Evaluation Reports
+
+To produce a Markdown report summarising decoder metrics, run:
+
+```bash
+python tools/generate_decode_eval_report.py
+```
+
+The output is written to `reports/decode_eval_report.md` and is useful when
+reviewing local changes that affect state decoding or evaluation logic.
+
+## Gameplay Options
+
+### Command-Line Play
+
+Simulate human vs. AI play directly from the terminal:
+
+```bash
+python -m poker_ai.cli.play --total-players 2 --num-humans 1 --starting-stack 1000
+```
+
+Omitting arguments triggers an interactive prompt for player counts and stack
+sizes. For AI-only simulations, launch the self-play harness:
+
+```bash
+python self_play.py
+```
+
+The project also exposes console entry points when installed via `setup.py`:
+
+```bash
+play-poker --total-players 2 --num-humans 1
+train-poker --num-hands 500
+poker-ai-gcp-train --help
+```
+
+### Graphical User Interface
+
+Run the GUI client to challenge the trained agent:
+
+```bash
+python app.py
+```
+
+Ensure that `trained_models/cfr_model.pth` exists; otherwise, start with the
+training pipeline above. The GUI includes seat selection, chip denominations,
+card visualization, and betting controls built on the assets in `poker_ai/gui`.
+
+## Cloud and Remote Training
+
+### Google Cloud Helper Workflow
+
+`tools/google_accelerator_train.py` provides a thin wrapper around the `gcloud`
+CLI for provisioning GPU or TPU workers and orchestrating remote training. The
+three primary phases are:
 
 1. **Create infrastructure**
-
    - **GPU VM**
-
      ```bash
      poker-ai-gcp-train \
        --project my-project \
@@ -152,9 +267,7 @@ operations (create, run, delete).
        --machine-type n1-standard-8 \
        create --gpu-type nvidia-tesla-t4
      ```
-
    - **TPU VM**
-
      ```bash
      poker-ai-gcp-train \
        --project my-project \
@@ -165,7 +278,6 @@ operations (create, run, delete).
      ```
 
 2. **Run training remotely**
-
    ```bash
    poker-ai-gcp-train \
      --project my-project \
@@ -176,127 +288,83 @@ operations (create, run, delete).
      run "python tools/google_accelerator_train.py --accelerator gpu --install-deps --num-hands 2000"
    ```
 
-   The `run` command synchronises the repository into `~/poker-ai` on the
-   remote machine, exports `CHECKPOINT_BUCKET` when provided, and executes the
-   supplied training command through SSH.  The helper script automatically
-   installs the correct accelerator wheels when `--install-deps` is supplied
-   and appends the proper `--gpus`/`--tpu` flag for the training CLI.  To run on
-   a TPU VM swap `--accelerator gpu` for `--accelerator tpu` in both the wrapper
-   and the training command.
-
-   You can also SSH into the instance manually and run the helper from the
-   repository root:
-
-   ```bash
-   python tools/google_accelerator_train.py --accelerator tpu --install-deps --num-hands 5000
-   ```
-
-   Use `--dry-run` to preview the `pip`/training commands without executing
-   them.  Additional options such as `--config`, `--save-model-every`, and
-   `--train-args "--min-buffer-before-train 128"` are forwarded directly to the
-   underlying `poker_ai.cli.train` module.
-
-   #### Helper script options
-
-   `tools/google_accelerator_train.py` accepts a handful of switches that are
-   helpful when running on freshly provisioned instances:
-
-   - `--accelerator {gpu,tpu}` (**required**) – determines whether the helper
-     appends `--gpus` or `--tpu` to the training command.
-   - `--install-deps` – installs `requirements.txt` and the matching PyTorch
-     wheels for the selected accelerator.  GPU runs default to CUDA 11.8 wheels
-     (`torch==2.2.1`, `torchvision==0.17.1`, `torchaudio==2.2.1`) while TPU runs
-     install `torch==2.2.1`, `torchvision==0.17.1`, and
-     `torch-xla==2.2.1` from the official wheel index.
-   - `--num-hands`, `--algorithm`, `--config`, and `--save-model-every` – mirror
-     the standard training CLI flags and override values from configuration
-     files.
-   - `--bucket my-gcs-bucket` – exports `CHECKPOINT_BUCKET` so that the trainer
-     automatically uploads checkpoints to Cloud Storage after each save.
-   - `--train-args "<extra flags>"` – appends additional arguments to the
-     training command.  This is useful for enabling features such as
-     `--min-buffer-before-train 128` or custom evaluation intervals without
-     editing the helper.
-   - `--extra-pip-args ...` – forwarded directly to the PyTorch installation
-     command.  For example, pass `--extra-pip-args --pre` to install preview
-     wheels or `--extra-pip-args --index-url https://download.pytorch.org/whl/cu121`
-     for a different CUDA runtime.
-
-   All commands executed by the helper are echoed to stdout.  Combine
-   `--dry-run` with `--install-deps` to verify that the correct wheels would be
-   installed before touching the system package cache.
-
-   Example: install nightly CUDA wheels and lower the minimum replay buffer on a
-   GPU VM:
-
-   ```bash
-   python tools/google_accelerator_train.py \
-     --accelerator gpu \
-     --install-deps \
-     --extra-pip-args --pre \
-     --extra-pip-args --index-url https://download.pytorch.org/whl/nightly/cu121 \
-     --train-args "--min-buffer-before-train 128" \
-     --num-hands 4000
-   ```
+   The helper synchronises the repository to `~/poker-ai`, optionally installs
+   accelerator-specific PyTorch wheels, exports `CHECKPOINT_BUCKET`, and appends
+   the appropriate `--gpus`/`--tpu` flag before running the training command. Use
+   `--dry-run` to preview commands, `--extra-pip-args` to control wheel sources,
+   and `--train-args "--min-buffer-before-train 128"` to forward extra
+   parameters.
 
 3. **Clean up resources**
-
    ```bash
    poker-ai-gcp-train --project my-project --zone us-central1-a --name poker-ai-gpu delete
    ```
 
-Always run the `delete` sub-command after finishing training to avoid unwanted
-cloud charges.
+Always delete remote infrastructure after use to avoid cloud charges.
 
-### Trained Model
+## Testing and Quality Assurance
 
-`poker_ai.cli.play` and the GUI expect a model file at `trained_models/cfr_model.pth`.
-Run the training script to generate it:
+Run the full test suite with:
 
 ```bash
-python -m poker_ai.cli.train
+pytest -q
 ```
 
-The directory `trained_models/` will be created automatically when saving.
+The suite covers:
 
-## Features
+- Action validation, deck shuffling, and hand evaluation.
+- Engine state transitions and terminal node detection.
+- CLI defaults, configuration loading, and argument parsing.
+- GUI startup, layout, and bundled asset validation (`tests/gui/test_card_assets.py`).
 
-- Transformer-based neural networks for strategy and advantage estimation
-- PyTorch CNN model powering CFR training
-- Deep CFR and Single Network CFR trainers
-- CFR+ with pruning support
-- Opponent modeling with Transformers
-- Distributed self-play for faster data collection
-- Curriculum learning for staged training
-- Attention-based state representation with masks
-- Betting-tree abstraction utilities
-- Discounted CFR+ solver with regret discounting
-- Distributed self-play with multiprocessing
-- Optional GPU/NPU acceleration via command-line flags
-- Simple exploitability evaluation tools
+Smoke tests for the GUI are available via `validate_gui.py` and
+`verify_gui_integration.py`.
 
-## Using Distributed Self-Play
+## Development Workflow
 
-Set `training.distributed_workers` in `config.yaml` to the number of worker
-processes. Then run training normally:
+### Configuration Files
+
+Runtime defaults live in `src/poker_ai/config/config.yaml`. Override them via
+CLI flags or custom YAML files with the `--config` parameter. The companion
+`config.py` module exposes structured accessors for runtime code.
+
+### Running the Linters and Type Checks
+
+This project ships with example scripts for quick verification:
 
 ```bash
-python -m poker_ai.cli.train --num-hands 1000
+python example_test_gui_startup.py
+python example_test_selfplay.py
 ```
 
-## Evaluating Strategies
+Adapt them to integrate linting or static analysis tools as needed.
 
-The `evaluation` package offers a lightweight exploitability calculator. Example:
+### Working with Examples
 
-```python
-from poker_ai.evaluation.exploitability import calculate_exploitability
-strategy = [0.5, 0.5]
-matrix = [[1, -1], [-1, 1]]
-print(calculate_exploitability(strategy, matrix))
-```
+The `examples/` directory contains standalone scripts illustrating API usage.
+Notable entries include:
 
-## Examples
+- `action_mapping_demo.py` – demonstrates converting discrete action indices to
+  betting actions.
+- `comprehensive.py` – spins up an end-to-end match with logging enabled.
+- `quick.py` – a minimal environment harness for experimentation.
 
-Demonstration scripts are provided in the `examples` directory. For instance,
-`examples/action_mapping_demo.py` showcases how to use the `get_action_from_index`
-helper to map action indices to in-game actions.
+## Troubleshooting
+
+| Symptom | Resolution |
+| --- | --- |
+| `ModuleNotFoundError: poker_ai` | Ensure you are executing commands from the repository root or install the package in editable mode (`pip install -e .`). |
+| CUDA devices not detected | Confirm the correct CUDA runtime is installed and pass `--gpus` to the training CLI. Use `nvidia-smi` to verify driver versions. |
+| TPU training fails with wheel mismatch | Reinstall `torch`, `torchvision`, and `torch-xla` using versions aligned with the TPU VM image as shown above. |
+| GUI assets missing | Run `python setup_card_images.py` or `python tools/verify_images.py` to download and validate card art. |
+| Replay buffer fills slowly | Lower `--min-buffer-before-train` or reduce the number of players in the CLI arguments for quicker iterations. |
+
+## Contributing
+
+Issues and pull requests are welcome! Before opening a PR, run the test suite,
+format your code, and document user-facing changes. Please include reproduction
+steps when reporting bugs to help us diagnose problems quickly.
+
+## License
+
+This project is released under the MIT License. See `LICENSE` for details.
