@@ -7,7 +7,7 @@ import logging
 import os
 import time
 import unittest.mock as mock
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import torch
@@ -312,7 +312,7 @@ def main() -> None:  # noqa: C901
         raise ValueError("Cannot specify both --gpus and --npus.")
 
     config = load_configuration(args.config)
-    run_id = f"train-{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}"
+    run_id = f"train-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}"
     setup_logging(config.get("logging"), component="train_cli", run_id=run_id)
     logger = logging.getLogger(__name__)
 

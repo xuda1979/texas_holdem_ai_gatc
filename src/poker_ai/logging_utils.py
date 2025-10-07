@@ -17,7 +17,7 @@ import socket
 import sys
 import time
 import unittest.mock as mock
-from datetime import datetime
+from datetime import datetime, timezone
 from logging import Logger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -251,8 +251,12 @@ def log_run_metadata(
     """Emit a structured record containing runtime and environment details."""
 
     logger = logging.getLogger(__name__)
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if timestamp.endswith("+00:00"):
+        timestamp = timestamp[:-6] + "Z"
+
     metadata: dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "timestamp": timestamp,
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
         "hostname": socket.gethostname(),
