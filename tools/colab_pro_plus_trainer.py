@@ -34,6 +34,11 @@ USE_GCS_MIRROR = False
 GCP_PROJECT = "YOUR_GCP_PROJECT_ID"
 GCS_BUCKET = "gs://YOUR_BUCKET_NAME/holdem"
 
+# Packages that are nice-to-have but frequently unavailable in the Colab
+# environment.  `torch-xla` is only required when training on TPUs, so we do not
+# want installation failures for that wheel to stop the rest of the setup.
+OPTIONAL_REQUIREMENTS = {"torch-xla"}
+
 CONTENT_ROOT = "/content"
 REPO_DIR = os.path.join(CONTENT_ROOT, "texas_holdem_ai_gatc")
 DRIVE_ROOT = "/content/drive/MyDrive/texas_holdem_ai_gatc"
@@ -79,6 +84,63 @@ def remove_path(path: pathlib.Path) -> None:
             path.unlink()
 
 
+def _normalise_requirement(req: str) -> str:
+    """Return the package name portion of a requirement specifier."""
+
+    req = req.split(";", 1)[0]
+    req = req.split("[", 1)[0]
+    for separator in ("==", ">=", "<=", "~=", "!=", ">", "<"):
+        if separator in req:
+            return req.split(separator, 1)[0].strip().lower()
+    return req.strip().lower()
+
+
+def install_requirements() -> None:
+    requirements_path = pathlib.Path(REPO_DIR) / "requirements.txt"
+
+    def load_requirements() -> list[str]:
+        requirements: list[str] = []
+        with requirements_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                requirements.append(stripped)
+        return requirements
+
+    code, output = run_command(
+        [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+        check=False,
+    )
+    if code == 0:
+        return
+
+    print("Initial dependency install failed; attempting a fallback install.")
+    requirements = load_requirements()
+
+    filtered_requirements: list[str] = []
+    skipped: list[str] = []
+    for requirement in requirements:
+        name = _normalise_requirement(requirement)
+        if name in OPTIONAL_REQUIREMENTS:
+            skipped.append(requirement)
+        else:
+            filtered_requirements.append(requirement)
+
+    if not skipped:
+        raise subprocess.CalledProcessError(
+            code,
+            [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+            output,
+        )
+
+    print("Skipping optional packages that failed to install:")
+    for item in skipped:
+        print("  -", item)
+
+    run_command([sys.executable, "-m", "pip", "install", *filtered_requirements])
+
+
 def prepare_environment() -> None:
     drive.mount("/content/drive", force_remount=True)
 
@@ -94,7 +156,7 @@ def prepare_environment() -> None:
     run_command(["git", "submodule", "update", "--init", "--recursive"], check=False)
 
     run_command([sys.executable, "-m", "pip", "install", "-U", "pip", "wheel", "setuptools"])
-    run_command([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    install_requirements()
 
     import torch
 
