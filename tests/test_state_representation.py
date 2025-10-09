@@ -2,6 +2,7 @@ import os
 import sys
 
 import pytest
+import torch
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
@@ -124,6 +125,16 @@ def test_prepare_transformer_input_normalization_small_stack() -> None:
     stack_row = rows[history_len + 2]
     assert stack_row[1] == TYPE_ID_PLAYER_STACK
     assert stack_row[0] == pytest.approx(1.0)
+
+
+def test_cardsettransformer_empty_input_preserves_dtype() -> None:
+    encoder = CardSetTransformer(card_dim=17, hidden_dim=8)
+    empty_cards = torch.empty((2, 0, 17), dtype=torch.float64)
+
+    summary = encoder(empty_cards)
+
+    assert summary.shape == (2, encoder.output_dim)
+    assert summary.dtype == empty_cards.dtype
 
 
 def test_infer_normalization_scale_prefers_explicit_and_rules() -> None:
