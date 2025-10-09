@@ -149,7 +149,7 @@ class CardSetTransformer(nn.Module):
 
         if cards.numel() == 0:
             # No cards revealed yet. Return zero vector of appropriate dim.
-            return torch.zeros(cards.size(0), self.output_dim, device=cards.device)
+            return cards.new_zeros((cards.size(0), self.output_dim))
 
         x = self.proj(cards)
         x = self.encoder(x)
