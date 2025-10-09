@@ -1,7 +1,7 @@
 import glob
-import os
-
 import logging
+import os
+from datetime import datetime
 
 import torch
 
@@ -161,38 +161,105 @@ class ModelPerformanceAnalyzer:
         self,
         models_dir: str = "models",
         save_every_iterations: int | None = 100000,
-        tournament_threshold: int = 10,
-        tournament_size: int = 10,
+        tournament_threshold: int = 20,
+        tournament_size: int | None = None,
         games_per_match: int = 10,
         device: str = "cpu",
+        *,
+        max_no_improvement_samples: int = 200_000,
     ):
         self.models_dir = models_dir
         if save_every_iterations is not None and save_every_iterations <= 0:
             save_every_iterations = None
         self.save_every_iterations = save_every_iterations
-        self.tournament_threshold = tournament_threshold
-        self.tournament_size = tournament_size
+        if tournament_size is None:
+            tournament_size = tournament_threshold
+        self.max_models = max(1, int(tournament_size))
         self.games_per_match = games_per_match
         self.device = device
+        self.max_no_improvement_samples = max_no_improvement_samples
+        self._no_improvement_samples = 0
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def on_iteration_end(self, trainer, iteration: int) -> None:
-        if self.save_every_iterations is None:
-            return
-        if iteration % self.save_every_iterations != 0:
-            return
-        os.makedirs(self.models_dir, exist_ok=True)
-        path = os.path.join(self.models_dir, f"model_{iteration}.pth")
-        trainer.save_model(path)
-        self.logger.info("Model saved to %s at iteration %s", path, iteration)
-        self._maybe_run_tournament()
+    @property
+    def no_improvement_samples(self) -> int:
+        return self._no_improvement_samples
 
-    def _maybe_run_tournament(self) -> None:
+    def on_iteration_end(self, trainer, iteration: int) -> bool:
+        if self.save_every_iterations is None:
+            return True
+        if iteration % self.save_every_iterations != 0:
+            return True
+        os.makedirs(self.models_dir, exist_ok=True)
+        path = self._save_snapshot(trainer)
+        self.logger.info("Model saved to %s at iteration %s", path, iteration)
+        keep_new = self._evaluate_new_model(path)
+        if keep_new:
+            self._no_improvement_samples = 0
+        else:
+            if self.save_every_iterations is not None:
+                self._no_improvement_samples += self.save_every_iterations
+            if (
+                self.max_no_improvement_samples > 0
+                and self._no_improvement_samples >= self.max_no_improvement_samples
+            ):
+                self.logger.warning(
+                    "Stopping training | no improvement after %s samples",
+                    self._no_improvement_samples,
+                )
+                return False
+        return True
+
+    def _save_snapshot(self, trainer) -> str:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        filename = f"model_{timestamp}.pth"
+        path = os.path.join(self.models_dir, filename)
+        trainer.save_model(path)
+        return path
+
+    def _evaluate_new_model(self, new_model_path: str) -> bool:
         model_paths = sorted(glob.glob(os.path.join(self.models_dir, "*.pth")))
-        if len(model_paths) < self.tournament_threshold:
-            return
-        selected = model_paths[-self.tournament_size :]
-        self.logger.info("Running model tournament with %s candidates", len(selected))
-        results = run_tournament(selected, self.games_per_match, self.device)
+        if len(model_paths) <= self.max_models:
+            self.logger.info(
+                "Model pool size %s/%s; retaining new snapshot %s",
+                len(model_paths),
+                self.max_models,
+                new_model_path,
+            )
+            return True
+
+        self.logger.info(
+            "Running model tournament with %s candidates", len(model_paths)
+        )
+        results = run_tournament(model_paths, self.games_per_match, self.device)
         for model, score in results.items():
             self.logger.info("Tournament result | model=%s | wins=%s", model, score)
+
+        scored_models = [
+            (
+                results.get(path, 0),
+                os.path.getmtime(path),
+                path,
+            )
+            for path in model_paths
+        ]
+        scored_models.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        survivors = {path for _, _, path in scored_models[: self.max_models]}
+        for path in model_paths:
+            if path not in survivors:
+                try:
+                    os.remove(path)
+                    self.logger.info("Removed model %s from pool", path)
+                except OSError:
+                    self.logger.exception("Failed to remove model %s", path)
+
+        if new_model_path in survivors:
+            self.logger.info(
+                "New model %s retained in top %s", new_model_path, self.max_models
+            )
+            return True
+
+        self.logger.info(
+            "New model %s discarded after tournament", new_model_path
+        )
+        return False

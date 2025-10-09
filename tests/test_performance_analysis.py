@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -36,7 +37,7 @@ class DummyTrainer:
 
 
 class TestPerformanceAnalyzer(unittest.TestCase):
-    def test_save_and_tournament_trigger(self):
+    def test_tournament_runs_after_pool_full(self):
         trainer = DummyTrainer()
         with tempfile.TemporaryDirectory() as tmpdir:
             analyzer = ModelPerformanceAnalyzer(
@@ -50,10 +51,13 @@ class TestPerformanceAnalyzer(unittest.TestCase):
             with patch(
                 "poker_ai.evaluation.performance_analysis.run_tournament", return_value={}
             ) as mock_tourn:
-                analyzer.on_iteration_end(trainer, 1)
+                self.assertTrue(analyzer.on_iteration_end(trainer, 1))
                 self.assertEqual(len(os.listdir(tmpdir)), 1)
                 mock_tourn.assert_not_called()
-                analyzer.on_iteration_end(trainer, 2)
+                self.assertTrue(analyzer.on_iteration_end(trainer, 2))
+                self.assertEqual(len(os.listdir(tmpdir)), 2)
+                mock_tourn.assert_not_called()
+                self.assertTrue(analyzer.on_iteration_end(trainer, 3))
                 self.assertEqual(len(os.listdir(tmpdir)), 2)
                 mock_tourn.assert_called_once()
 
@@ -65,8 +69,39 @@ class TestPerformanceAnalyzer(unittest.TestCase):
                 save_every_iterations=0,
                 device="cpu",
             )
-            analyzer.on_iteration_end(trainer, 1)
+            self.assertTrue(analyzer.on_iteration_end(trainer, 1))
             self.assertEqual(os.listdir(tmpdir), [])
+
+    def test_stop_training_after_no_improvement_samples(self):
+        trainer = DummyTrainer()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            analyzer = ModelPerformanceAnalyzer(
+                models_dir=tmpdir,
+                save_every_iterations=1,
+                tournament_threshold=1,
+                tournament_size=1,
+                games_per_match=0,
+                device="cpu",
+                max_no_improvement_samples=2,
+            )
+
+            existing_path = os.path.join(tmpdir, "existing.pth")
+            trainer.save_model(existing_path)
+            past = time.time() - 60
+            os.utime(existing_path, (past, past))
+
+            def fake_run(paths, *_args, **_kwargs):
+                newest = max(paths, key=os.path.getmtime)
+                return {path: (0 if path == newest else 10) for path in paths}
+
+            with patch(
+                "poker_ai.evaluation.performance_analysis.run_tournament",
+                side_effect=fake_run,
+            ):
+                self.assertTrue(analyzer.on_iteration_end(trainer, 1))
+                self.assertEqual(len(os.listdir(tmpdir)), 1)
+                self.assertFalse(analyzer.on_iteration_end(trainer, 2))
+                self.assertEqual(len(os.listdir(tmpdir)), 1)
 
     def test_run_tournament_uses_per_hand_winners(self):
         class DummyEvalStrategy:

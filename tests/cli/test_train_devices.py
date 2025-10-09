@@ -32,8 +32,8 @@ class DummyAnalyzer:
     def __init__(self, *_, **__) -> None:
         pass
 
-    def on_iteration_end(self, *_, **__) -> None:  # pragma: no cover - stub
-        return None
+    def on_iteration_end(self, *_, **__) -> bool:  # pragma: no cover - stub
+        return True
 
 
 @pytest.fixture(autouse=True)
