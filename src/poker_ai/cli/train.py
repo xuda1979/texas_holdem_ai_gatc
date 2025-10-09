@@ -502,12 +502,16 @@ def main() -> None:  # noqa: C901
     analyzer = ModelPerformanceAnalyzer(
         models_dir="models",
         save_every_iterations=save_model_every_samples,
-        tournament_threshold=10,
+        tournament_threshold=20,
+        tournament_size=20,
         device=analyzer_device,
+        max_no_improvement_samples=200_000,
     )
 
     last_save_time = time.time()
     iteration = 0
+    stopped_early = False
+    error: Exception | None = None
     try:
         for iteration in range(1, num_iterations + 1):
             _safe_info(
@@ -540,13 +544,23 @@ def main() -> None:  # noqa: C901
                     )
                     last_save_time = current_time
 
-            analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
+            should_continue = analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
+            if not should_continue:
+                _safe_info(
+                    logger,
+                    "Stopping training early after %s samples with no improvement.",
+                    analyzer.no_improvement_samples,
+                )
+                stopped_early = True
+                break
     except Exception as e:
+        error = e
         _safe_exception(logger, "Error during iteration %s: %s", iteration, e)
-        raise
-    else:
-        # Final save after the loop
-        _safe_info(logger, "Training session finished. Saving final model...")
+    if error is None:
+        status_msg = "Training session finished"
+        if stopped_early:
+            status_msg += " (early stop)"
+        _safe_info(logger, f"{status_msg}. Saving final model...")
         final_model_path = f"models/{args.algorithm}_final.pth"
         os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
         try:
@@ -558,6 +572,8 @@ def main() -> None:  # noqa: C901
             _safe_exception(logger, "Error saving final model: %s", e)
 
         _safe_info(logger, "Training complete")
+    if error is not None:
+        raise error
 
 
 if __name__ == "__main__":
