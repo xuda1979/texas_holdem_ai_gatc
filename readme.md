@@ -82,6 +82,10 @@ Run a short training session:
 python run_training.py
 ```
 
+For a step-by-step walkthrough that covers training a model, running
+self-play simulations, and launching human-vs-AI games, refer to
+[`docs/common_workflows.md`](docs/common_workflows.md).
+
 Launch the command-line poker client:
 
 ```bash
