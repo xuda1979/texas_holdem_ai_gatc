@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,15 +17,14 @@ def test_generate_deck_unique() -> None:
 
 
 def test_shuffle_changes_order() -> None:
-    deck = Deck()
+    deck = Deck(seed=0)
     original = deck.cards.copy()
-    random.seed(0)
     deck.shuffle()
     assert deck.cards != original
 
 
 def test_deal_reduces_deck_size() -> None:
-    deck = Deck()
+    deck = Deck(seed=1234)
     deck.shuffle()
     dealt = deck.deal(5)
     assert len(dealt) == 5

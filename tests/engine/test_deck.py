@@ -1,6 +1,5 @@
 import os
 import sys
-import random
 from collections import Counter
 
 import numpy as np
@@ -20,7 +19,7 @@ from poker_ai.engine.deck import Deck  # noqa: E402
 
 
 def test_no_duplicates() -> None:
-    deck = Deck()
+    deck = Deck(seed=99)
     deck.shuffle()
     dealt = deck.deal(52)
     assert len(dealt) == 52
@@ -28,7 +27,7 @@ def test_no_duplicates() -> None:
 
 
 def test_correct_counts_preflop_flop_turn_river() -> None:
-    deck = Deck()
+    deck = Deck(seed=101)
     deck.shuffle()
     players = 4
     preflop = []
@@ -47,7 +46,6 @@ def test_correct_counts_preflop_flop_turn_river() -> None:
 
 
 def test_shuffle_uniformity_chi2() -> None:
-    random.seed(0)
     samples = 5200
     first_cards = []
     base_deck = Deck().cards
@@ -60,3 +58,19 @@ def test_shuffle_uniformity_chi2() -> None:
     expected = np.full(len(base_deck), samples / len(base_deck))
     chi2, p = chisquare(observed, expected)
     assert p > 0.01
+
+
+def test_shuffle_deterministic_with_seed() -> None:
+    deck_a = Deck(seed=123)
+    deck_b = Deck(seed=123)
+    deck_c = Deck(seed=456)
+    for deck in (deck_a, deck_b, deck_c):
+        deck.shuffle()
+    assert deck_a.cards == deck_b.cards
+    assert deck_a.cards != deck_c.cards
+
+    deck_a.reset(seed=789)
+    deck_a.shuffle()
+    deck_b.reset(seed=789)
+    deck_b.shuffle()
+    assert deck_a.cards == deck_b.cards
