@@ -5,9 +5,11 @@ import glob
 import inspect
 import logging
 import os
+import threading
 import time
 import unittest.mock as mock
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any, cast
 
 import torch
@@ -23,6 +25,21 @@ from poker_ai.logging_utils import (
 )
 
 _ORIGINAL_TIME_TIME = time.time
+_SAFE_LOG_LOCK = threading.RLock()
+
+
+@dataclass
+class _CheckpointCacheEntry:
+    """Cached ``_find_latest_model_path`` result with directory mtimes."""
+
+    expires_at: float
+    directory_state: tuple[tuple[str, float | None], ...]
+    result: list[str]
+
+
+_CHECKPOINT_CACHE_TTL_SECONDS = 5.0
+_CHECKPOINT_CACHE: dict[tuple[Any, ...], _CheckpointCacheEntry] = {}
+_CHECKPOINT_CACHE_LOCK = threading.RLock()
 
 
 def _safe_log(
@@ -32,13 +49,39 @@ def _safe_log(
 
     current = time.time
     if isinstance(current, mock.Mock):
-        try:
-            time.time = _ORIGINAL_TIME_TIME
-            logger.log(level, message, *args, **kwargs)
-        finally:
-            time.time = current
+        # ``logging`` obtains timestamps by calling ``time.time`` inside the
+        # :class:`~logging.LogRecord` factory.  Test suites frequently mock the
+        # function which breaks timestamp generation.  The original approach
+        # swapped ``time.time`` globally for the duration of ``logger.log``.
+        # That strategy is susceptible to race conditions when multiple threads
+        # patch ``time.time`` concurrently.  We now guard the temporary swap
+        # with a re-entrant lock so that only a single thread manipulates the
+        # attribute at a time.  This keeps timestamp restoration deterministic
+        # even under concurrent logging calls in multithreaded training loops.
+        with _SAFE_LOG_LOCK:
+            try:
+                time.time = _ORIGINAL_TIME_TIME
+                logger.log(level, message, *args, **kwargs)
+            finally:
+                time.time = current
     else:
         logger.log(level, message, *args, **kwargs)
+
+
+def _stat_mtime(path: str) -> float | None:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def _cache_state_for_paths(paths: list[str]) -> tuple[tuple[str, float | None], ...]:
+    """Return a stable tuple describing the modification times of ``paths``."""
+
+    state: list[tuple[str, float | None]] = []
+    for path in paths:
+        state.append((path, _stat_mtime(path)))
+    return tuple(state)
 
 
 def _safe_info(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
@@ -173,23 +216,56 @@ def initialize_trainer(
 
     if use_data_parallel:
         logger = logging.getLogger(__name__)
+        module_attr_names: list[str] = []
+
+        explicit_attrs = getattr(trainer, "data_parallel_module_attrs", None)
+        if isinstance(explicit_attrs, (list, tuple)):
+            module_attr_names.extend(str(name) for name in explicit_attrs)
+
+        for default_name in ("advantage_net", "model"):
+            if default_name not in module_attr_names:
+                module_attr_names.append(default_name)
+
         model_to_wrap = None
-        if hasattr(trainer, "advantage_net"):
-            model_to_wrap = trainer.advantage_net
-        elif hasattr(trainer, "model"):
-            model_to_wrap = trainer.model
+        target_attr_name: str | None = None
+        for attr_name in module_attr_names:
+            candidate = getattr(trainer, attr_name, None)
+            if isinstance(candidate, torch.nn.Module):
+                model_to_wrap = candidate
+                target_attr_name = attr_name
+                break
+
+        if model_to_wrap is None:
+            # Fall back to scanning for the first ``torch.nn.Module`` attribute.
+            for attr_name, candidate in vars(trainer).items():
+                if isinstance(candidate, torch.nn.Module):
+                    model_to_wrap = candidate
+                    target_attr_name = attr_name
+                    break
 
         if model_to_wrap:
             _safe_info(
                 logger, "Wrapping model with DataParallel for multi-device training."
             )
             wrapped_model = torch.nn.DataParallel(model_to_wrap)
-            if hasattr(trainer, "advantage_net"):
-                trainer.advantage_net = wrapped_model
-            elif hasattr(trainer, "model"):
-                trainer.model = wrapped_model
+            if target_attr_name:
+                setattr(trainer, target_attr_name, wrapped_model)
+            prepare_hook = getattr(trainer, "on_data_parallel_wrapped", None)
+            if callable(prepare_hook):
+                try:
+                    prepare_hook(wrapped_model)
+                except Exception as exc:  # pragma: no cover - defensive
+                    _safe_warning(
+                        logger,
+                        "Trainer hook on_data_parallel_wrapped failed: %s",
+                        exc,
+                    )
         else:
-            _safe_warning(logger, "Could not find model to wrap for DataParallel.")
+            _safe_warning(
+                logger,
+                "Could not find a torch.nn.Module attribute to wrap for DataParallel; "
+                "multi-device execution will be skipped.",
+            )
 
     return trainer
 
@@ -206,15 +282,62 @@ def _find_latest_model_path(config: dict, algorithm: str) -> str | None:
 
     model_cfg = config.get("model", {})
     directory = model_cfg.get("directory")
+    filename_prefix = model_cfg.get("filename_prefix")
+
+    directories_to_glob: list[str] = []
     if isinstance(directory, str) and directory:
-        candidate_paths.extend(glob.glob(os.path.join(directory, "*.pth")))
-        filename_prefix = model_cfg.get("filename_prefix")
-        if isinstance(filename_prefix, str) and filename_prefix:
-            candidate_paths.extend(
-                glob.glob(os.path.join(directory, f"{filename_prefix}*.pth"))
+        directories_to_glob.append(directory)
+    directories_to_glob.append("models")
+
+    patterns: list[str] = ["*.pth"]
+    if isinstance(filename_prefix, str) and filename_prefix:
+        patterns.append(f"{filename_prefix}*.pth")
+
+    globbed_results: list[str] = []
+
+    cache_key = (
+        algorithm,
+        tuple(sorted(os.path.normpath(p) for p in candidate_paths if isinstance(p, str))),
+        tuple(sorted(os.path.normpath(d) for d in directories_to_glob)),
+        tuple(sorted(patterns)),
+    )
+
+    now = time.monotonic()
+    directories_state = _cache_state_for_paths(
+        [os.path.normpath(d) for d in directories_to_glob]
+    )
+    direct_state = _cache_state_for_paths(
+        [os.path.normpath(p) for p in candidate_paths if isinstance(p, str)]
+    )
+    combined_state = directories_state + direct_state
+
+    with _CHECKPOINT_CACHE_LOCK:
+        cache_entry = _CHECKPOINT_CACHE.get(cache_key)
+        if (
+            cache_entry
+            and cache_entry.expires_at > now
+            and cache_entry.directory_state == combined_state
+        ):
+            globbed_results = list(cache_entry.result)
+        else:
+            for directory_path in directories_to_glob:
+                if not isinstance(directory_path, str) or not directory_path:
+                    continue
+                normalized_dir = os.path.normpath(directory_path)
+                try:
+                    if not os.path.isdir(normalized_dir):
+                        continue
+                except OSError:
+                    continue
+                for pattern in patterns:
+                    globbed_results.extend(glob.glob(os.path.join(normalized_dir, pattern)))
+            _CHECKPOINT_CACHE[cache_key] = _CheckpointCacheEntry(
+                expires_at=now + _CHECKPOINT_CACHE_TTL_SECONDS,
+                directory_state=combined_state,
+                result=list(globbed_results),
             )
 
-    candidate_paths.extend(glob.glob(os.path.join("models", "*.pth")))
+    candidate_paths.extend(globbed_results)
 
     # Deduplicate while preserving order and keep only existing files
     seen: set[str] = set()
@@ -259,16 +382,18 @@ def _load_latest_model(
             load_attr(latest_path)
         else:
             training_cfg = getattr(trainer, "config", {})
+            training_section: dict[str, Any] | None = None
             original_path: str | None = None
             if isinstance(training_cfg, dict):
-                training_section = training_cfg.setdefault("training", {})
-                if isinstance(training_section, dict):
-                    original_path = training_section.get("save_model_path")
-                    training_section["save_model_path"] = latest_path
-            load_attr()
-            if isinstance(training_cfg, dict):
-                training_section = training_cfg.get("training")
-                if isinstance(training_section, dict):
+                maybe_section = training_cfg.setdefault("training", {})
+                if isinstance(maybe_section, dict):
+                    training_section = maybe_section
+                    original_path = maybe_section.get("save_model_path")
+                    maybe_section["save_model_path"] = latest_path
+            try:
+                load_attr()
+            finally:
+                if training_section is not None:
                     if original_path is None:
                         training_section.pop("save_model_path", None)
                     else:
