@@ -53,7 +53,16 @@ class SelfPlay:
         self.small_blind = game_engine_config.get("small_blind", 5)
         self.min_players = game_engine_config.get("min_players", 2)
         self.max_players = game_engine_config.get("max_players", 10)
-        cfg = training_config or {}
+        if training_config is None:
+            cfg: dict[str, Any] = {}
+        elif isinstance(training_config, dict):
+            # Defensive copy to avoid mutating caller-owned dictionaries.  The
+            # previous behaviour surprised unit tests that reused a shared
+            # configuration fixture across multiple ``SelfPlay`` instances.
+            cfg = copy.deepcopy(training_config)
+        else:
+            # Fallback to ``dict`` construction for mapping-like objects.
+            cfg = dict(training_config)  # type: ignore[arg-type]
         self.training_config = cfg
         cfg_train_flag = None
         if isinstance(cfg, dict):
@@ -95,8 +104,15 @@ class SelfPlay:
         try:
             interval = int(interval_raw)
         except (TypeError, ValueError):  # pragma: no cover - defensive
+            self.logger.warning(
+                "Invalid reload interval %r; defaulting to refreshing every hand.",
+                interval_raw,
+            )
             interval = 1
         if interval <= 0:
+            self.logger.warning(
+                "Reload interval %s must be positive; defaulting to 1 hand.", interval
+            )
             interval = 1
         return interval
 
@@ -144,16 +160,38 @@ class SelfPlay:
         if isinstance(filename_prefix, str) and filename_prefix:
             patterns.append(f"{filename_prefix}*.pth")
 
+        seen_directories: set[str] = set()
         for directory in directories_to_search:
+            try:
+                resolved_dir = str(directory.resolve())
+            except OSError:
+                resolved_dir = str(directory)
+            if resolved_dir in seen_directories:
+                continue
+            seen_directories.add(resolved_dir)
             try:
                 if not directory.is_dir():
                     continue
+            except PermissionError as exc:
+                self.logger.warning(
+                    "Skipping model directory %s due to permission error: %s",
+                    directory,
+                    exc,
+                )
+                continue
             except OSError:  # pragma: no cover - defensive
                 continue
             for pattern in patterns:
-                for path in directory.glob(pattern):
-                    if path.is_file():
-                        candidates.append(path)
+                try:
+                    iterator = directory.glob(pattern)
+                except OSError:
+                    continue
+                for path in iterator:
+                    try:
+                        if path.is_file():
+                            candidates.append(path)
+                    except OSError:
+                        continue
 
         unique: list[Path] = []
         seen: set[str] = set()
@@ -223,7 +261,10 @@ class SelfPlay:
 
         try:
             latest_mtime = latest_path.stat().st_mtime
-        except OSError:
+        except OSError as exc:
+            self.logger.warning(
+                "Unable to stat potential checkpoint %s: %s", latest_path, exc
+            )
             return
 
         if (
@@ -243,7 +284,10 @@ class SelfPlay:
 
         try:
             resolved = latest_path.resolve()
-        except OSError:  # pragma: no cover - defensive
+        except OSError as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "Failed to resolve checkpoint path %s: %s", latest_path, exc
+            )
             resolved = latest_path
         self._last_loaded_model_path = resolved
         self._last_loaded_model_mtime = latest_mtime
