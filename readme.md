@@ -23,6 +23,7 @@
   - [Graphical User Interface](#graphical-user-interface)
 - [Cloud and Remote Training](#cloud-and-remote-training)
   - [Google Cloud Helper Workflow](#google-cloud-helper-workflow)
+  - [Google VM Multi-GPU Launcher](#google-vm-multi-gpu-launcher)
 - [Testing and Quality Assurance](#testing-and-quality-assurance)
 - [Development Workflow](#development-workflow)
   - [Configuration Files](#configuration-files)
@@ -331,6 +332,54 @@ three primary phases are:
    ```
 
 Always delete remote infrastructure after use to avoid cloud charges.
+
+### Google VM Multi-GPU Launcher
+
+For A100-equipped Google Compute Engine VMs the repository ships an orchestration
+script that simultaneously runs `RL.py` (training) and `run.py`
+(self-play/evaluation). The wrappers keep imports working without installing the
+project as a package and expose convenient accelerator flags.
+
+1. **Create the VM.** Provision a Compute Engine instance with A100 GPUs (for
+   example, `a2-highgpu-4g` for four GPUs) and install the NVIDIA drivers. The
+   [Google Cloud documentation](https://cloud.google.com/compute/docs/gpus/install-drivers-gpu)
+   lists the exact commands for the chosen image.
+2. **Clone the repository.**
+   ```bash
+   git clone https://github.com/OWNER/texas_holdem_ai_gatc.git
+   cd texas_holdem_ai_gatc
+   ```
+3. **Bootstrap dependencies and launch training + monitoring.**
+   ```bash
+   python tools/google_vm_launcher.py \
+       --install-deps \
+       --num-gpus 4 \
+       --rl-extra "--enable-gpus --num-hands 200000 --save-model-every 1000" \
+       --run-extra "--config configs/self_play.yaml" \
+       --log-dir logs/gce
+   ```
+   - `--num-gpus` limits the visible GPUs (omit to use every detected device).
+   - `--rl-extra` is split with `shlex` so additional options can be passed to
+     `RL.py`—the example enables GPU training, sets the number of simulated
+     hands, and defines the checkpoint interval.
+   - `--run-extra` forwards parameters to `run.py` which itself delegates to
+     `poker_ai.cli.self_play`. Provide a configuration file or append
+     `--extra-self-play-args` via quoted strings as required.
+   - `--log-dir` stores timestamped stdout/stderr logs for both processes.
+4. **Advanced usage.**
+   - `--cuda-visible-devices` overrides the GPU mask directly (e.g. to pin
+     training to `0,2,3` when GPU 1 is busy).
+   - `--skip-run` starts training only when no monitoring loop is desired.
+   - `--world-size` sets the `WORLD_SIZE` environment variable for custom
+     distributed setups when integrating with `torchrun` or job schedulers.
+   - `--dry-run` prints the commands without executing them which is useful for
+     CI validation or first-time VM setups.
+
+Both `RL.py` and `run.py` are lightweight wrappers around the existing
+command-line interfaces. They preserve the behaviour of
+`python -m poker_ai.cli.train` and `python -m poker_ai.cli.self_play` while
+accepting additional pass-through arguments so the launcher can manage them as
+subprocesses.
 
 ## Testing and Quality Assurance
 
