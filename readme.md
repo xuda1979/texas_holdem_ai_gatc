@@ -143,6 +143,31 @@ The `run_training.py` wrapper ensures that the `poker_ai` package can be importe
 without installing the project system-wide. Use it for local experiments or
 switch to the module invocation after installing the package.
 
+### Interactive Colab Notebook
+
+An interactive training workflow is available in [`train.ipynb`](train.ipynb).
+The notebook is designed for Google Colab and automates the full setup:
+
+1. **Open the notebook.** Either launch it locally with Jupyter or click the
+   "Open in Colab" badge at the top of the notebook to run it in Colab.
+2. **Configure the run.** Adjust the constants in the first cell (e.g.
+   `ALGORITHM`, `NUM_HANDS`, `SAVE_EVERY`, or any extra CLI flags placed in
+   `EXTRA_TRAIN_ARGS`). Update the `BRANCH` if you need to test a different git
+   branch, and set the optional Google Cloud Storage variables if you want to
+   mirror checkpoints.
+3. **Execute the main cell.** Running the notebook mounts Google Drive for
+   persistent storage, clones or updates the repository, installs dependencies
+   from `requirements.txt`, and then starts `poker_ai.cli.train`. Training logs
+   and model checkpoints are symlinked to your Drive (`trained_models/`,
+   `logs/`, and `reports/`) so they survive across Colab sessions.
+4. **Monitor and resume.** Output is streamed live in the notebook while a copy
+   is written to Drive. On subsequent runs the notebook automatically resumes
+   from the most recent checkpoint discovered in Drive.
+
+The workflow detects GPU availability in Colab and enables `--gpus` when
+possible. When TPU support is required, install the `torch-xla` dependency (it
+is treated as optional so failures will not abort the setup).
+
 ### Device Selection (CPU/GPU/NPU/TPU)
 
 The trainer auto-detects the requested accelerator based on command-line flags:
