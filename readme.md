@@ -51,6 +51,7 @@ training workflows.
 - Distributed self-play workers for rapid data collection.
 - Optional GPU/NPU/TPU acceleration with minimal configuration.
 - Attention-driven state representation and betting-tree abstraction tools.
+- Deterministic deck seeding utilities for reproducible simulations and debugging.
 - Command-line and GUI interfaces for human vs. AI play.
 - Utilities for exploitability evaluation, replay buffer inspection, and
   checkpoint management.
