@@ -98,24 +98,32 @@ def _start_process(
     if log_dir is not None:
         log_file = log_dir / f"{datetime.utcnow().strftime('%Y%m%dT%H%M%S')}_{name}.log"
         log_file.parent.mkdir(parents=True, exist_ok=True)
+    popen_env: Mapping[str, str] | None = None
+    if env is not None:
+        popen_env = os.environ.copy()
+        popen_env.update(env)
     process = subprocess.Popen(
         list(command),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env=dict(env) if env is not None else None,
+        env=popen_env,
     )
 
     def _pump_output() -> None:
         try:
             if process.stdout is None:
                 return
-            with (log_file.open("a", encoding="utf-8") if log_file is not None else None) as log:
+            log_handle = log_file.open("a", encoding="utf-8") if log_file is not None else None
+            try:
                 for line in process.stdout:
                     decorated = f"[{name}] {line.rstrip()}"
                     print(decorated)
-                    if log is not None:
-                        log.write(decorated + "\n")
+                    if log_handle is not None:
+                        log_handle.write(decorated + "\n")
+            finally:
+                if log_handle is not None:
+                    log_handle.close()
         finally:
             if process.stdout is not None:
                 process.stdout.close()
