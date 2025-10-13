@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -168,6 +170,8 @@ class SingleNetworkCFRTrainer:
         return float(weighted_loss.item())
 
     def save_model(self, path: str) -> None:
+        target = Path(path).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "state_dict": self.model.state_dict(),
             "metadata": {
@@ -181,10 +185,11 @@ class SingleNetworkCFRTrainer:
                 "trainer": "single_network",
             },
         }
-        torch.save(payload, path)
+        torch.save(payload, str(target))
 
     def load_model(self, path: str) -> None:
-        state = torch.load(path, map_location=self.device)
+        target = Path(path).expanduser()
+        state = torch.load(str(target), map_location=self.device)
         if isinstance(state, dict) and "state_dict" in state:
             state_dict = state["state_dict"]
         else:

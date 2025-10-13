@@ -2,6 +2,7 @@ import hashlib
 import logging
 import os
 import random
+from pathlib import Path
 
 import torch
 import torch.optim as optim
@@ -333,9 +334,8 @@ class AICFRTrainer:
         try:
             if model_path is None:
                 model_path = self.config["training"]["save_model_path"]
-            dirpath = os.path.dirname(model_path)
-            if dirpath:
-                os.makedirs(dirpath, exist_ok=True)
+            path = Path(model_path).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "state_dict": self.model.state_dict(),
                 "metadata": {
@@ -351,13 +351,13 @@ class AICFRTrainer:
             }
             if self._using_xla:
                 assert self._xm is not None
-                self._xm.save(payload, model_path)
+                self._xm.save(payload, str(path))
                 self._xm.mark_step()
             else:
-                torch.save(payload, model_path)
+                torch.save(payload, str(path))
             self.logger.info(
                 "Model saved | path=%s",
-                model_path,
+                path,
                 extra={"component": "trainer"},
             )
         except Exception as e:
@@ -367,13 +367,14 @@ class AICFRTrainer:
         # Ensure config path is correct or make it an argument
         try:
             training_cfg = self.config.get("training", {}) if isinstance(self.config, dict) else {}
-            path = model_path or training_cfg.get("save_model_path") or config["training"]["save_model_path"]
-            if not path:
+            raw_path = model_path or training_cfg.get("save_model_path") or config["training"]["save_model_path"]
+            if not raw_path:
                 raise FileNotFoundError("No model path available to load weights.")
+            path = Path(raw_path).expanduser()
             map_location = self.device
             if self._using_xla:
                 map_location = "cpu"
-            payload = torch.load(path, map_location=map_location)
+            payload = torch.load(str(path), map_location=map_location)
             state_dict = payload["state_dict"] if isinstance(payload, dict) and "state_dict" in payload else payload
             self.model.load_state_dict(state_dict)
             target_device = self._xla_device or self.device

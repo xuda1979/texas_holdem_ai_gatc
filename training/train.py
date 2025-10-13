@@ -7,6 +7,7 @@ import copy
 import logging
 import math
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -17,6 +18,41 @@ from poker_ai.ai import trainers as trainer_module
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _CheckpointManager:
+    """Handle periodic and final checkpoint persistence."""
+
+    def __init__(self, trainer: object, base_path: str | os.PathLike[str]):
+        self._trainer = trainer
+        base = Path(base_path).expanduser()
+        if base.suffix:
+            self.final_path = base
+            snapshot_dir_name = f"{base.stem}_snapshots"
+            self.snapshot_dir = base.parent / snapshot_dir_name
+            self.prefix = base.stem
+        else:
+            self.snapshot_dir = base
+            self.prefix = base.name or "checkpoint"
+            self.final_path = base / "latest.pth"
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
+        self.final_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def save(self, label: str | None = None) -> Path:
+        """Persist the latest weights and optionally archive a snapshot."""
+
+        target = self.final_path
+        self._trainer.save_model(str(target))
+        if label is None:
+            return target
+
+        snapshot_path = self.snapshot_dir / f"{self.prefix}_{label}.pth"
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(target, snapshot_path)
+        except OSError:
+            shutil.copy(target, snapshot_path)
+        return snapshot_path
 
 
 def _ensure_section(config: dict[str, Any], key: str) -> dict[str, Any]:
@@ -272,8 +308,30 @@ def main() -> None:
             log_every = training_section.get("log_every_n_hands")
             if log_every is not None:
                 training_cfg["log_every_n_hands"] = log_every
+            save_interval_cfg = training_section.get("save_model_every_n_hands")
+            if save_interval_cfg is not None:
+                training_cfg["save_model_every_n_hands"] = save_interval_cfg
     if args.save_interval:
         training_cfg["save_model_every_n_hands"] = args.save_interval
+
+    save_interval = 0
+    try:
+        save_interval = int(training_cfg.get("save_model_every_n_hands", 0) or 0)
+    except (TypeError, ValueError):
+        LOGGER.warning(
+            "Invalid save interval %r; disabling periodic checkpoints.",
+            training_cfg.get("save_model_every_n_hands"),
+        )
+        save_interval = 0
+
+    base_save_path = training_cfg.get("save_model_path")
+    if not base_save_path:
+        base_save_path = trainer_cfg.get("training", {}).get("save_model_path") if isinstance(trainer_cfg, dict) else None
+    if not base_save_path:
+        base_save_path = "aicfr_model.pth"
+
+    checkpoint_manager = _CheckpointManager(trainer, base_save_path)
+    training_cfg["save_model_path"] = str(checkpoint_manager.final_path)
 
     training_cfg_for_env = training_cfg or None
     train_during_generation = True
@@ -301,19 +359,22 @@ def main() -> None:
             batch_size=args.train_batch_size,
             train_steps_per_cycle=args.train_steps_per_cycle,
             log_every=log_every,
+            checkpoint_manager=checkpoint_manager,
+            save_interval=save_interval,
         )
         if log_file:
             LOGGER.info("Detailed logs written to %s", log_file)
     else:
         for hand_idx in range(1, args.num_hands + 1):
             self_play_env.play_hand_for_training(hand_idx)
-            if args.save_interval and hand_idx % args.save_interval == 0:
-                trainer.save_model()
+            if save_interval and hand_idx % save_interval == 0:
+                snapshot = checkpoint_manager.save(label=f"hand_{hand_idx:07d}")
+                LOGGER.info("Saved periodic checkpoint to %s", snapshot)
             if log_every and hand_idx % log_every == 0:
                 LOGGER.info("Completed %d hands", hand_idx)
-        trainer.save_model()
+        final_path = checkpoint_manager.save()
         LOGGER.info(
-            "Training complete. Model saved to %s", training_cfg.get("save_model_path")
+            "Training complete. Model saved to %s", final_path
         )
         if log_file:
             LOGGER.info("Detailed logs written to %s", log_file)
@@ -328,6 +389,8 @@ def _run_continuous_training(
     batch_size: int,
     train_steps_per_cycle: int | None,
     log_every: int,
+    checkpoint_manager: _CheckpointManager,
+    save_interval: int,
 ) -> None:
     """Alternate self-play data generation and training for a fixed duration."""
 
@@ -372,6 +435,9 @@ def _run_continuous_training(
             self_play_env.play_hand_for_training(total_hands)
             if log_every and total_hands % log_every == 0:
                 LOGGER.info("Generated %d hands so far", total_hands)
+            if save_interval and total_hands % save_interval == 0:
+                snapshot = checkpoint_manager.save(label=f"hand_{total_hands:07d}")
+                LOGGER.info("Saved periodic checkpoint to %s", snapshot)
             if time.monotonic() >= end_time:
                 break
 
@@ -393,7 +459,8 @@ def _run_continuous_training(
                 "{:.6f}".format(float(loss)) if loss is not None else "n/a",
             )
 
-        trainer.save_model()
+        snapshot = checkpoint_manager.save(label=f"cycle_{cycle:05d}")
+        LOGGER.info("Saved cycle checkpoint to %s", snapshot)
         duration = time.monotonic() - cycle_start
         mean_loss = sum(losses) / len(losses) if losses else 0.0
         LOGGER.info(
@@ -416,6 +483,9 @@ def _run_continuous_training(
         total_hands,
         total_elapsed / 3600.0,
     )
+
+    final_path = checkpoint_manager.save()
+    LOGGER.info("Latest checkpoint saved to %s", final_path)
 
 
 if __name__ == "__main__":
