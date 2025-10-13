@@ -100,6 +100,23 @@ def _safe_exception(logger: logging.Logger, message: str, *args: Any, **kwargs: 
     kwargs.setdefault("exc_info", True)
     _safe_log(logger, logging.ERROR, message, *args, **kwargs)
 
+
+def _probe_device_allocation(device: str) -> tuple[bool, str | None]:
+    """Return ``True`` if ``torch`` can allocate a tensor on ``device``.
+
+    Some execution environments expose accelerator stubs (e.g. ``torch.npu``)
+    that report availability even though the backend is not fully functional.
+    Attempting to move tensors to such a device later on can lead to hard
+    crashes (segmentation faults) rather than Python exceptions.  Probing the
+    backend up-front allows the CLI to degrade gracefully back to the CPU.
+    """
+
+    try:
+        torch.zeros(1, device=device)  # minimal allocation to validate support
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, None
+
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
@@ -471,14 +488,23 @@ def main() -> None:  # noqa: C901
         _safe_info(logger, "TPU training enabled on device %s", xla_device)
     elif args.npus:
         if hasattr(torch, "npu") and torch.npu.is_available():
-            device = "npu"
-            device_printable = device
-            npu_count = torch.npu.device_count()
-            if npu_count > 1:
-                use_data_parallel = True
-                _announce(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+            allocation_ok, failure_reason = _probe_device_allocation("npu")
+            if allocation_ok:
+                device = "npu"
+                device_printable = device
+                npu_count = torch.npu.device_count()
+                if npu_count > 1:
+                    use_data_parallel = True
+                    _announce(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+                else:
+                    _announce("NPU training enabled.")
             else:
-                _announce("NPU training enabled.")
+                message = (
+                    "Warning: --npus specified, but tensor allocation on the NPU backend "
+                    f"failed ({failure_reason}). Falling back to CPU."
+                )
+                _announce(message, level=logging.WARNING)
+                _safe_warning(logger, "%s", message)
         else:
             _announce(
                 "Warning: --npus specified, but no NPU devices are available. "

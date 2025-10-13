@@ -80,7 +80,7 @@ def _make_args(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _run_main(monkeypatch, args, torch_cuda=None, torch_npu=None):
+def _run_main(monkeypatch, args, torch_cuda=None, torch_npu=None, zeros_override=None):
     captured: dict[str, object] = {}
 
     def fake_parse_args():
@@ -103,6 +103,8 @@ def _run_main(monkeypatch, args, torch_cuda=None, torch_npu=None):
         monkeypatch.setattr(train.torch, "cuda", torch_cuda, raising=False)
     if torch_npu is not None:
         monkeypatch.setattr(train.torch, "npu", torch_npu, raising=False)
+    if zeros_override is not None:
+        monkeypatch.setattr(train.torch, "zeros", zeros_override)
 
     monkeypatch.setattr(train.os, "makedirs", lambda *_, **__: None)
 
@@ -156,7 +158,20 @@ def test_gpu_fallback_to_cpu(monkeypatch, capsys):
 
 def test_npu_multi_device(monkeypatch, capsys):
     args = _make_args(npus=True)
-    captured = _run_main(monkeypatch, args, torch_npu=_NPUStub(True, count=3))
+    original_zeros = train.torch.zeros
+
+    def zeros_ignore_npu(*shape, **kwargs):
+        if kwargs.get("device") == "npu":
+            kwargs = dict(kwargs)
+            kwargs.pop("device", None)
+        return original_zeros(*shape, **kwargs)
+
+    captured = _run_main(
+        monkeypatch,
+        args,
+        torch_npu=_NPUStub(True, count=3),
+        zeros_override=zeros_ignore_npu,
+    )
 
     out = capsys.readouterr().out
     assert "Multi-NPU training enabled. Found 3 NPUs." in out
@@ -170,6 +185,30 @@ def test_npu_fallback_to_cpu(monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert "Warning: --npus specified, but no NPU devices are available." in out
+    assert captured["device"] == "cpu"
+    assert captured["use_data_parallel"] is False
+
+
+def test_npu_probe_failure(monkeypatch, capsys):
+    args = _make_args(npus=True)
+    npu_stub = _NPUStub(True, count=2)
+
+    original_zeros = train.torch.zeros
+
+    def failing_zeros(*shape, **kwargs):
+        if kwargs.get("device") == "npu":
+            raise RuntimeError("NPU backend unavailable")
+        return original_zeros(*shape, **kwargs)
+
+    captured = _run_main(
+        monkeypatch,
+        args,
+        torch_npu=npu_stub,
+        zeros_override=failing_zeros,
+    )
+
+    out = capsys.readouterr().out
+    assert "tensor allocation on the NPU backend failed" in out
     assert captured["device"] == "cpu"
     assert captured["use_data_parallel"] is False
 
