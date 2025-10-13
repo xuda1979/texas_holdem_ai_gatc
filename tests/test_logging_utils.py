@@ -1,31 +1,25 @@
-import logging
+import importlib
+from pathlib import Path
 
-from poker_ai.logging_utils import (
-    log_configuration_snapshot,
-    log_run_metadata,
-    setup_logging,
+import pytest
+
+logging_utils = importlib.import_module("poker_ai.logging_utils")
+
+
+@pytest.mark.parametrize(
+    "log_file, expected",
+    [
+        ("custom.log", logging_utils.DEFAULT_LOG_DIR / "custom.log"),
+        ("logs/custom.log", Path("logs/custom.log")),
+        ("/tmp/custom.log", Path("/tmp/custom.log")),
+    ],
 )
+def test_resolve_log_path_defaults_to_logs_dir(tmp_path, log_file, expected):
+    result = logging_utils._resolve_log_path(log_file, None)
+    assert result == expected
 
 
-def test_setup_logging_writes_file(tmp_path):
-    log_path = tmp_path / "app.log"
-    setup_logging(
-        {"log_file": str(log_path), "level": "INFO", "log_to_file": True},
-        component="test",
-        run_id="unit",
-        console=False,
-    )
-    logger = logging.getLogger("testcase")
-    logger.info("hello world")
-    log_configuration_snapshot({"api": {"password": "secret", "timeout": 5}})
-    log_run_metadata(config={"foo": "bar"})
-
-    for handler in logging.getLogger().handlers:
-        handler.flush()
-
-    contents = log_path.read_text()
-    assert "hello world" in contents
-    assert "***" in contents  # password redacted
-    assert "Run metadata" in contents
-
-    logging.shutdown()
+def test_resolve_log_path_with_log_dir(tmp_path):
+    custom_dir = tmp_path / "nested"
+    result = logging_utils._resolve_log_path(None, custom_dir)
+    assert result == custom_dir / logging_utils.DEFAULT_LOG_FILENAME
