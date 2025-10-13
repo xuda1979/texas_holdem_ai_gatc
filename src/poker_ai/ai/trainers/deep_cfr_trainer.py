@@ -11,6 +11,7 @@ the "Linear CFR" weighted mean-squared error loss.
 from __future__ import annotations
 
 import random
+from pathlib import Path
 from typing import Tuple
 
 import torch
@@ -276,6 +277,8 @@ class DeepCFRTrainer:
         return float(weighted_loss.item())
 
     def save_model(self, path: str) -> None:
+        target = Path(path).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "state_dict": self.advantage_net.state_dict(),
             "metadata": {
@@ -291,16 +294,17 @@ class DeepCFRTrainer:
         }
         if self._using_xla:
             assert self._xm is not None
-            self._xm.save(payload, path)
+            self._xm.save(payload, str(target))
             self._xm.mark_step()
         else:
-            torch.save(payload, path)
+            torch.save(payload, str(target))
 
     def load_model(self, path: str) -> None:
+        target = Path(path).expanduser()
         map_location = self.device
         if self._using_xla:
             map_location = "cpu"
-        state = torch.load(path, map_location=map_location)
+        state = torch.load(str(target), map_location=map_location)
         if isinstance(state, dict) and "state_dict" in state:
             state_dict = state["state_dict"]
         else:
