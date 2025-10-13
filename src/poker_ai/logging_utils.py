@@ -86,10 +86,9 @@ def _resolve_log_path(
         path = Path(log_file).expanduser()
         if not path.is_absolute():
             # Respect user supplied directory but default to logs/ for plain filenames.
-            if not path.parent.name:
+            parent = path.parent
+            if parent == Path(".") or parent == Path(""):
                 path = DEFAULT_LOG_DIR / path.name
-            else:
-                path = path
     else:
         target_dir = Path(log_dir).expanduser() if log_dir else DEFAULT_LOG_DIR
         path = target_dir / DEFAULT_LOG_FILENAME
