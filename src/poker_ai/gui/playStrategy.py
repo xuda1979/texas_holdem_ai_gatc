@@ -155,16 +155,32 @@ class HumanStrategy(PlayerStrategy):
         return True
 
     def choose_action(self, game, player_index):  # noqa: C901
-        # Display AI-derived GTO stats before prompting for action.
-        # The import is delayed to keep GUI dependencies optional.
-        # ``display_ai_gto_stats`` lives in the optional evaluation package and
-        # may be unavailable in lightweight environments.  Import through the
-        # package namespace so the function is ``None`` rather than raising a
-        # ``ModuleNotFoundError`` when the dependency tree is incomplete.
-        from poker_ai.evaluation import display_ai_gto_stats
+        # Display AI-derived GTO stats before prompting for action.  Import
+        # lazily so environments without the optional GUI analyzer continue to
+        # function, but prefer the shared evaluation module so callers can
+        # monkeypatch ``poker_ai.evaluation.display_ai_gto_stats`` for tests.
+        display_ai_gto_stats = None
+        try:  # pragma: no branch - simple optional import chain
+            from poker_ai.evaluation import (
+                display_ai_gto_stats as evaluation_display_ai_gto_stats,
+            )
 
-        if display_ai_gto_stats:
-            display_ai_gto_stats(game, player_index)
+            display_ai_gto_stats = evaluation_display_ai_gto_stats
+        except Exception:  # pragma: no cover - evaluation module optional
+            display_ai_gto_stats = None
+
+        if display_ai_gto_stats is None:
+            try:
+                from poker_ai.gui.ai_gto_analyzer import display_ai_gto_stats
+            except Exception:  # pragma: no cover - optional dependency path
+                try:
+                    from ai_gto_analyzer import display_ai_gto_stats  # type: ignore
+                except Exception:  # pragma: no cover - analyzer not available
+
+                    def display_ai_gto_stats(*_args, **_kwargs):
+                        return None
+
+        display_ai_gto_stats(game, player_index)
 
         while True:
             print(f"\n--- Player {player_index + 1}'s Turn ---")

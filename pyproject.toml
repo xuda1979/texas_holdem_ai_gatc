@@ -51,7 +51,8 @@ line-length = 100
 select = ["E","F","W","I","UP","B","C90","N","ANN"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["gatc_poker"]
+# Treat all in-repo packages as first-party for consistent sorting.
+known-first-party = ["gatc_poker", "gatc_holdem", "poker_ai"]
 
 [tool.mypy]
 python_version = "3.11"
