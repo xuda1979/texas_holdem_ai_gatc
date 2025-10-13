@@ -135,7 +135,7 @@ pygments==2.19.2
     # via
     #   pytest
     #   rich
-pyparsing==3.2.3
+pyparsing==3.2.5
     # via eval7
 pytest==8.4.2
     # via texas-holdem-ai-gatc (pyproject.toml)
