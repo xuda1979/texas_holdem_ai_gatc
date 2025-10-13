@@ -145,6 +145,29 @@ Typical usage:
 python -m poker_ai.cli.train --num-hands 500 --algorithm deep_cfr --save-model-every 50
 ```
 
+The training loop alternates between **self-play simulation** and **batched gradient
+updates**.  By default the CLI auto-detects the best accelerator, resumes from the
+latest checkpoint, generates a block of self-play samples, trains on the collected
+data, saves a new model snapshot, and repeats this cycle until the requested number
+of samples is produced.  You can control the cadence with:
+
+- `--samples-per-cycle` – number of self-play hands to generate before training.
+- `--train-steps-per-cycle` – gradient steps executed after each simulation block.
+- `--train-batch-size` – batch size used for each gradient step.
+- `--max-samples` – stop once the cumulative number of simulated hands reaches this
+  value (set `0` to run indefinitely).
+
+For example, to generate 2,000 hands at a time and train with four large batches
+until one million hands have been simulated:
+
+```bash
+python -m poker_ai.cli.train \
+  --samples-per-cycle 2000 \
+  --train-steps-per-cycle 4 \
+  --train-batch-size 2048 \
+  --max-samples 1000000
+```
+
 The `run_training.py` wrapper ensures that the `poker_ai` package can be imported
 without installing the project system-wide. Use it for local experiments or
 switch to the module invocation after installing the package.
@@ -176,7 +199,9 @@ is treated as optional so failures will not abort the setup).
 
 ### Device Selection (CPU/GPU/NPU/TPU)
 
-The trainer auto-detects the requested accelerator based on command-line flags:
+The trainer prefers the fastest available accelerator.  When no device flag is
+specified it automatically checks for NPUs first, then GPUs, and finally falls
+back to the CPU.  You can force a specific backend with the following flags:
 
 - `--gpus` – enables PyTorch `DataParallel` across available GPUs.
 - `--npus` – mirrors the GPU workflow for NPU devices.
