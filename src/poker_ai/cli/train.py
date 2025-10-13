@@ -4,6 +4,7 @@ import argparse
 import glob
 import inspect
 import logging
+import math
 import os
 import threading
 import time
@@ -167,6 +168,35 @@ def parse_args() -> argparse.Namespace:
         "--tpu",
         action="store_true",
         help="Use a TPU via torch_xla for training.",
+    )
+    parser.add_argument(
+        "--samples-per-cycle",
+        type=int,
+        help=(
+            "Number of self-play samples to generate before each training phase. "
+            "Defaults to the training configuration."
+        ),
+    )
+    parser.add_argument(
+        "--train-steps-per-cycle",
+        type=int,
+        help=(
+            "Number of gradient steps to execute after each simulation cycle. "
+            "Defaults to the training configuration or scales with the replay buffer."
+        ),
+    )
+    parser.add_argument(
+        "--train-batch-size",
+        type=int,
+        help="Batch size to use for each training step during cycle training.",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        help=(
+            "Terminate once this many total self-play samples have been generated. "
+            "If omitted, the training loop runs indefinitely."
+        ),
     )
     return parser.parse_args()
 
@@ -553,6 +583,39 @@ def main() -> None:  # noqa: C901
                 "Falling back to CPU.",
                 level=logging.WARNING,
             )
+    else:
+        preferred_device: str | None = None
+        if hasattr(torch, "npu") and torch.npu.is_available():
+            allocation_ok, failure_reason = _probe_device_allocation("npu")
+            if allocation_ok:
+                preferred_device = "npu"
+                npu_count = torch.npu.device_count()
+                if npu_count > 1:
+                    use_data_parallel = True
+                    _announce(
+                        f"Auto-selected NPU acceleration with {npu_count} devices."
+                    )
+                else:
+                    _announce("Auto-selected NPU acceleration.")
+            else:
+                _safe_warning(
+                    logger,
+                    "Detected NPU backend but allocation failed: %s. Falling back to other accelerators.",
+                    failure_reason,
+                )
+        if preferred_device is None and torch.cuda.is_available():
+            preferred_device = "cuda"
+            gpu_count = torch.cuda.device_count()
+            if gpu_count > 1:
+                use_data_parallel = True
+                _announce(
+                    f"Auto-selected GPU acceleration across {gpu_count} devices."
+                )
+            else:
+                _announce("Auto-selected GPU acceleration.")
+        if preferred_device is not None:
+            device = preferred_device
+            device_printable = device
 
     analyzer_device = device if device != "xla" else "cpu"
     if device == "xla" and analyzer_device == "cpu":
@@ -567,6 +630,8 @@ def main() -> None:  # noqa: C901
 
     game_engine_config = config.get("game_engine", {})
     training_params = config.get("training", {})
+    if not isinstance(training_params, dict):
+        training_params = dict(training_params or {})
     _curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
 
     # Training Parameters with CLI overrides
@@ -603,6 +668,53 @@ def main() -> None:  # noqa: C901
         )
     training_params["min_buffer_before_train"] = min_buffer_before_train
 
+    samples_per_cycle_raw = (
+        args.samples_per_cycle
+        if args.samples_per_cycle is not None
+        else training_params.get("samples_per_cycle")
+    )
+    default_cycle = 512 if num_iterations <= 0 else min(num_iterations, 512)
+    samples_per_cycle = (
+        max(1, int(samples_per_cycle_raw))
+        if samples_per_cycle_raw is not None
+        else max(1, default_cycle)
+    )
+
+    train_steps_per_cycle_raw = (
+        args.train_steps_per_cycle
+        if args.train_steps_per_cycle is not None
+        else training_params.get("train_steps_per_cycle")
+    )
+    train_steps_per_cycle = (
+        max(1, int(train_steps_per_cycle_raw))
+        if train_steps_per_cycle_raw is not None
+        else None
+    )
+
+    train_batch_size_raw = (
+        args.train_batch_size
+        if args.train_batch_size is not None
+        else training_params.get("train_batch_size")
+    )
+    train_batch_size = (
+        max(1, int(train_batch_size_raw))
+        if train_batch_size_raw is not None
+        else min_buffer_before_train
+    )
+
+    max_samples_raw = (
+        args.max_samples
+        if args.max_samples is not None
+        else training_params.get("max_samples")
+    )
+    if max_samples_raw is not None:
+        max_samples_candidate = int(max_samples_raw)
+        max_samples = max_samples_candidate if max_samples_candidate > 0 else None
+    else:
+        max_samples = num_iterations if num_iterations > 0 else None
+
+    training_params["train_during_generation"] = False
+
     # Game Engine Parameters for SelfPlay
     min_players = game_engine_config.get("min_players", 2)
     max_players = game_engine_config.get("max_players", 10)
@@ -626,6 +738,11 @@ def main() -> None:  # noqa: C901
             "Model snapshot interval (minutes): %s",
             save_model_every_minutes,
         )
+    _safe_info(logger, "Samples per cycle: %s", samples_per_cycle)
+    if train_steps_per_cycle is not None:
+        _safe_info(logger, "Train steps per cycle: %s", train_steps_per_cycle)
+    if max_samples is not None:
+        _safe_info(logger, "Maximum samples: %s", max_samples)
     _safe_info(logger, "Players per hand: random %s-%s", min_players, max_players)
     _safe_info(logger, "Starting stack: %s", starting_stack)
     _safe_info(logger, "Blinds: SB=%s, BB=%s", small_blind, big_blind)
@@ -686,42 +803,113 @@ def main() -> None:  # noqa: C901
     )
 
     last_save_time = time.time()
-    iteration = 0
+    total_samples = 0
+    cycle_index = 0
     stopped_early = False
     error: Exception | None = None
     try:
-        for iteration in range(1, num_iterations + 1):
-            _safe_info(
-                logger, "Starting MCCFR iteration %s/%s", iteration, num_iterations
-            )
-            # The play_hand_for_training method now runs one MCCFR traversal
-            # and triggers the training step internally.
-            self_play_env.play_hand_for_training(iteration)
-
-            # Conditional saving logic
-            if save_model_every_n_hands > 0 and iteration % save_model_every_n_hands == 0:
-                path = f"models/{args.algorithm}_hand_{iteration}.pth"
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                cfr_trainer.save_model(path)
-                _safe_info(
-                    logger, "Model saved to %s at iteration %s", path, iteration
+        while max_samples is None or total_samples < max_samples:
+            cycle_index += 1
+            remaining = None if max_samples is None else max(max_samples - total_samples, 0)
+            samples_this_cycle = samples_per_cycle
+            if remaining is not None:
+                samples_this_cycle = min(samples_per_cycle, remaining)
+            if samples_this_cycle <= 0:
+                _safe_warning(
+                    logger,
+                    "Computed non-positive samples for cycle %s; terminating.",
+                    cycle_index,
                 )
+                break
 
-            if save_model_every_minutes > 0:
-                current_time = time.time()
-                if (current_time - last_save_time) >= save_model_every_minutes * 60:
-                    path = f"models/{args.algorithm}_time_{iteration}.pth"
+            _safe_info(
+                logger,
+                "Starting cycle %s | generating %s samples (total so far %s)",
+                cycle_index,
+                samples_this_cycle,
+                total_samples,
+            )
+
+            for _ in range(samples_this_cycle):
+                total_samples += 1
+                self_play_env.play_hand_for_training(total_samples)
+
+                if (
+                    save_model_every_n_hands > 0
+                    and total_samples % save_model_every_n_hands == 0
+                ):
+                    path = f"models/{args.algorithm}_hand_{total_samples}.pth"
                     os.makedirs(os.path.dirname(path), exist_ok=True)
                     cfr_trainer.save_model(path)
                     _safe_info(
                         logger,
-                        "Model saved to %s due to time interval at iteration %s",
+                        "Model saved to %s at sample %s",
                         path,
-                        iteration,
+                        total_samples,
                     )
-                    last_save_time = current_time
 
-            should_continue = analyzer.on_iteration_end(cfr_trainer, iteration=iteration)
+                if save_model_every_minutes > 0:
+                    current_time = time.time()
+                    if (current_time - last_save_time) >= save_model_every_minutes * 60:
+                        path = f"models/{args.algorithm}_time_{total_samples}.pth"
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        cfr_trainer.save_model(path)
+                        _safe_info(
+                            logger,
+                            "Model saved to %s due to time interval at sample %s",
+                            path,
+                            total_samples,
+                        )
+                        last_save_time = current_time
+
+            replay_buffer = getattr(cfr_trainer, "replay_buffer", None)
+            buffer_length = len(replay_buffer) if hasattr(replay_buffer, "__len__") else 0
+            steps = train_steps_per_cycle
+            if steps is None:
+                if buffer_length and train_batch_size > 0:
+                    steps = max(1, math.ceil(buffer_length / train_batch_size))
+                else:
+                    steps = 1
+
+            losses: list[float] = []
+            for step in range(1, steps + 1):
+                loss = cfr_trainer.train(batch_size=train_batch_size)
+                if loss is not None:
+                    losses.append(float(loss))
+                _safe_debug(
+                    logger,
+                    "Cycle %s | training step %s/%s | loss=%s",
+                    cycle_index,
+                    step,
+                    steps,
+                    "{:.6f}".format(float(loss)) if loss is not None else "n/a",
+                )
+
+            if losses:
+                _safe_info(
+                    logger,
+                    "Cycle %s | completed %s training steps | avg loss=%.6f",
+                    cycle_index,
+                    steps,
+                    sum(losses) / len(losses),
+                )
+            else:
+                _safe_info(
+                    logger,
+                    "Cycle %s | completed %s training steps", cycle_index, steps
+                )
+
+            cycle_path = f"models/{args.algorithm}_cycle_{cycle_index:05d}.pth"
+            os.makedirs(os.path.dirname(cycle_path), exist_ok=True)
+            cfr_trainer.save_model(cycle_path)
+            _safe_info(
+                logger,
+                "Model saved to %s after cycle %s", cycle_path, cycle_index
+            )
+
+            should_continue = analyzer.on_iteration_end(
+                cfr_trainer, iteration=total_samples
+            )
             if not should_continue:
                 _safe_info(
                     logger,
@@ -730,9 +918,10 @@ def main() -> None:  # noqa: C901
                 )
                 stopped_early = True
                 break
+
     except Exception as e:
         error = e
-        _safe_exception(logger, "Error during iteration %s: %s", iteration, e)
+        _safe_exception(logger, "Error during cycle %s: %s", cycle_index, e)
     if error is None:
         status_msg = "Training session finished"
         if stopped_early:
