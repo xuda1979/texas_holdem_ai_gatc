@@ -80,7 +80,13 @@ def _make_args(**overrides):
     return SimpleNamespace(**defaults)
 
 
-def _run_main(monkeypatch, args, torch_cuda=None, torch_npu=None, zeros_override=None):
+def _run_main(
+    monkeypatch,
+    args,
+    torch_cuda=None,
+    torch_npu=None,
+    zeros_override=None,
+):
     captured: dict[str, object] = {}
 
     def fake_parse_args():
@@ -134,6 +140,11 @@ class _NPUStub:
 
     def device_count(self) -> int:
         return self._count
+
+
+class _RaisingNPUStub:
+    def device_count(self) -> int:
+        raise RuntimeError("device query failed")
 
 
 def test_gpu_multi_device(monkeypatch, capsys):
@@ -211,6 +222,22 @@ def test_npu_probe_failure(monkeypatch, capsys):
     assert "tensor allocation on the NPU backend failed" in out
     assert captured["device"] == "cpu"
     assert captured["use_data_parallel"] is False
+
+
+def test_data_parallel_kwargs_for_npu(monkeypatch):
+    monkeypatch.setattr(train.torch, "npu", _NPUStub(True, count=4), raising=False)
+
+    kwargs = train._data_parallel_kwargs_for_device("npu")
+
+    assert kwargs == {"device_ids": [0, 1, 2, 3], "output_device": 0}
+
+
+def test_data_parallel_kwargs_for_npu_handles_errors(monkeypatch):
+    monkeypatch.setattr(train.torch, "npu", _RaisingNPUStub(), raising=False)
+
+    kwargs = train._data_parallel_kwargs_for_device("npu")
+
+    assert kwargs == {}
 
 
 def test_tpu_requires_torch_xla(monkeypatch):

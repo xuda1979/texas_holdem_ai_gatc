@@ -182,6 +182,31 @@ def load_configuration(path: str | None = None) -> dict:
     return load_config(path)
 
 
+def _data_parallel_kwargs_for_device(device: str) -> dict[str, Any]:
+    """Return keyword arguments for :class:`torch.nn.DataParallel`.
+
+    ``torch.nn.DataParallel`` automatically enumerates CUDA devices, but other
+    accelerator backends – notably ``torch.npu`` – require explicit device lists
+    to fan out across every available chip.  Returning an explicit mapping keeps
+    the caller logic agnostic of the accelerator type while ensuring multi-device
+    execution actually scales beyond a single NPU when ``--npus`` is supplied.
+    """
+
+    if device == "npu":
+        npu_module = getattr(torch, "npu", None)
+        if npu_module is None:
+            return {}
+        try:
+            device_count = int(npu_module.device_count())
+        except Exception:  # pragma: no cover - defensive guard
+            return {}
+        if device_count <= 0:
+            return {}
+        device_ids = list(range(device_count))
+        return {"device_ids": device_ids, "output_device": device_ids[0]}
+    return {}
+
+
 def initialize_trainer(
     algorithm: str, config: dict, device: str, use_data_parallel: bool = False
 ) -> object:
@@ -264,7 +289,8 @@ def initialize_trainer(
             _safe_info(
                 logger, "Wrapping model with DataParallel for multi-device training."
             )
-            wrapped_model = torch.nn.DataParallel(model_to_wrap)
+            parallel_kwargs = _data_parallel_kwargs_for_device(device)
+            wrapped_model = torch.nn.DataParallel(model_to_wrap, **parallel_kwargs)
             if target_attr_name:
                 setattr(trainer, target_attr_name, wrapped_model)
             prepare_hook = getattr(trainer, "on_data_parallel_wrapped", None)
