@@ -3,6 +3,13 @@
 Thin wrapper that delegates to the real CLIs under `src/poker_ai/cli`.
 It also works from an uninstalled checkout by putting `src/` on sys.path.
 """
+
+# Ensure src/ imports and optional deterministic seeding for local runs.
+import poker_ai_bootstrap as _pab
+
+_pab.seed_all()  # no-op unless RUN_DETERMINISTIC=1 or SEED is set
+del _pab
+
 import argparse
 import os
 import sys
