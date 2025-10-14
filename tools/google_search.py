@@ -112,5 +112,5 @@ class CustomDateTime(datetime.datetime, CustomDate):
 # continue to see the real classes.  The approach works for the controlled
 # environments where this module is used but should be replaced with a dedicated
 # time-freezing library for more complex applications.
-datetime.datetime = CustomDateTime
 datetime.date = CustomDate
+datetime.datetime = CustomDateTime
