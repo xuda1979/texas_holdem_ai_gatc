@@ -123,7 +123,7 @@ def test_min_raise_amount_follows_wsop_rules() -> None:
     game.initialize_game()
 
     assert game.get_min_raise_amount(0) == 10
-    game.process_action(0, "raise", raise_amount=10)
+    game.process_action(0, "raise", raise_amount=20)
     assert game.get_min_raise_amount(1) == 10
 
 
