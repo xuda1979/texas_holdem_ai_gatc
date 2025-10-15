@@ -8,7 +8,8 @@ for p in (src_path, project_root):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-from poker_ai.engine.texas_holdem import TexasHoldem, TexasHoldemRules  # noqa: E402
+from poker_ai.engine.texas_holdem import TexasHoldem  # noqa: E402
+from poker_ai.rules.texas_holdem import TexasHoldemRules  # noqa: E402
 
 
 def test_post_blinds() -> None:

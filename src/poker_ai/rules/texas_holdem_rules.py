@@ -1,5 +1,5 @@
-"""Compatibility wrapper re-exporting engine implementation."""
+"""Compatibility wrapper re-exporting the standalone rule implementation."""
 
-from poker_ai.engine.texas_holdem import TexasHoldemRules
+from .texas_holdem import TexasHoldemRules
 
 __all__ = ["TexasHoldemRules"]
