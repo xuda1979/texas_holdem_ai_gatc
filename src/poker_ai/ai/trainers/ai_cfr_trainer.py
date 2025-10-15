@@ -166,7 +166,12 @@ class AICFRTrainer:
         mask = mask.to(target_device) if mask is not None else None
 
         with torch.no_grad():
-            advantages = self.model(hole_summary, community_summary, history_tensor, src_mask=None)
+            advantages = self.model(
+                hole_summary,
+                community_summary,
+                history_tensor,
+                key_padding_mask=None,
+            )
         return advantages.squeeze(0)
 
     def train(self, *args, **kwargs):
@@ -212,7 +217,7 @@ class AICFRTrainer:
                 hole_summary,
                 community_summary,
                 history_tensor,
-                src_mask=None,
+                key_padding_mask=None,
             ).squeeze(0)
             strategy_pred = torch.softmax(logits, dim=-1)
 

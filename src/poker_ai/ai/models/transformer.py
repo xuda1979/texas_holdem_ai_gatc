@@ -72,7 +72,8 @@ class AdvantageNetwork(nn.Module):
         hole_summary: torch.Tensor,
         community_summary: torch.Tensor,
         history_seq: torch.Tensor,
-        src_mask: torch.Tensor | None = None,
+        *,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Return raw advantages for each action."""
 
@@ -80,7 +81,7 @@ class AdvantageNetwork(nn.Module):
             raise ValueError("history_seq should be of shape (batch, seq_len, feat_dim)")
 
         h = self.history_projection(history_seq)
-        h = self.transformer(h, mask=src_mask)
+        h = self.transformer(h, src_key_padding_mask=key_padding_mask)
         h = h[:, -1, :]
 
         hole = self.card_projection(hole_summary)

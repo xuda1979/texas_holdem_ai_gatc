@@ -14,7 +14,8 @@ class _ConstantLogitModel(torch.nn.Module):
         hole_summary: torch.Tensor,
         community_summary: torch.Tensor,
         history_seq: torch.Tensor,
-        src_mask: torch.Tensor | None = None,
+        *,
+        key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         batch = hole_summary.shape[0]
         return self.logits.expand(batch, -1)

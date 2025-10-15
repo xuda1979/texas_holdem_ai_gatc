@@ -517,11 +517,6 @@ class SelfPlay:
         action = get_action_from_index(action_idx, game, player_id=player_id)
         action_str, amount = action_to_tuple(action)
 
-        if action_str == "raise" and amount is not None:
-            current_bet = getattr(getattr(game, "rules", game), "current_bet", 0)
-            if current_bet > 0:
-                amount = max(0, amount - current_bet)
-
         game.process_action(player_id, action_str, amount)
         game.rules.advance_turn()
 

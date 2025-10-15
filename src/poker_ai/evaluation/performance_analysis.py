@@ -77,18 +77,25 @@ class EvalStrategy(PlayerStrategy):
                 break
 
         normalization_scale = infer_normalization_scale(game, preferred_scale)
-        hole, community, history = prepare_transformer_input(
+        hole, community, history, mask = prepare_transformer_input(
             game,
             player_index,
             self.max_seq_len,
             self.history_feature_dim,
             normalization_scale=normalization_scale,
+            return_mask=True,
         )
+        mask = mask.to(torch.bool)
+        hole_batch = hole.unsqueeze(0).to(self.device)
+        community_batch = community.unsqueeze(0).to(self.device)
+        history_batch = history.unsqueeze(0).to(self.device)
+        key_padding_mask = (~mask.unsqueeze(0)).to(self.device)
         advantages = (
             self.model(
-                hole.unsqueeze(0).to(self.device),
-                community.unsqueeze(0).to(self.device),
-                history.unsqueeze(0).to(self.device),
+                hole_batch,
+                community_batch,
+                history_batch,
+                key_padding_mask=key_padding_mask,
             )
             .squeeze(0)
             .cpu()

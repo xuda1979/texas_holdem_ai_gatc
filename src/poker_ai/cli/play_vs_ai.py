@@ -265,37 +265,48 @@ class AIStrategy(PlayerStrategy):
 
             prepare_fn = prepare_transformer_input
             supports_normalization = False
+            supports_mask = False
             try:
                 signature = inspect.signature(prepare_fn)
             except (TypeError, ValueError):  # pragma: no cover - dynamic objects
                 supports_normalization = False
             else:
-                supports_normalization = "normalization_scale" in signature.parameters
+                params = signature.parameters
+                supports_normalization = "normalization_scale" in params
+                supports_mask = "return_mask" in params
 
+            kwargs: dict[str, object] = {}
             if supports_normalization:
-                tensors = prepare_fn(
-                    game,
-                    player_index,
-                    self.max_seq_len,
-                    self.feature_dim,
-                    normalization_scale=normalization_scale,
-                )
-            else:
-                tensors = prepare_fn(
-                    game,
-                    player_index,
-                    self.max_seq_len,
-                    self.feature_dim,
-                )
+                kwargs["normalization_scale"] = normalization_scale
+            if supports_mask:
+                kwargs["return_mask"] = True
 
-            hole = tensors[0]
-            community = tensors[1]
-            history = tensors[2]
+            tensors = prepare_fn(
+                game,
+                player_index,
+                self.max_seq_len,
+                self.feature_dim,
+                **kwargs,
+            )
+
+            mask_tensor = None
+            if supports_mask and len(tensors) == 4:
+                hole, community, history, mask_tensor = tensors
+            else:
+                hole, community, history = tensors[:3]
+
+            if mask_tensor is not None and mask_tensor.dtype != torch.bool:
+                mask_tensor = mask_tensor.to(torch.bool)
             advantages = (
                 self.model(
                     hole.unsqueeze(0).to(self._torch_device),
                     community.unsqueeze(0).to(self._torch_device),
                     history.unsqueeze(0).to(self._torch_device),
+                    key_padding_mask=(
+                        (~mask_tensor.unsqueeze(0)).to(self._torch_device)
+                        if mask_tensor is not None
+                        else None
+                    ),
                 )
                 .squeeze(0)
                 .cpu()

@@ -11,8 +11,7 @@ import random
 from typing import Optional
 
 from gatc_holdem.engine import CashTable
-from gatc_holdem.engine.rules import min_raise_to
-from gatc_poker.pots import compute_side_pots as gatc_compute_side_pots
+from gatc_holdem.engine.rules import build_side_pots, min_raise_to
 
 # ``treys`` provides fast poker hand evaluation but is optional in our test
 # environment.  To keep the engine lightweight, we attempt to import the real
@@ -566,93 +565,71 @@ class TexasHoldem:
                 # 'bet' is used when current_bet is 0. 'raise' is used when current_bet > 0.
                 is_raise_action = self.rules.current_bet > 0
 
-                amount_to_call = self.rules.current_bet - self.rules.bets[player_index]
-                if amount_to_call < 0:
-                    amount_to_call = 0  # Should not happen if logic is correct
-
-                # If raise_amount is None, it's an error from strategy or it's an opening bet.
-                # For an opening bet (current_bet is 0), raise_amount is the bet size.
-                # For a raise (current_bet > 0), raise_amount is the additional amount on top of current_bet.
-
-                if raise_amount is None:  # Should be caught by strategy, but as a fallback:
-                    if is_raise_action:  # Trying to raise but no amount
+                if raise_amount is None:
+                    if is_raise_action:
                         raise ValueError("Raise amount must be specified for a raise.")
-                    else:  # Trying to bet but no amount
-                        raise ValueError("Bet amount must be specified for a bet.")
+                    raise ValueError("Bet amount must be specified for a bet.")
 
-                # This returns the *additional* amount for a raise, or BB for an opening bet.
-                min_bet_or_raise_value = self.get_min_raise_amount(player_index)
+                try:
+                    target_to = int(raise_amount)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Raise amount must be numeric.") from exc
 
-                actual_raise_or_bet_amount = raise_amount
+                if target_to <= self.rules.bets[player_index]:
+                    target_to = self.rules.bets[player_index]
 
-                if is_raise_action:  # This is a RAISE
-                    if actual_raise_or_bet_amount < min_bet_or_raise_value:
-                        self._log(
-                            f"Player {player_index + 1} attempted to raise by {actual_raise_or_bet_amount}, less than min raise of {min_bet_or_raise_value}. Adjusting to min raise."
-                        )
-                        actual_raise_or_bet_amount = min_bet_or_raise_value
+                min_target_to = min_raise_to(
+                    self.rules.current_bet,
+                    self.rules.previous_raise_amount,
+                    self.rules.big_blind,
+                )
+                if not is_raise_action:
+                    required_to = max(min_target_to, self.rules.big_blind)
+                else:
+                    required_to = max(min_target_to, self.rules.current_bet + 1)
 
-                    total_player_bet = self.rules.current_bet + actual_raise_or_bet_amount
-
-                else:  # This is an opening BET
-                    if (
-                        actual_raise_or_bet_amount < min_bet_or_raise_value
-                    ):  # min_bet_or_raise_value is BB here
-                        self._log(
-                            f"Player {player_index + 1} attempted to bet {actual_raise_or_bet_amount}, less than min bet of {min_bet_or_raise_value}. Adjusting to min bet."
-                        )
-                        actual_raise_or_bet_amount = min_bet_or_raise_value
-                    total_player_bet = actual_raise_or_bet_amount
-
-                # Check if player has enough chips for the full intended bet/raise
-                goes_all_in = (
-                    total_player_bet - self.rules.bets[player_index]
-                ) > self.rules.player_chips[player_index]
-                if goes_all_in:
-                    # Player is going all-in (may be short of a full min raise)
-                    all_in_amount = (
-                        self.rules.player_chips[player_index] + self.rules.bets[player_index]
-                    )
+                if target_to < required_to:
+                    verb = "raise" if is_raise_action else "bet"
                     self._log(
-                        f"Player {player_index + 1} goes all-in with {self.rules.player_chips[player_index]} chips (total bet {all_in_amount})."
+                        f"Player {player_index + 1} attempted to {verb} to {target_to}, below minimum {required_to}. Adjusting."
                     )
-                    total_player_bet = all_in_amount  # This is their all-in bet amount
-                    # The actual_raise_or_bet_amount needs to be recalculated if they are all-in short
-                    if total_player_bet > self.rules.current_bet:
-                        actual_raise_or_bet_amount = total_player_bet - self.rules.current_bet
-                    else:
-                        # All-in is just a call or less
-                        actual_raise_or_bet_amount = 0
+                    target_to = required_to
 
-                else:  # Sufficient chips for the bet/raise
+                max_total = self.rules.bets[player_index] + self.rules.player_chips[player_index]
+                goes_all_in = target_to >= max_total
+                if goes_all_in:
+                    additional = self.rules.player_chips[player_index]
+                    total_player_bet = max_total
+                    self._log(
+                        f"Player {player_index + 1} goes all-in with {additional} chips (to {total_player_bet})."
+                    )
+                else:
+                    total_player_bet = target_to
+                    raise_by = max(0, total_player_bet - original_current_bet)
                     if is_raise_action:
                         self._log(
-                            f"Player {player_index + 1} raises by {actual_raise_or_bet_amount} to {total_player_bet} chips."
+                            f"Player {player_index + 1} raises to {total_player_bet} chips ({raise_by} more)."
                         )
-                    else:  # Opening bet
+                    else:
                         self._log(f"Player {player_index + 1} bets {total_player_bet} chips.")
 
                 if is_raise_action:
+                    raise_by = max(0, total_player_bet - original_current_bet)
                     self.rules.betting_history.append(
-                        (str(player_index), ("raise", actual_raise_or_bet_amount))
+                        (str(player_index), ("raise", raise_by))
                     )
                 else:
                     self.rules.betting_history.append(
                         (str(player_index), ("bet", total_player_bet))
                     )
 
-                # Call self.rules.bet with the player's total bet for this round
                 self.rules.bet(player_index, total_player_bet)
                 action_completed = True
 
-                # Decide if this action *reopens* action:
-                # Only if there was an actual raise of at least the minimum increment.
                 reopened = False
                 if self.rules.current_bet > original_current_bet:
-                    # Compute increment and check minimum raise increment
                     inc = self.rules.current_bet - original_current_bet
                     min_inc = self.get_min_raise_amount(player_index)
-                    # A short all-in (stack-constrained) that doesn't reach min_inc does NOT reopen action.
                     if inc >= min_inc and not goes_all_in:
                         reopened = True
 
@@ -920,11 +897,9 @@ class TexasHoldem:
         return winnings.get(player_id, 0) - self.rules.total_bets_this_hand[player_id]
 
     def get_max_raise_amount(self, player_index):
-        # This is the total amount a player can raise TO, not the additional amount.
-        # Max raise is effectively all their chips.
-        # The 'raise_amount' in process_action is the additional amount.
-        # So max additional raise is player_chips.
-        return self.rules.player_chips[player_index]
+        """Return the maximum total bet the player can make this street."""
+
+        return self.rules.bets[player_index] + self.rules.player_chips[player_index]
 
     # ---------------------------
     # Showdown / Side-pot helpers
@@ -958,21 +933,43 @@ class TexasHoldem:
         return score, sorted(hole + board), rank_class
 
     def _compute_side_pots(self) -> list[dict[str, object]]:
-        """Compute side pots using the shared helper from :mod:`gatc_poker`."""
+        """Compute side pots using the shared helper from :mod:`gatc_holdem`."""
 
-        contributions: dict[int, int] = {}
-        for idx, amount in enumerate(self.rules.total_bets_this_hand):
-            chips = int(amount)
-            if chips > 0:
-                contributions[idx] = chips
-        in_showdown = {
-            idx for idx, active in enumerate(self.rules.active_players) if active
-        }
-        pots = gatc_compute_side_pots(contributions, in_showdown)
-        return [
+        contributions = [int(amount) for amount in self.rules.total_bets_this_hand]
+        in_hand = [bool(active) for active in self.rules.active_players]
+        base_pots = build_side_pots(contributions, in_hand)
+        pots: list[dict[str, object]] = [
             {"amount": pot.amount, "eligible": set(pot.eligible)}
-            for pot in pots
+            for pot in base_pots
         ]
+
+        levels = sorted({c for c in contributions if c > 0})
+        prev = 0
+        single_contributions: dict[int, int] = {}
+        for level in levels:
+            delta = level - prev
+            if delta <= 0:
+                prev = level
+                continue
+            contributors = [idx for idx, c in enumerate(contributions) if c >= level]
+            if not contributors:
+                prev = level
+                continue
+            eligible = [idx for idx in contributors if in_hand[idx]]
+            if not eligible:
+                prev = level
+                continue
+            amount = delta * len(contributors)
+            if len(eligible) == 1:
+                seat = eligible[0]
+                single_contributions[seat] = single_contributions.get(seat, 0) + amount
+            prev = level
+
+        for seat, amount in single_contributions.items():
+            if amount > 0:
+                pots.append({"amount": amount, "eligible": {seat}})
+
+        return pots
 
     def perform_showdown(self) -> tuple[dict[int, int], dict[int, int]]:
         """Evaluate all active players' hands and build side pots.

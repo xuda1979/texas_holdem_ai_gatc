@@ -52,19 +52,25 @@ class TransformerStrategy:
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
         normalization_scale = infer_normalization_scale(game, self._scale_hint)
-        hole, community, history = prepare_transformer_input(
+        hole, community, history, mask = prepare_transformer_input(
             cast(Any, game),
             player_index,
             max_seq_len,
             d_raw_feature,
             normalization_scale=normalization_scale,
-            return_mask=False,
+            return_mask=True,
         )
+        mask = mask.to(torch.bool)
+        hole_batch = hole.unsqueeze(0).to(self.device)
+        community_batch = community.unsqueeze(0).to(self.device)
+        history_batch = history.unsqueeze(0).to(self.device)
+        key_padding_mask = (~mask.unsqueeze(0)).to(self.device)
         advantages = (
             self.model(
-                hole.unsqueeze(0).to(self.device),
-                community.unsqueeze(0).to(self.device),
-                history.unsqueeze(0).to(self.device),
+                hole_batch,
+                community_batch,
+                history_batch,
+                key_padding_mask=key_padding_mask,
             )
             .squeeze(0)
             .cpu()
