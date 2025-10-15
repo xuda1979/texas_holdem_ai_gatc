@@ -7,11 +7,19 @@
 import json
 import logging
 import os
-import random
 from typing import Optional
 
 from gatc_holdem.engine import CashTable
 from gatc_holdem.engine.rules import build_side_pots, min_raise_to
+
+from .components import (
+    BettingRoundTracker,
+    CardDeck,
+    DeckManager,
+    PlayerManager,
+    RANKS,
+    SUITS,
+)
 
 # ``treys`` provides fast poker hand evaluation but is optional in our test
 # environment.  To keep the engine lightweight, we attempt to import the real
@@ -44,18 +52,6 @@ except Exception:  # pragma: no cover - treys missing
 
     Evaluator = _Evaluator
     Card = _Card
-
-
-class CardDeck(list):
-    """Simple list subclass exposing a ``cards`` attribute for tests."""
-
-    @property
-    def cards(self):
-        return list(self)
-
-
-SUITS = ["h", "d", "c", "s"]
-RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 from datetime import datetime
 
 
@@ -63,13 +59,21 @@ class TexasHoldemRules:
     def __init__(self, num_players=2, starting_stack=10000, verbose=True):
         self.num_players = num_players
         self.starting_stack = starting_stack
-        self.deck = self._create_deck()
+        self.deck_manager = DeckManager()
         self.hands = [[] for _ in range(num_players)]
         self.community_cards = []
         self.pot = 0
-        self.bets = [0] * num_players
-        self.player_chips = [starting_stack] * num_players
-        self.active_players = [True] * num_players
+        self._bets = [0] * num_players
+        self._player_chips = [starting_stack] * num_players
+        self._active_players = [True] * num_players
+        self._total_bets_this_hand = [0] * num_players
+        self.player_manager = PlayerManager(
+            player_chips=self._player_chips,
+            bets=self._bets,
+            total_bets_this_hand=self._total_bets_this_hand,
+            active_players=self._active_players,
+        )
+        self._betting = BettingRoundTracker()
         self.small_blind = 10
         self.big_blind = 20
         self.current_bet = 0
@@ -78,9 +82,6 @@ class TexasHoldemRules:
         self.betting_history = []  # Stores actions per hand
         self.actions_this_round = 0  # Counter for actions in the current betting round
         self.last_raiser = None  # Tracks the player index of the last raiser in a betting round
-        self.total_bets_this_hand = [
-            0
-        ] * num_players  # Tracks total bets per player for the current hand
         self.betting_round = "pre-flop"  # Add this line
         self.logger = logging.getLogger(__name__)
         self.verbose = verbose
@@ -89,10 +90,110 @@ class TexasHoldemRules:
         if self.verbose:
             self.logger.info(msg)
 
+    # ------------------------------------------------------------------
+    # Properties bridging legacy attributes and the new component helpers
+    # ------------------------------------------------------------------
+    @property
+    def deck(self):
+        return self.deck_manager.cards
+
+    @deck.setter
+    def deck(self, cards):
+        self.deck_manager.cards = CardDeck(cards)
+
+    @property
+    def bets(self):
+        return self._bets
+
+    @bets.setter
+    def bets(self, values):
+        self._bets = list(values)
+        if hasattr(self, "player_manager"):
+            self.player_manager.update_references(bets=self._bets)
+
+    @property
+    def player_chips(self):
+        return self._player_chips
+
+    @player_chips.setter
+    def player_chips(self, values):
+        self._player_chips = list(values)
+        if hasattr(self, "player_manager"):
+            self.player_manager.update_references(player_chips=self._player_chips)
+
+    @property
+    def active_players(self):
+        return self._active_players
+
+    @active_players.setter
+    def active_players(self, values):
+        self._active_players = list(values)
+        if hasattr(self, "player_manager"):
+            self.player_manager.update_references(active_players=self._active_players)
+
+    @property
+    def total_bets_this_hand(self):
+        return self._total_bets_this_hand
+
+    @total_bets_this_hand.setter
+    def total_bets_this_hand(self, values):
+        self._total_bets_this_hand = list(values)
+        if hasattr(self, "player_manager"):
+            self.player_manager.update_references(
+                total_bets_this_hand=self._total_bets_this_hand
+            )
+
+    @property
+    def current_bet(self):
+        return self._betting.current_bet
+
+    @current_bet.setter
+    def current_bet(self, value):
+        self._betting.current_bet = value
+
+    @property
+    def previous_raise_amount(self):
+        return self._betting.previous_raise_amount
+
+    @previous_raise_amount.setter
+    def previous_raise_amount(self, value):
+        self._betting.previous_raise_amount = value
+
+    @property
+    def actions_this_round(self):
+        return self._betting.actions_this_round
+
+    @actions_this_round.setter
+    def actions_this_round(self, value):
+        self._betting.actions_this_round = value
+
+    @property
+    def last_raiser(self):
+        return self._betting.last_raiser
+
+    @last_raiser.setter
+    def last_raiser(self, value):
+        self._betting.last_raiser = value
+
+    # ------------------------------------------------------------------
+    # High level lifecycle helpers
+    # ------------------------------------------------------------------
+    def reset_for_new_hand(self) -> None:
+        """Reset mutable state prior to dealing a fresh hand."""
+
+        self.hands = [[] for _ in range(self.num_players)]
+        self.community_cards = []
+        self.pot = 0
+        self.betting_history = []
+        self.player_manager.reset_for_new_hand()
+        self.current_bet = 0
+        self.previous_raise_amount = 0
+        self.actions_this_round = 0
+        self.last_raiser = None
+        self.deck_manager.reset()
+
     def _create_deck(self):
-        suits = ["h", "d", "c", "s"]  # h: hearts, d: diamonds, c: clubs, s: spades
-        ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
-        return CardDeck([rank + suit for suit in suits for rank in ranks])
+        return CardDeck(self.deck_manager.build_fresh_deck())
 
     def _next_player_with_chips(
         self, start_index: int, *, include_start: bool = False
@@ -106,20 +207,13 @@ class TexasHoldemRules:
         player is found.
         """
 
-        if self.num_players <= 0:
-            return None
-
-        step_start = start_index if include_start else (start_index + 1) % self.num_players
-        idx = step_start
-        for _ in range(self.num_players):
-            if self.active_players[idx] and self.player_chips[idx] > 0:
-                return idx
-            idx = (idx + 1) % self.num_players
-        return None
+        return self.player_manager.next_player_with_chips(
+            start_index, include_start=include_start
+        )
 
     def shuffle_deck(self):
         # Ensure the deck is actually shuffled
-        random.shuffle(self.deck)
+        self.deck_manager.shuffle()
 
     def rotate_dealer(self):
         """Move the dealer button to the next player."""
@@ -127,10 +221,7 @@ class TexasHoldemRules:
 
     def deal(self):
         # Deal 2 cards to each active player
-        for _ in range(2):
-            for i in range(self.num_players):
-                if self.active_players[i]:
-                    self.hands[i].append(self.deck.pop())
+        self.deck_manager.deal_hole_cards(self.hands, self.active_players)
 
     def post_blinds(self):
         structured_blind_actions = []
@@ -143,14 +234,8 @@ class TexasHoldemRules:
             big_blind_player = small_blind_player
 
         def _post_blind(player_index: int, blind_amount: int, label: str) -> int:
-            available_chips = self.player_chips[player_index]
-            contribution = min(available_chips, blind_amount)
-            self.player_chips[player_index] -= contribution
-            if self.player_chips[player_index] < 0:  # Safety guard in case of negative values
-                self.player_chips[player_index] = 0
-            self.bets[player_index] = contribution
+            contribution = self.player_manager.post_blind(player_index, blind_amount)
             self.pot += contribution
-            self.total_bets_this_hand[player_index] += contribution
             self.betting_history.append((str(player_index), ("bet", contribution)))
             if contribution < blind_amount:
                 self._log(
@@ -182,25 +267,24 @@ class TexasHoldemRules:
         bet_difference = amount - self.bets[player_index]
         if amount < self.current_bet:
             raise ValueError("Bet amount is less than the current bet.")
-        if bet_difference > self.player_chips[player_index]:
-            # Player goes all-in
-            bet_difference = self.player_chips[player_index]
-            amount = self.bets[player_index] + bet_difference
-            self.player_chips[player_index] = 0
-            self._log(f"Player {player_index + 1} goes all-in with {bet_difference} chips.")
-        else:
-            self.player_chips[player_index] -= bet_difference
-            self._log(f"Player {player_index + 1} raises to {amount} chips.")
-
-        self.pot += bet_difference
-        self.total_bets_this_hand[player_index] += (
-            bet_difference  # Accumulate total bet for the hand
+        contribution, fully_applied = self.player_manager.apply_bet(
+            player_index, amount
         )
-        self.bets[player_index] = amount  # This is total bet for the current round
+        if contribution:
+            self.pot += contribution
 
-        if amount > self.current_bet:
-            self.previous_raise_amount = amount - self.current_bet
-            self.current_bet = amount
+        actual_total = self.bets[player_index]
+        previous_total = actual_total - contribution
+
+        if not fully_applied and bet_difference > contribution:
+            self._log(
+                f"Player {player_index + 1} goes all-in with {contribution} chips."
+            )
+        if actual_total > self.current_bet and actual_total > previous_total:
+            self._log(f"Player {player_index + 1} raises to {actual_total} chips.")
+            previous_bet = self.current_bet
+            self.previous_raise_amount = actual_total - previous_bet
+            self.current_bet = actual_total
             self._log(f"Current bet is now {self.current_bet} chips.")
 
     def advance_turn(self):
@@ -215,18 +299,14 @@ class TexasHoldemRules:
             self.current_player = (self.current_player + 1) % self.num_players
 
     def reset_bets(self):
-        self.bets = [0] * self.num_players
+        self.player_manager.reset_bets_for_round()
         self.current_bet = 0
         self.previous_raise_amount = 0
         self.actions_this_round = 0  # Reset actions_this_round here as well
 
     def betting_round_is_over(self):
         """Return True if all active players have matched the current bet."""
-        active_players = [
-            i
-            for i in range(self.num_players)
-            if self.active_players[i] and self.player_chips[i] > 0
-        ]
+        active_players = self.player_manager.active_with_chips()
         if not active_players:
             return True
         all_settled = all(self.bets[i] == self.current_bet for i in active_players)
@@ -246,27 +326,26 @@ class TexasHoldemRules:
     def deal_community_cards(self, round_stage):
         if round_stage == "flop":
             # Burn a card
-            burned = self.deck.pop()
+            burned = self.deck_manager.burn()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the flop (3 cards)
-            for _ in range(3):
-                card = self.deck.pop()
+            for card in self.deck_manager.draw(3):
                 self.community_cards.append(card)
                 self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == "turn":
             # Burn a card
-            burned = self.deck.pop()
+            burned = self.deck_manager.burn()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the turn (1 card)
-            card = self.deck.pop()
+            card = self.deck_manager.draw()[0]
             self.community_cards.append(card)
             self._log(f"Dealt community card: {self._format_card(card)}.")
         elif round_stage == "river":
             # Burn a card
-            burned = self.deck.pop()
+            burned = self.deck_manager.burn()
             self._log(f"Burned a card: {self._format_card(burned)}.")
             # Deal the river (1 card)
-            card = self.deck.pop()
+            card = self.deck_manager.draw()[0]
             self.community_cards.append(card)
             self._log(f"Dealt community card: {self._format_card(card)}.")
         else:
@@ -282,6 +361,8 @@ class TexasHoldemRules:
         """Return a lightweight copy of the mutable rule state."""
 
         clone = self.__class__.__new__(self.__class__)
+        clone.deck_manager = self.deck_manager.clone()
+        clone._betting = self._betting.clone()
 
         # Immutable or shared objects can be copied directly.
         clone.num_players = self.num_players
@@ -307,6 +388,12 @@ class TexasHoldemRules:
         clone.active_players = list(self.active_players)
         clone.betting_history = list(self.betting_history)
         clone.total_bets_this_hand = list(self.total_bets_this_hand)
+        clone.player_manager = self.player_manager.clone(
+            player_chips=clone._player_chips,
+            bets=clone._bets,
+            total_bets_this_hand=clone._total_bets_this_hand,
+            active_players=clone._active_players,
+        )
 
         if hasattr(self, "current_player"):
             clone.current_player = self.current_player
@@ -481,19 +568,7 @@ class TexasHoldem:
                 raise RuntimeError("No seated players with chips to start a hand")
             self.cash_table.start_hand(active_players)
             self._sync_engine_from_cash_table()
-        self.rules.hands = [[] for _ in range(self.num_players)]
-        self.rules.community_cards = []
-        self.rules.pot = 0
-        self.rules.bets = [0] * self.num_players
-        self.rules.current_bet = 0
-        self.rules.previous_raise_amount = 0
-        self.rules.betting_history = []
-        self.rules.actions_this_round = 0
-        self.rules.last_raiser = None
-        self.rules.total_bets_this_hand = [0] * self.num_players
-
-        # Reset and shuffle deck
-        self.rules.deck = self.rules._create_deck()
+        self.rules.reset_for_new_hand()
         self.rules.shuffle_deck()
 
         self.current_hand_initial_actions = []  # Reset at the start of each hand
@@ -1079,12 +1154,8 @@ class TexasHoldem:
             self.rules.dealer_button = (self.rules.dealer_button + 1) % self.num_players
 
         # Reset game state
-        self.rules.deck = self.rules._create_deck()
+        self.rules.reset_for_new_hand()
         self.rules.shuffle_deck()
-        self.rules.hands = [[] for _ in range(self.num_players)]
-        self.rules.community_cards = []
-        self.rules.pot = 0
-        self.rules.bets = [0] * self.num_players
         next_player = self.rules._next_player_with_chips(self.rules.dealer_button)
         if next_player is None:
             next_player = self.rules.dealer_button
