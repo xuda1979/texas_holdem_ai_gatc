@@ -175,7 +175,9 @@ switch to the module invocation after installing the package.
 ### Interactive Colab Notebook
 
 An interactive training workflow is available in [`train.ipynb`](train.ipynb).
-The notebook is designed for Google Colab and automates the full setup:
+The notebook is designed for Google Colab and automates the full setup while
+mirroring the accelerator selection logic used by the CLI (it now falls back to
+TPUs automatically when GPUs are unavailable but a TPU runtime is detected):
 
 1. **Open the notebook.** Either launch it locally with Jupyter or click the
    "Open in Colab" badge at the top of the notebook to run it in Colab.
@@ -188,22 +190,30 @@ The notebook is designed for Google Colab and automates the full setup:
    persistent storage, clones or updates the repository, installs dependencies
    from `requirements.txt`, and then starts `poker_ai.cli.train`. Training logs
    and model checkpoints are symlinked to your Drive (`trained_models/`,
-   `logs/`, and `reports/`) so they survive across Colab sessions.
+   `logs/`, and `reports/`) so they survive across Colab sessions. The notebook
+   automatically appends `--gpus` when CUDA is available, otherwise it checks
+   for a TPU runtime (via `torch_xla`) and enables `--tpu` when successful so
+   the CLI receives the same accelerator hints you would provide manually.
 4. **Monitor and resume.** Output is streamed live in the notebook while a copy
    is written to Drive. On subsequent runs the notebook automatically resumes
    from the most recent checkpoint discovered in Drive.
 
 The workflow detects GPU availability in Colab and enables `--gpus` when
-possible. When TPU support is required, install the `torch-xla` dependency (it
-is treated as optional so failures will not abort the setup).
+possible. If GPUs are missing but a TPU runtime is present, the notebook now
+enables `--tpu` automatically. When TPU support is required, install the
+`torch-xla` dependency (it is treated as optional so installation failures will
+not abort the setup).
 
 ### Device Selection (CPU/GPU/NPU/TPU)
 
 The trainer prefers the fastest available accelerator.  When no device flag is
-specified it automatically checks for NPUs first, then GPUs, and finally falls
-back to the CPU.  You can force a specific backend with the following flags:
+specified it automatically checks for NPUs first, then GPUs, followed by TPUs,
+and finally falls back to the CPU.  You can force a specific backend with the
+following flags:
 
-- `--gpus` – enables PyTorch `DataParallel` across available GPUs.
+- `--gpus` – enables PyTorch `DataParallel` across available GPUs. When GPUs are
+  requested but none are detected, the CLI automatically falls back to TPUs if a
+  TPU runtime is available.
 - `--npus` – mirrors the GPU workflow for NPU devices.
 - `--tpu` – configures the training loop for Cloud TPU VMs via `torch_xla`.
 

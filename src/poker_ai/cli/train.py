@@ -118,6 +118,38 @@ def _probe_device_allocation(device: str) -> tuple[bool, str | None]:
         return False, f"{type(exc).__name__}: {exc}"
     return True, None
 
+
+def _resolve_tpu_device(logger: logging.Logger, *, strict: bool) -> str | None:
+    """Return the TPU device string if ``torch_xla`` is available."""
+
+    try:
+        import torch_xla.core.xla_model as xm  # type: ignore[attr-defined]
+    except ImportError as exc:
+        if strict:  # pragma: no cover - explicit failure path when requested
+            raise RuntimeError(
+                "torch_xla is required for TPU training. Install the torch-xla package first."
+            ) from exc
+        _safe_debug(
+            logger,
+            "TPU detection skipped because torch_xla is unavailable: %s",
+            exc,
+        )
+        return None
+
+    try:
+        return str(xm.xla_device())
+    except Exception as exc:
+        if strict:  # pragma: no cover - explicit failure path when requested
+            raise RuntimeError(
+                "Failed to initialize TPU via torch_xla: %s" % (exc,)
+            ) from exc
+        _safe_warning(
+            logger,
+            "Detected TPU runtime but initialization failed: %s. Falling back to CPU.",
+            exc,
+        )
+        return None
+
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
 from poker_ai.selfplay.self_play import SelfPlay
@@ -539,14 +571,8 @@ def main() -> None:  # noqa: C901
     device_printable = device
 
     if tpu_requested:
-        try:
-            import torch_xla.core.xla_model as xm  # type: ignore[attr-defined]
-        except ImportError as exc:  # pragma: no cover - dependency not installed
-            raise RuntimeError(
-                "torch_xla is required for TPU training. Install the torch-xla package first."
-            ) from exc
-
-        xla_device = xm.xla_device()
+        xla_device = _resolve_tpu_device(logger, strict=True)
+        assert xla_device is not None  # appease type-checkers
         device = "xla"
         device_printable = f"{device} ({xla_device})"
         _safe_info(logger, "TPU training enabled on device %s", xla_device)
@@ -587,16 +613,28 @@ def main() -> None:  # noqa: C901
                 _announce("GPU training enabled.")
         else:
             _announce(
-                "Warning: --gpus specified, but no GPU devices are available. "
-                "Falling back to CPU.",
+                "Warning: --gpus specified, but no GPU devices are available.",
                 level=logging.WARNING,
             )
+            xla_device = _resolve_tpu_device(logger, strict=False)
+            if xla_device is not None:
+                device = "xla"
+                device_printable = f"xla ({xla_device})"
+                _announce(f"Falling back to TPU acceleration on device {xla_device}.")
+                _safe_info(logger, "TPU training enabled on device %s", xla_device)
+            else:
+                _announce(
+                    "Falling back to CPU.",
+                    level=logging.WARNING,
+                )
     else:
         preferred_device: str | None = None
+        preferred_device_printable: str | None = None
         if hasattr(torch, "npu") and torch.npu.is_available():
             allocation_ok, failure_reason = _probe_device_allocation("npu")
             if allocation_ok:
                 preferred_device = "npu"
+                preferred_device_printable = "npu"
                 npu_count = torch.npu.device_count()
                 if npu_count > 1:
                     use_data_parallel = True
@@ -613,6 +651,7 @@ def main() -> None:  # noqa: C901
                 )
         if preferred_device is None and torch.cuda.is_available():
             preferred_device = "cuda"
+            preferred_device_printable = "cuda"
             gpu_count = torch.cuda.device_count()
             if gpu_count > 1:
                 use_data_parallel = True
@@ -621,9 +660,18 @@ def main() -> None:  # noqa: C901
                 )
             else:
                 _announce("Auto-selected GPU acceleration.")
+        if preferred_device is None:
+            xla_device = _resolve_tpu_device(logger, strict=False)
+            if xla_device is not None:
+                preferred_device = "xla"
+                preferred_device_printable = f"xla ({xla_device})"
+                _announce(
+                    f"Auto-selected TPU acceleration on device {xla_device}."
+                )
+                _safe_info(logger, "TPU training enabled on device %s", xla_device)
         if preferred_device is not None:
             device = preferred_device
-            device_printable = device
+            device_printable = preferred_device_printable or preferred_device
 
     analyzer_device = device if device != "xla" else "cpu"
     if device == "xla" and analyzer_device == "cpu":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -147,6 +148,21 @@ class _RaisingNPUStub:
         raise RuntimeError("device query failed")
 
 
+def _install_fake_xla(monkeypatch, device: str = "xla:1") -> None:
+    module = SimpleNamespace(xla_device=lambda: device)
+    monkeypatch.setitem(
+        sys.modules,
+        "torch_xla",
+        SimpleNamespace(core=SimpleNamespace(xla_model=module)),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "torch_xla.core",
+        SimpleNamespace(xla_model=module),
+    )
+    monkeypatch.setitem(sys.modules, "torch_xla.core.xla_model", module)
+
+
 def test_gpu_multi_device(monkeypatch, capsys):
     args = _make_args(gpus=True)
     captured = _run_main(monkeypatch, args, torch_cuda=_CudaStub(True, count=2))
@@ -238,6 +254,38 @@ def test_data_parallel_kwargs_for_npu_handles_errors(monkeypatch):
     kwargs = train._data_parallel_kwargs_for_device("npu")
 
     assert kwargs == {}
+
+
+def test_auto_selects_tpu_when_available(monkeypatch, capsys):
+    _install_fake_xla(monkeypatch, device="xla:2")
+    args = _make_args()
+    captured = _run_main(
+        monkeypatch,
+        args,
+        torch_cuda=_CudaStub(False),
+        torch_npu=_NPUStub(False),
+    )
+
+    out = capsys.readouterr().out
+    assert "Auto-selected TPU acceleration on device xla:2." in out
+    assert captured["device"] == "xla"
+    assert captured["use_data_parallel"] is False
+
+
+def test_gpu_flag_falls_back_to_tpu(monkeypatch, capsys):
+    _install_fake_xla(monkeypatch, device="xla:7")
+    args = _make_args(gpus=True)
+    captured = _run_main(
+        monkeypatch,
+        args,
+        torch_cuda=_CudaStub(False),
+        torch_npu=_NPUStub(False),
+    )
+
+    out = capsys.readouterr().out
+    assert "Falling back to TPU acceleration on device xla:7." in out
+    assert captured["device"] == "xla"
+    assert captured["use_data_parallel"] is False
 
 
 def test_tpu_requires_torch_xla(monkeypatch):
