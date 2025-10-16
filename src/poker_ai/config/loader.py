@@ -36,6 +36,11 @@ _FALLBACK_CONFIG: dict[str, Any] = {
         "num_layers": 12,
         "num_heads": 12,
     },
+    "self_play": {
+        "save_interval": 1800,
+        "temperature": 1.0,
+        "epsilon": 0.05,
+    },
     "player_strategies": ["cfr_trained", "random"],
     "simulation": {
         "num_simulation_hands": 1000,
