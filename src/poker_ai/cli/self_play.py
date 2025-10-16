@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, cast
 
 import torch
+import torch.nn.functional as F
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.config import config, load_config
@@ -64,28 +65,40 @@ class TransformerStrategy:
         hole_batch = hole.unsqueeze(0).to(self.device)
         community_batch = community.unsqueeze(0).to(self.device)
         history_batch = history.unsqueeze(0).to(self.device)
-        key_padding_mask = (~mask.unsqueeze(0)).to(self.device)
+        padding_mask = (~mask).unsqueeze(0).to(self.device)
         advantages = (
             self.model(
                 hole_batch,
                 community_batch,
                 history_batch,
-                key_padding_mask=key_padding_mask,
+                padding_mask=padding_mask,
             )
             .squeeze(0)
             .cpu()
         )
         num_actions = self.config.get("num_actions", self.model.num_actions)
         legal_mask = get_legal_actions_mask(game, player_index, num_actions)
+        temperature = float(self.config.get("self_play", {}).get("temperature", 1.0))
+        epsilon = float(self.config.get("self_play", {}).get("epsilon", 0.05))
 
-        # Mask out illegal actions and perform regret matching manually so that
-        # the uniform fallback covers only legal moves.
-        advantages[~legal_mask] = -float("inf")
-        positive = torch.clamp(advantages, min=0) * legal_mask.float()
-        if positive.sum() > 0:
-            policy = positive / positive.sum()
-        else:
-            policy = legal_mask.float() / legal_mask.sum()
+        masked_advantages = advantages.clone()
+        masked_advantages[~legal_mask] = -float("inf")
+
+        tau = max(temperature, 1e-6)
+        logits = masked_advantages / tau
+        policy = F.softmax(logits, dim=-1)
+
+        if legal_mask.any():
+            uniform = legal_mask.float() / legal_mask.float().sum()
+            policy = (1.0 - epsilon) * policy + epsilon * uniform
+            policy = policy * legal_mask.float()
+            total = policy.sum()
+            if total.item() == 0:
+                policy = uniform
+            else:
+                policy = policy / total
+        else:  # pragma: no cover - defensive fallback
+            policy = torch.full_like(advantages, 1.0 / len(advantages))
 
         action_idx = torch.multinomial(policy, 1).item()
         action = get_action_from_index(action_idx, game, player_index)

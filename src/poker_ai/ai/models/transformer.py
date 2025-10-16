@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 
@@ -72,16 +74,23 @@ class AdvantageNetwork(nn.Module):
         hole_summary: torch.Tensor,
         community_summary: torch.Tensor,
         history_seq: torch.Tensor,
-        *,
-        key_padding_mask: torch.Tensor | None = None,
+        padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Return raw advantages for each action."""
+        """Return raw advantages for each action.
+
+        Parameters
+        ----------
+        padding_mask:
+            Optional boolean mask with shape ``(batch, seq_len)`` where ``True``
+            entries indicate positions that should be ignored by the transformer
+            encoder (PyTorch's ``src_key_padding_mask`` semantics).
+        """
 
         if history_seq.dim() != 3:
             raise ValueError("history_seq should be of shape (batch, seq_len, feat_dim)")
 
         h = self.history_projection(history_seq)
-        h = self.transformer(h, src_key_padding_mask=key_padding_mask)
+        h = self.transformer(h, src_key_padding_mask=padding_mask)
         h = h[:, -1, :]
 
         hole = self.card_projection(hole_summary)
