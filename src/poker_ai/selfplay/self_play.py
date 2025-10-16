@@ -331,6 +331,15 @@ class SelfPlay:
         except TypeError:
             # Some lightweight test doubles only accept positional arguments.
             game = constructor(num_players, self.starting_stack)
+
+        deck_manager = getattr(getattr(game, "rules", None), "deck_manager", None)
+        if deck_manager is not None and hasattr(deck_manager, "rng"):
+            try:
+                deck_seed = random.randrange(1 << 63)
+            except ValueError:  # pragma: no cover - defensive safeguard
+                deck_seed = random.randint(0, 2**31 - 1)
+            deck_manager.rng.seed(deck_seed)
+
         game.rules.big_blind = self.big_blind
         game.rules.small_blind = self.small_blind
         game.initialize_game()
