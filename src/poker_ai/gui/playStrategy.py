@@ -118,7 +118,7 @@ class ModelAIStrategy(PlayerStrategy):
                 break
 
         normalization_scale = infer_normalization_scale(game, preferred_scale)
-        hole, community, history, mask = prepare_transformer_input(
+        transformer_output = prepare_transformer_input(
             game,
             player_index,
             max_seq_len,
@@ -126,6 +126,17 @@ class ModelAIStrategy(PlayerStrategy):
             normalization_scale=normalization_scale,
             return_mask=True,
         )
+
+        if isinstance(transformer_output, tuple) and len(transformer_output) == 4:
+            hole, community, history, mask = transformer_output
+        else:
+            hole, community, history = transformer_output  # type: ignore[misc]
+            mask = torch.ones(
+                history.shape[0],
+                dtype=torch.bool,
+                device=history.device,
+            )
+
         mask = mask.to(torch.bool)
         hole_batch = hole.unsqueeze(0).to(self.device)
         community_batch = community.unsqueeze(0).to(self.device)

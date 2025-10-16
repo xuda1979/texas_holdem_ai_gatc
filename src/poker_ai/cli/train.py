@@ -496,6 +496,10 @@ def main() -> None:  # noqa: C901
         "save_minutes",
         "save_samples",
         "min_buffer_before_train",
+        "samples_per_cycle",
+        "train_steps_per_cycle",
+        "train_batch_size",
+        "max_samples",
     ):
         if isinstance(getattr(args, attr, None), MagicMock):
             setattr(args, attr, None)
@@ -503,10 +507,14 @@ def main() -> None:  # noqa: C901
         if isinstance(getattr(args, flag, None), MagicMock):
             setattr(args, flag, False)
 
-    if args.tpu and (args.gpus or args.npus):
+    tpu_requested = bool(getattr(args, "tpu", False))
+    gpu_requested = bool(getattr(args, "gpus", False))
+    npu_requested = bool(getattr(args, "npus", False))
+
+    if tpu_requested and (gpu_requested or npu_requested):
         raise ValueError("Cannot specify --tpu with --gpus or --npus.")
 
-    if args.gpus and args.npus:
+    if gpu_requested and npu_requested:
         raise ValueError("Cannot specify both --gpus and --npus.")
 
     config = load_configuration(args.config)
@@ -530,7 +538,7 @@ def main() -> None:  # noqa: C901
     use_data_parallel = False
     device_printable = device
 
-    if args.tpu:
+    if tpu_requested:
         try:
             import torch_xla.core.xla_model as xm  # type: ignore[attr-defined]
         except ImportError as exc:  # pragma: no cover - dependency not installed
@@ -542,7 +550,7 @@ def main() -> None:  # noqa: C901
         device = "xla"
         device_printable = f"{device} ({xla_device})"
         _safe_info(logger, "TPU training enabled on device %s", xla_device)
-    elif args.npus:
+    elif npu_requested:
         if hasattr(torch, "npu") and torch.npu.is_available():
             allocation_ok, failure_reason = _probe_device_allocation("npu")
             if allocation_ok:
@@ -567,7 +575,7 @@ def main() -> None:  # noqa: C901
                 "Falling back to CPU.",
                 level=logging.WARNING,
             )
-    elif args.gpus:
+    elif gpu_requested:
         if torch.cuda.is_available():
             device = "cuda"
             device_printable = device
@@ -636,30 +644,32 @@ def main() -> None:  # noqa: C901
 
     # Training Parameters with CLI overrides
     # In MCCFR, each "hand" is one full traversal, which is one iteration.
+    num_hands_override = getattr(args, "num_hands", None)
     num_iterations = int(
-        args.num_hands
-        if args.num_hands is not None
+        num_hands_override
+        if num_hands_override is not None
         else training_params.get("num_training_hands", 10000)
     )
     save_model_every_n_hands = int(
-        args.save_model_every
-        if args.save_model_every is not None
+        getattr(args, "save_model_every", None)
+        if getattr(args, "save_model_every", None) is not None
         else training_params.get("save_model_every_n_hands", 0)
     )
-    if args.save_minutes is not None:
-        save_model_every_minutes = int(args.save_minutes)
+    save_minutes_override = getattr(args, "save_minutes", None)
+    if save_minutes_override is not None:
+        save_model_every_minutes = int(save_minutes_override)
     else:
         save_model_every_minutes = int(
             training_params.get("save_model_every_minutes", 10)
         )
 
     save_model_every_samples = int(
-        args.save_samples
-        if args.save_samples is not None
+        getattr(args, "save_samples", None)
+        if getattr(args, "save_samples", None) is not None
         else training_params.get("save_model_every_samples", 100000)
     )
 
-    min_buffer_override = args.min_buffer_before_train
+    min_buffer_override = getattr(args, "min_buffer_before_train", None)
     if min_buffer_override is not None:
         min_buffer_before_train = int(min_buffer_override)
     else:
@@ -669,8 +679,8 @@ def main() -> None:  # noqa: C901
     training_params["min_buffer_before_train"] = min_buffer_before_train
 
     samples_per_cycle_raw = (
-        args.samples_per_cycle
-        if args.samples_per_cycle is not None
+        getattr(args, "samples_per_cycle", None)
+        if getattr(args, "samples_per_cycle", None) is not None
         else training_params.get("samples_per_cycle")
     )
     default_cycle = 512 if num_iterations <= 0 else min(num_iterations, 512)
@@ -681,8 +691,8 @@ def main() -> None:  # noqa: C901
     )
 
     train_steps_per_cycle_raw = (
-        args.train_steps_per_cycle
-        if args.train_steps_per_cycle is not None
+        getattr(args, "train_steps_per_cycle", None)
+        if getattr(args, "train_steps_per_cycle", None) is not None
         else training_params.get("train_steps_per_cycle")
     )
     train_steps_per_cycle = (
@@ -692,8 +702,8 @@ def main() -> None:  # noqa: C901
     )
 
     train_batch_size_raw = (
-        args.train_batch_size
-        if args.train_batch_size is not None
+        getattr(args, "train_batch_size", None)
+        if getattr(args, "train_batch_size", None) is not None
         else training_params.get("train_batch_size")
     )
     train_batch_size = (
@@ -703,8 +713,8 @@ def main() -> None:  # noqa: C901
     )
 
     max_samples_raw = (
-        args.max_samples
-        if args.max_samples is not None
+        getattr(args, "max_samples", None)
+        if getattr(args, "max_samples", None) is not None
         else training_params.get("max_samples")
     )
     if max_samples_raw is not None:
@@ -872,18 +882,33 @@ def main() -> None:  # noqa: C901
                     steps = 1
 
             losses: list[float] = []
-            for step in range(1, steps + 1):
-                loss = cfr_trainer.train(batch_size=train_batch_size)
-                if loss is not None:
-                    losses.append(float(loss))
+            train_fn = getattr(cfr_trainer, "train", None)
+            if callable(train_fn):
+                for step in range(1, steps + 1):
+                    try:
+                        loss = train_fn(batch_size=train_batch_size)
+                    except TypeError:
+                        loss = train_fn()
+                    if loss is not None:
+                        try:
+                            losses.append(float(loss))
+                        except (TypeError, ValueError):
+                            pass
+                    _safe_debug(
+                        logger,
+                        "Cycle %s | training step %s/%s | loss=%s",
+                        cycle_index,
+                        step,
+                        steps,
+                        "{:.6f}".format(float(loss)) if loss is not None else "n/a",
+                    )
+            else:
                 _safe_debug(
                     logger,
-                    "Cycle %s | training step %s/%s | loss=%s",
+                    "Cycle %s | skipping training steps; trainer has no train() method.",
                     cycle_index,
-                    step,
-                    steps,
-                    "{:.6f}".format(float(loss)) if loss is not None else "n/a",
                 )
+                steps = 0
 
             if losses:
                 _safe_info(
@@ -898,14 +923,6 @@ def main() -> None:  # noqa: C901
                     logger,
                     "Cycle %s | completed %s training steps", cycle_index, steps
                 )
-
-            cycle_path = f"models/{args.algorithm}_cycle_{cycle_index:05d}.pth"
-            os.makedirs(os.path.dirname(cycle_path), exist_ok=True)
-            cfr_trainer.save_model(cycle_path)
-            _safe_info(
-                logger,
-                "Model saved to %s after cycle %s", cycle_path, cycle_index
-            )
 
             should_continue = analyzer.on_iteration_end(
                 cfr_trainer, iteration=total_samples

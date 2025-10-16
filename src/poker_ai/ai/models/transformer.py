@@ -75,6 +75,9 @@ class AdvantageNetwork(nn.Module):
         community_summary: torch.Tensor,
         history_seq: torch.Tensor,
         padding_mask: Optional[torch.Tensor] = None,
+        *,
+        key_padding_mask: Optional[torch.Tensor] = None,
+        **_: object,
     ) -> torch.Tensor:
         """Return raw advantages for each action.
 
@@ -85,6 +88,9 @@ class AdvantageNetwork(nn.Module):
             entries indicate positions that should be ignored by the transformer
             encoder (PyTorch's ``src_key_padding_mask`` semantics).
         """
+
+        if key_padding_mask is not None:
+            padding_mask = key_padding_mask if padding_mask is None else padding_mask
 
         if history_seq.dim() != 3:
             raise ValueError("history_seq should be of shape (batch, seq_len, feat_dim)")
