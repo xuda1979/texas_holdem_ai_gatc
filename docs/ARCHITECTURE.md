@@ -1,54 +1,63 @@
-# Texas Hold'em AI Architecture
+# Modular Architecture (Separation Principle)
 
-The project is now organised around small, testable subsystems.  Each
-subsystem wraps the underlying implementation and records its dependencies so
-that components can be mixed and matched during experiments.
+This repository now includes a lightweight modular layer under `src/gatc_modular/`
+that cleanly separates responsibilities and enables independent development and
+testing of subsystems:
 
 ```
-texas_holdem_ai_gatc/
-└── src/poker_ai/
-    ├── ai/                     # Model definitions and trainers
-    ├── engine/                 # Core game engine and simulations
-    ├── evaluation/             # Performance evaluation utilities
-    ├── rules/                  # Poker rule definitions
-    ├── selfplay/               # MCCFR based data generation
-    ├── systems/                # New subsystem wrappers
-    ├── utils/                  # Shared helpers (state representation, etc.)
-    └── ...
+Engine (game rules, state, transitions)
+    ↑           (ports/engine.py: Protocols)
+Policy (agent/AI choosing an action)
+    ↑           (ports/policy.py: Protocols)
+GameLoop (turn-taking, legality checks, rewards aggregation)
+    ↑           (services/game_loop.py)
+SelfPlayService (episodes orchestration, stats)
+                (services/self_play.py)
 ```
 
-## Subsystems
+## Why this layer?
+* **Parallel work**: engine devs, policy/AI devs, GUI devs, and trainer devs can work independently.
+* **Testability**: pure, typed protocols allow fast unit tests with small fakes (see `gatc_modular/testing`).
+* **Replaceability**: swap engines (CFR, RL envs, GUI-driven engine) or policies (random, neural, CFR) with no changes to services.
+* **Safety**: illegal actions are detected or auto-corrected in one place (the `GameLoop`).
 
-Each subsystem lives under `src/poker_ai/systems` and is created through a
-factory method returning a `Subsystem` object.
+## Key Contracts
+### Engine Port
+`ports/engine.py` defines a `Protocol` that any engine must satisfy:
+* `num_players` – int
+* `reset(seed: Optional[int]) -> Observation`
+* `current_player() -> PlayerId`
+* `legal_actions() -> List[Action]`
+* `step(action: Action) -> StepResult`
+* `is_terminal() -> bool`
+* `winner() -> Optional[PlayerId]`
+* `clone() -> Engine`
 
-| Subsystem | Responsibility |
-|-----------|----------------|
-| `CFRSubsystem` | Wraps the CFR trainers (AI, Deep, Single network). |
-| `TransformerSubsystem` | Creates transformer advantage networks. |
-| `EmbeddingSubsystem` | Provides helpers for converting a game state into tensors. |
-| `SelfPlaySubsystem` | Drives MCCFR self-play simulations. |
-| `TrainingSubsystem` | Coordinates self-play and CFR optimisation. |
-| `RulesSubsystem` | Supplies poker rules and game creation helpers. |
-| `LoggingSubsystem` | Centralises logging utilities. |
-| `EvaluationSubsystem` | Runs evaluation tournaments and score aggregation. |
+### Policy Port
+`ports/policy.py` defines a `Policy` with:
+* `select_action(obs, legal_actions, player_id) -> Action`
 
-Subsystems can be registered inside a `Registry` to make configuration driven
-assembly trivial:
+### Trainer Port (optional)
+`ports/trainer.py` sketches a general trainer interface so training code can be plugged in later.
 
-```python
-from poker_ai.systems import Registry, CFRSubsystem, SelfPlaySubsystem, TrainingSubsystem
+## Services
+### `GameLoop`
+* Orchestrates a single episode.
+* Validates and (optionally) auto-corrects illegal actions.
+* Aggregates rewards.
 
-registry = Registry()
-cfr = CFRSubsystem.create(device="cpu")
-self_play = SelfPlaySubsystem.create(cfr_trainer=cfr.component)
-training = TrainingSubsystem.create(cfr=cfr, self_play=self_play, iterations_per_cycle=10)
+### `SelfPlayService`
+* Runs many episodes and returns aggregate statistics (wins, total rewards, avg steps).
 
-for subsystem in (cfr, self_play, training):
-    registry.register(subsystem)
+## Testing utilities
+* `testing/fakes.py` includes a tiny deterministic 2-player engine (`CountingGameEngine`) and simple policies.
+* Unit tests under `tests/modular/` demonstrate the contracts and orchestration logic.
 
-print(registry.summary())
-```
+## Integrating existing code
+You can adapt your current engine/GUI/trainers in small steps:
+1. Make your engine object satisfy the `Engine` Protocol (or write an adapter class).
+2. Ensure your policy/agent object implements `select_action(obs, legal_actions, player_id)`.
+3. Use `GameLoop` in CLI/GUI code to run episodes without duplicating turn logic.
+4. Use `SelfPlayService` to collect stats for evaluation.
 
-This structure keeps the original modules untouched while providing clean
-integration points for future development and targeted testing.
+This keeps domain code (poker rules/CFR/RL) decoupled from orchestration and presentation.
