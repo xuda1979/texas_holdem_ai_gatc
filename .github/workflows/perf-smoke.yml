@@ -27,7 +27,7 @@ jobs:
           jq '{rps: .metrics.http_reqs.rate, p95: .metrics.http_req_duration["p(95)"]}' perf-summary.json > perf-summary.txt
           echo 'SLO: p95 < 100ms' >> perf-summary.txt
       - name: Upload perf artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: perf-smoke
           path: |
