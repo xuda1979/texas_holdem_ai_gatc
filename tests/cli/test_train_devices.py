@@ -174,6 +174,7 @@ def test_gpu_multi_device(monkeypatch, capsys):
 
 
 def test_gpu_fallback_to_cpu(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "torch._dynamo", None)
     args = _make_args(gpus=True)
     captured = _run_main(monkeypatch, args, torch_cuda=_CudaStub(False))
 
