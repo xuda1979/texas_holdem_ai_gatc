@@ -248,6 +248,7 @@ class TexasHoldem:
         action_completed = False
         try:
             original_current_bet = self.rules.current_bet
+            original_previous_raise = self.rules.previous_raise_amount
             is_aggressive_action = False
 
             if action == "call":
@@ -350,15 +351,35 @@ class TexasHoldem:
 
                 reopened = False
                 if self.rules.current_bet > original_current_bet:
-                    inc = self.rules.current_bet - original_current_bet
-                    min_inc = self.get_min_raise_amount(player_index)
-                    if inc >= min_inc and not goes_all_in:
+                    # Determine if this raise is large enough to reopen betting.
+                    # It must be at least the size of the previous full raise (or Big Blind if no previous raise).
+                    # Note: self.rules.bet() has already updated current_bet and previous_raise_amount.
+                    # We compare the increase against the requirement from the *start* of the turn.
+
+                    actual_raise = self.rules.current_bet - original_current_bet
+                    required_raise = original_previous_raise if original_previous_raise > 0 else self.rules.big_blind
+
+                    if actual_raise >= required_raise:
                         reopened = True
+                    else:
+                        # Incomplete raise (short all-in). Does not reopen.
+                        # We must RESTORE previous_raise_amount so the next player sees the correct minimum raise requirement.
+                        # The minimum raise for the *next* player should be based on the original full raise amount,
+                        # plus the new current bet level.
+                        # However, self.rules.previous_raise_amount is used by min_raise_to() to calculate
+                        # the target total.
+                        # If we leave it as the short amount, min_raise_to will return (current + short).
+                        # It should return (current + required_raise).
+                        # So we restore it?
+                        # If we restore it to `required_raise`:
+                        # Next min_raise_to = current_bet (new) + required_raise.
+                        # This matches the rule: "The raise will be exactly the minimum raise allowed [plus current bet]".
+                        self.rules.previous_raise_amount = required_raise
 
                 if reopened:
                     self.rules.last_raiser = player_index
-                    # previous_raise_amount should be the amount the bet *increased by*
-                    self.rules.previous_raise_amount = self.rules.current_bet - original_current_bet
+                    # self.rules.previous_raise_amount is already updated by self.rules.bet()
+                    # to match the actual raise size, which is correct for a full raise.
                     is_aggressive_action = True
                 elif (
                     total_player_bet == original_current_bet and original_current_bet > 0
@@ -766,6 +787,10 @@ class TexasHoldem:
             if self.rules.player_chips[player_index] <= amount_to_call:
                 return ["call", "fold"]
             else:
+                # If we are the last aggressor but the bet has increased (meaning someone else made a short all-in raise
+                # that didn't reopen betting), we cannot raise again.
+                if self.rules.last_raiser == player_index and self.rules.current_bet > self.rules.bets[player_index]:
+                    return ["call", "fold"]
                 return ["call", "raise", "fold"]
         else:
             if self.rules.player_chips[player_index] > 0:
