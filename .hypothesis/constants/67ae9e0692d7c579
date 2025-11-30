@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/systems/models.py
+# hypothesis_version: 6.138.15
+
+['TransformerSubsystem', 'model:transformer']

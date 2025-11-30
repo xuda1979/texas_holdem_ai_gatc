@@ -59,8 +59,12 @@ except Exception:
 
 # Expose config for package-level access so tests can override it
 import sys
+from types import ModuleType
 
-sys.modules[__package__ + ".config"] = config
+config_module = ModuleType(__package__ + ".config")
+for key, value in config.items():
+    setattr(config_module, key, value)
+sys.modules[__package__ + ".config"] = config_module
 
 
 class AICFRTrainer:

@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/engine/texas_holdem.py
+# hypothesis_version: 6.138.15
+
+[0.0, 100, 500, 1000, '\n--- Showdown ---', '%y%m%d%H%M%S', ', ', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'Active', 'Eliminated', 'High Card', 'J', 'K', 'Left table', 'Q', 'Sitting out', 'T', 'TexasHoldem', 'Unknown', 'actions', 'amount', 'bankrolls', 'bet', 'big_blind', 'buyins', 'c', 'call', 'check', 'chips', 'community_cards', 'd', 'data', 'dealer', 'default_buyin_bb', 'eligible', 'enabled', 'flop', 'fold', 'h', 'hand_number', 'main pot', 'max_bankroll_buyins', 'max_buyin_bb', 'min_bankroll_buyins', 'min_buyin_bb', 'no_flop_no_drop', 'players', 'pot', 'pot_won', 'raise', 'rake_cap', 'rake_pct', 'river', 's', 'small_blind', 'status', 'turn', 'w', 'winner', '♠', '♣', '♥', '♦']

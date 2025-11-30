@@ -12,8 +12,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 
-if sys.version_info >= (3, 12):
-    pytest.skip("Hypothesis providers are incompatible with Python 3.12", allow_module_level=True)
+# Removed the skip condition for Python 3.12
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")

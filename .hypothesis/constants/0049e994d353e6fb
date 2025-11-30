@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/systems/base.py
+# hypothesis_version: 6.138.15
+
+['T', 'component', 'dependencies', 'name']

@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/systems/self_play.py
+# hypothesis_version: 6.138.15
+
+[1000, 'SelfPlaySubsystem', 'big_blind', 'cfr_trainer', 'max_players', 'min_players', 'self_play', 'small_blind', 'starting_stack']

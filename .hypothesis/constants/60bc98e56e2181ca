@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/systems/evaluation.py
+# hypothesis_version: 6.138.15
+
+['EvaluationSubsystem', 'evaluation']

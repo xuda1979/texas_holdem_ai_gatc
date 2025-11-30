@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/gui/playStrategy.py
+# hypothesis_version: 6.138.15
+
+[100, 256, 'You can check.', 'bet', 'call', 'check', 'chip_normalization', 'd_raw_feature', 'fold', 'history_feature_dim', 'inf', 'input_feature_dim', 'max_seq_len', 'normalization_scale', 'num_actions', 'raise', 'starting_stack']

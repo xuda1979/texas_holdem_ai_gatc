@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/engine/betting_tree.py
+# hypothesis_version: 6.138.15
+
+['BettingNode', 'bet', 'flop', 'pre-flop', 'raise', 'river', 'turn']
