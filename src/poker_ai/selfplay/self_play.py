@@ -619,7 +619,17 @@ class SelfPlay:
                     opponent_reach=opponent_reach,
                     iteration=iteration,
                 )
-            elif hasattr(self.cfr_trainer, "replay_buffer"):
+
+            if hasattr(self.cfr_trainer, "add_strategy_experience"):
+                self.cfr_trainer.add_strategy_experience(
+                    hole_s,
+                    community_s,
+                    state_tensor,
+                    strategy=policy.detach().clone(),
+                    iteration=iteration,
+                )
+
+            if not hasattr(self.cfr_trainer, "add_experience") and hasattr(self.cfr_trainer, "replay_buffer"):
                 try:
                     self.cfr_trainer.replay_buffer.push(
                         hole_s,

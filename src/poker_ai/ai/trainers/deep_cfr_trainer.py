@@ -149,8 +149,21 @@ class DeepCFRTrainer:
             num_actions=num_actions,
         ).to(self.device)
 
+        # Strategy Network (Policy Network) for Deep CFR
+        self.policy_net = AdvantageNetwork(
+            history_feature_dim=input_feature_dim,
+            card_feature_dim=self.card_feature_dim,
+            hidden_dim=hidden_dim,
+            num_heads=self.num_heads,
+            num_layers=self.num_layers,
+            num_actions=num_actions,
+        ).to(self.device)
+
         self.optimizer = optim.Adam(self.advantage_net.parameters(), lr=learning_rate)
+        self.policy_optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
+
         self.replay_buffer = ReplayBuffer(replay_buffer_capacity, self.card_feature_dim)
+        self.strategy_buffer = ReplayBuffer(replay_buffer_capacity, self.card_feature_dim)
 
         # Minimal config dict retained for backward compatibility with callers.
         self.config = {
@@ -202,6 +215,29 @@ class DeepCFRTrainer:
         )
         return out.squeeze(0)
 
+    @torch.no_grad()
+    def get_policy(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return the strategy (probability distribution) from the policy network."""
+        if hole_summary.ndim == 1:
+            hole_summary = hole_summary.unsqueeze(0)
+        if community_summary.ndim == 1:
+            community_summary = community_summary.unsqueeze(0)
+        if history_tensor.ndim == 2:
+            history_tensor = history_tensor.unsqueeze(0)
+
+        target_device = self._xla_device or self.device
+        logits = self.policy_net(
+            hole_summary.to(target_device),
+            community_summary.to(target_device),
+            history_tensor.to(target_device),
+        )
+        return torch.softmax(logits, dim=-1).squeeze(0)
+
     def add_experience(
         self,
         hole_summary: torch.Tensor,
@@ -214,7 +250,7 @@ class DeepCFRTrainer:
         opponent_reach: float | torch.Tensor = 1.0,
         iteration: int = 0,
     ) -> None:
-        """Unified adapter for self-play experiences."""
+        """Unified adapter for self-play experiences (Advantage Memory)."""
 
         if regrets is None:
             if action_values is None:
@@ -235,27 +271,79 @@ class DeepCFRTrainer:
             iteration,
         )
 
-    def train(self, batch_size: int = 256) -> float:
-        """Perform one training step using samples from the replay buffer."""
+    def add_strategy_experience(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        strategy: torch.Tensor,
+        iteration: int = 0,
+    ) -> None:
+        """Add a strategy sample to the Strategy Memory."""
+        self.strategy_buffer.push(
+            hole_summary,
+            community_summary,
+            history_tensor,
+            strategy,
+            iteration,
+        )
 
-        batch = self.replay_buffer.sample(batch_size)
+    def train(self, batch_size: int = 256) -> float:
+        """Perform one training step on the Advantage Network."""
+        return self._train_network(
+            self.replay_buffer,
+            self.advantage_net,
+            self.optimizer,
+            batch_size,
+            is_policy=False
+        )
+
+    def train_policy(self, batch_size: int = 256) -> float:
+        """Perform one training step on the Policy Network."""
+        return self._train_network(
+            self.strategy_buffer,
+            self.policy_net,
+            self.policy_optimizer,
+            batch_size,
+            is_policy=True
+        )
+
+    def _train_network(
+        self,
+        buffer: ReplayBuffer,
+        network: torch.nn.Module,
+        optimizer: optim.Optimizer,
+        batch_size: int,
+        is_policy: bool
+    ) -> float:
+        batch = buffer.sample(batch_size)
         if not batch:
             return 0.0
 
-        holes, communities, histories, regrets, iterations = zip(*batch)
+        holes, communities, histories, targets, iterations = zip(*batch)
 
         target_device = self._xla_device or self.device
         holes = torch.stack(list(holes)).to(target_device)
         communities = torch.stack(list(communities)).to(target_device)
         histories = torch.stack(list(histories)).to(target_device)
-        regrets = torch.stack(list(regrets)).to(target_device)
+        targets = torch.stack(list(targets)).to(target_device)
         iterations = torch.as_tensor(iterations, dtype=torch.float32, device=target_device).view(-1, 1)
 
-        adv_pred = self.advantage_net(holes, communities, histories)
-        adv_pred = adv_pred - adv_pred.mean(dim=-1, keepdim=True)
-        regrets = regrets - regrets.mean(dim=-1, keepdim=True)
+        pred = network(holes, communities, histories)
 
-        loss_vals = (adv_pred - regrets) ** 2
+        if not is_policy:
+            # Advantage network: Mean-centered MSE
+            pred = pred - pred.mean(dim=-1, keepdim=True)
+            targets = targets - targets.mean(dim=-1, keepdim=True)
+            loss_vals = (pred - targets) ** 2
+        else:
+            # Policy network: Cross-Entropy or MSE on probabilities.
+            # Deep CFR uses MSE on strategies usually, but CrossEntropy is also valid.
+            # Here targets are probability distributions (from regret matching).
+            # We use MSE as it matches the Deep CFR paper for strategy approximation.
+            # pred output is raw logits. Apply softmax.
+            pred_probs = torch.softmax(pred, dim=-1)
+            loss_vals = (pred_probs - targets) ** 2
 
         weights = iterations.clamp_min(0.0)
         weight_sum = weights.sum()
@@ -264,15 +352,15 @@ class DeepCFRTrainer:
         else:
             weighted_loss = (loss_vals * weights).sum() / weight_sum
 
-        self.optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad(set_to_none=True)
         weighted_loss.backward()
-        clip_grad_norm_(self.advantage_net.parameters(), max_norm=1.0)
+        clip_grad_norm_(network.parameters(), max_norm=1.0)
         if self._using_xla:
             assert self._xm is not None  # for type checkers
-            self._xm.optimizer_step(self.optimizer)
+            self._xm.optimizer_step(optimizer)
             self._xm.mark_step()
         else:
-            self.optimizer.step()
+            optimizer.step()
 
         return float(weighted_loss.item())
 
@@ -281,6 +369,7 @@ class DeepCFRTrainer:
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "state_dict": self.advantage_net.state_dict(),
+            "policy_net_state_dict": self.policy_net.state_dict(),
             "metadata": {
                 "history_feature_dim": self.history_feature_dim,
                 "card_feature_dim": self.card_feature_dim,
@@ -305,12 +394,18 @@ class DeepCFRTrainer:
         if self._using_xla:
             map_location = "cpu"
         state = torch.load(str(target), map_location=map_location)
-        if isinstance(state, dict) and "state_dict" in state:
-            state_dict = state["state_dict"]
+        if isinstance(state, dict):
+            if "state_dict" in state:
+                self.advantage_net.load_state_dict(state["state_dict"])
+            if "policy_net_state_dict" in state:
+                self.policy_net.load_state_dict(state["policy_net_state_dict"])
         else:
-            state_dict = state
-        self.advantage_net.load_state_dict(state_dict)
+            # Fallback for old checkoints
+            self.advantage_net.load_state_dict(state)
+
         target_device = self._xla_device or self.device
         self.advantage_net.to(target_device)
         self.advantage_net.eval()
+        self.policy_net.to(target_device)
+        self.policy_net.eval()
 

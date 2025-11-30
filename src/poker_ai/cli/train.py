@@ -931,6 +931,8 @@ def main() -> None:  # noqa: C901
 
             losses: list[float] = []
             train_fn = getattr(cfr_trainer, "train", None)
+            train_policy_fn = getattr(cfr_trainer, "train_policy", None)
+
             if callable(train_fn):
                 for step in range(1, steps + 1):
                     try:
@@ -942,13 +944,24 @@ def main() -> None:  # noqa: C901
                             losses.append(float(loss))
                         except (TypeError, ValueError):
                             pass
+
+                    policy_loss_str = ""
+                    if callable(train_policy_fn):
+                        try:
+                            ploss = train_policy_fn(batch_size=train_batch_size)
+                            if ploss is not None:
+                                policy_loss_str = " | policy_loss={:.6f}".format(float(ploss))
+                        except Exception as e:
+                            _safe_warning(logger, "Policy training failed: %s", e)
+
                     _safe_debug(
                         logger,
-                        "Cycle %s | training step %s/%s | loss=%s",
+                        "Cycle %s | training step %s/%s | loss=%s%s",
                         cycle_index,
                         step,
                         steps,
                         "{:.6f}".format(float(loss)) if loss is not None else "n/a",
+                        policy_loss_str,
                     )
             else:
                 _safe_debug(
