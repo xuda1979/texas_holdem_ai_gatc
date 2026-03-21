@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Implements External Sampling MCCFR for data generation as described in ``texas.tex``."""
 
 # ruff: noqa

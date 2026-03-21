@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Utility helpers for turning game state into model-friendly tensors.
 
 This module now includes a small Set Transformer style encoder used to
@@ -6,8 +8,6 @@ community cards).  The summaries are returned alongside the sequential
 history features so that the main model can fuse them as described in the
 project specification in :mod:`texas.tex`.
 """
-
-from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 

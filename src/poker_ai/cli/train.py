@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Main command-line interface for training models via self-play."""
 
 import argparse

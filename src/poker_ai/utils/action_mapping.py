@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Map abstract action indices to concrete poker actions.
 
 This module provides a state-dependent mapping from discrete action indices to
@@ -5,8 +7,6 @@ This module provides a state-dependent mapping from discrete action indices to
 components that expect a ``(action_str, amount)`` tuple, the helper
 ``action_to_tuple`` performs the conversion.
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum

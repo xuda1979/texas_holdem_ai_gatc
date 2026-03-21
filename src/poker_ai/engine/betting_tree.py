@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Betting tree representation for multi-street poker games."""
 
 from dataclasses import dataclass, field

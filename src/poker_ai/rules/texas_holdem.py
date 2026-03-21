@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Standalone Texas Hold'em rule management.
 
 This module contains the :class:`TexasHoldemRules` implementation that was
@@ -7,8 +9,6 @@ cash table integration, logging) decoupled from the low level betting and deck
 mechanics.  The separation makes it easier to unit test the rules in isolation
 and avoids importing heavy engine dependencies when they are not required.
 """
-
-from __future__ import annotations
 
 import logging
 

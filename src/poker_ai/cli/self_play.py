@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa: ANN001,ANN101,ANN201,ANN204
 import argparse
 import json

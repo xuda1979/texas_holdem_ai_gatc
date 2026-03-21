@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Distributed self-play utilities using multiprocessing."""
 
 from multiprocessing import Pool

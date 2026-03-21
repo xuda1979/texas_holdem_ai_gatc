@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Simplified Texas Hold'em poker engine used for training."""
 
 # Ruff checks are suppressed for this module because it relies on dynamic

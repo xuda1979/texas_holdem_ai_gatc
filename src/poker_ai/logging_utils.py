@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Centralized logging utilities for Poker AI components.
 
 This module provides a consistent logging setup so that every entry point
@@ -6,8 +8,6 @@ debugging.  The helpers here avoid each script configuring logging on its own
 and ensure that log files are created with contextual metadata such as the
 active component and run identifier.
 """
-
-from __future__ import annotations
 
 import json
 import logging

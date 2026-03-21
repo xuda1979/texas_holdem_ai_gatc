@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Utilities for managing Google Cloud training jobs.
 
 This module exposes a small command line interface that helps launch and
@@ -6,8 +8,6 @@ simply wrap the `gcloud` CLI to keep the workflow self contained inside the
 repository so developers do not need to memorise the individual `gcloud`
 invocations.
 """
-
-from __future__ import annotations
 
 import argparse
 import os

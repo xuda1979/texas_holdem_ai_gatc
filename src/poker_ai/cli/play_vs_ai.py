@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 A command-line interface to play against a trained Poker AI model.
 """

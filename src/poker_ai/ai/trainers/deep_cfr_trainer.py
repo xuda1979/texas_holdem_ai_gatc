@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # ruff: noqa
 """Deep CFR trainer implementation with infoset replay buffer.
 
@@ -7,8 +9,6 @@ network.  The trainer collects full information sets during self-play and
 stores them in a reservoir-sampling replay buffer.  Training is performed with
 the "Linear CFR" weighted mean-squared error loss.
 """
-
-from __future__ import annotations
 
 import random
 from pathlib import Path

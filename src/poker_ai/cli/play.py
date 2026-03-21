@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # human_vs_ai.py
 
 """Command line game allowing humans to play against simple AI players."""
