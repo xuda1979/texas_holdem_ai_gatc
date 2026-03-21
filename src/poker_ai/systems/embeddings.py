@@ -12,7 +12,7 @@ from poker_ai.utils.state_representation import prepare_transformer_input
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class EmbeddingPipeline:
     """Utility object that bundles the state representation helpers."""
 
@@ -47,7 +47,7 @@ class EmbeddingPipeline:
         return hole, community, history, None
 
 
-@dataclass(slots=True)
+@dataclass
 class EmbeddingSubsystem(Subsystem[EmbeddingPipeline]):
     """Thin wrapper that constructs :class:`EmbeddingPipeline` objects."""
 

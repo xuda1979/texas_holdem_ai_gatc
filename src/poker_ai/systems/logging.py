@@ -10,7 +10,7 @@ from poker_ai import logging_utils
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class LoggingSubsystem(Subsystem[logging_utils]):
     """Expose logging helpers for other subsystems."""
 

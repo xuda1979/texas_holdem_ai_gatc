@@ -11,7 +11,7 @@ from poker_ai.rules.texas_holdem_rules import TexasHoldemRules
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class RulesSubsystem(Subsystem[TexasHoldemRules]):
     """Provide helpers for working with :class:`TexasHoldemRules`."""
 

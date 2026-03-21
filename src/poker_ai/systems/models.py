@@ -12,7 +12,7 @@ from poker_ai.ai.models.transformer import AdvantageNetwork
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class TransformerSubsystem(Subsystem[AdvantageNetwork]):
     """Wrap the transformer advantage network used by CFR trainers."""
 

@@ -10,7 +10,7 @@ from poker_ai.selfplay.self_play import SelfPlay
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class SelfPlaySubsystem(Subsystem[SelfPlay]):
     """Bundle the :class:`SelfPlay` implementation with configuration metadata."""
 

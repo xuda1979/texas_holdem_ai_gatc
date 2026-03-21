@@ -15,7 +15,7 @@ from typing import Any, Generic, Mapping, MutableMapping, TypeVar
 T = TypeVar("T")
 
 
-@dataclass(slots=True)
+@dataclass
 class Subsystem(Generic[T]):
     """Wrap a concrete implementation and track its name and dependencies."""
 
@@ -43,7 +43,7 @@ class Subsystem(Generic[T]):
         return getattr(self.component, item)
 
 
-@dataclass(slots=True)
+@dataclass
 class Registry:
     """Keep track of subsystem instances."""
 

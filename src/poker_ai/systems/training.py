@@ -10,7 +10,7 @@ from .cfr import CFRSubsystem
 from .self_play import SelfPlaySubsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class TrainingController:
     """Coordinate CFR training with self-play data generation."""
 
@@ -31,7 +31,7 @@ class TrainingController:
                 yield float(loss)
 
 
-@dataclass(slots=True)
+@dataclass
 class TrainingSubsystem(Subsystem[TrainingController]):
     """Wrap :class:`TrainingController` so callers can register it easily."""
 

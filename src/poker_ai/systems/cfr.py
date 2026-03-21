@@ -12,7 +12,7 @@ from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrai
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class CFRSubsystem(Subsystem[AICFRTrainer]):
     """Expose a uniform interface around CFR trainer implementations."""
 

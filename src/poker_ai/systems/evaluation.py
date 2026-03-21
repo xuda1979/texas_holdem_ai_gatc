@@ -10,7 +10,7 @@ from poker_ai.evaluation import performance_analysis
 from .base import Subsystem
 
 
-@dataclass(slots=True)
+@dataclass
 class EvaluationManager:
     """Provide a cohesive entry point for performance evaluation."""
 
@@ -20,7 +20,7 @@ class EvaluationManager:
         return self.tournament_runner(*args, **kwargs)
 
 
-@dataclass(slots=True)
+@dataclass
 class EvaluationSubsystem(Subsystem[EvaluationManager]):
     """Construct :class:`EvaluationManager` instances."""
 
