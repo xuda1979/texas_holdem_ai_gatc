@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/systems/rules.py
+# hypothesis_version: 6.138.15
+
+[1000, 'RulesSubsystem', 'rules', 'verbose']

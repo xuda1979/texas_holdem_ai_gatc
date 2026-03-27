@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/ai/trainers/single_network_cfr_trainer.py
+# hypothesis_version: 6.138.15
+
+[-1000000000.0, 0.0, 0.001, 1.0, 256, 1000000, 'card_feature_dim', 'cpu', 'cuda', 'd_card_feature', 'd_raw_feature', 'hidden_dim', 'history_feature_dim', 'learning_rate', 'max_seq_len', 'metadata', 'model', 'num_actions', 'num_heads', 'num_layers', 'single_network', 'state_dict', 'trainer']

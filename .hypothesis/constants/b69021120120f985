@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/rules/__init__.py
+# hypothesis_version: 6.138.15
+
+['cfr_plus_iteration', 'update_regret', 'update_strategy']

@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/ai/trainers/ai_cfr_trainer.py
+# hypothesis_version: 6.138.15
+
+[0.0, 0.001, 1.0, 256, 768, 100000, '..', '.config', ':', 'ai_cfr', 'aicfr_model.pth', 'aicfr_trainer.log', 'batch_size', 'card_feature_dim', 'component', 'config', 'config.yaml', 'cpu', 'cuda', 'd_card_feature', 'd_raw_feature', 'hidden_dim', 'history_feature_dim', 'learning_rate', 'log_file', 'logging', 'max_seq_len', 'metadata', 'model', 'num_actions', 'num_heads', 'num_layers', 'save_model_path', 'state_dict', 'trainer', 'training', 'xla']

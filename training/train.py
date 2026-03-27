@@ -108,7 +108,29 @@ def _override_config(args: argparse.Namespace) -> dict[str, Any]:
 
     trainer_module.config = config
     trainer_module.ai_cfr_trainer_module.config = config
-    sys.modules["poker_ai.ai.trainers.config"] = config
+
+    # Update the module-wrapped config in sys.modules
+    from types import ModuleType
+    if "poker_ai.ai.trainers.config" in sys.modules:
+        config_module = sys.modules["poker_ai.ai.trainers.config"]
+        if isinstance(config_module, dict):
+            # If it's still a dict (from older logic), wrap it
+            new_module = ModuleType("poker_ai.ai.trainers.config")
+            for k, v in config_module.items():
+                setattr(new_module, k, v)
+            sys.modules["poker_ai.ai.trainers.config"] = new_module
+            config_module = new_module
+
+        # Update attributes
+        for k, v in config.items():
+            setattr(config_module, k, v)
+    else:
+        # Create fresh module
+        config_module = ModuleType("poker_ai.ai.trainers.config")
+        for k, v in config.items():
+            setattr(config_module, k, v)
+        sys.modules["poker_ai.ai.trainers.config"] = config_module
+
     return config
 
 

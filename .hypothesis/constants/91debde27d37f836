@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/rules/texas_holdem.py
+# hypothesis_version: 6.138.15
+
+[10000, 'Invalid round stage.', 'RANKS', 'SUITS', 'TexasHoldemRules', 'bet', 'big', 'c', 'current_player', 'd', 'flop', 'h', 'player_manager', 'pre-flop', 'river', 's', 'small', 'turn', '♠', '♣', '♥', '♦']

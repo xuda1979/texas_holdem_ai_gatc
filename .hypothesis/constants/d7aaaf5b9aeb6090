@@ -1,0 +1,4 @@
+# file: /app/gatc_holdem/engine/cash_table.py
+# hypothesis_version: 6.138.15
+
+[0.0, 1e-09, 100]

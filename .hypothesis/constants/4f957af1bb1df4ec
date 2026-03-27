@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/selfplay/self_play.py
+# hypothesis_version: 6.138.15
+
+[0.0, 1.0, 256, 1000, '*.pth', '-inf', 'actions_this_round', 'add_experience', 'big_blind', 'chip_normalization', 'clone', 'config', 'd_raw_feature', 'deck_manager', 'directory', 'end_game_early', 'filename_prefix', 'flop', 'latest_model_path', 'load_model', 'max_players', 'max_seq_len', 'min_players', 'model', 'model_directory', 'models', 'normalization_scale', 'num_players', 'replay_buffer', 'river', 'rng', 'rules', 'save_model_path', 'small_blind', 'starting_stack', 'training', 'turn', 'verbose', 'winner']

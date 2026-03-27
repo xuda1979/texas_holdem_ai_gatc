@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/utils/state_representation.py
+# hypothesis_version: 6.138.15
+
+[0.0, 1.0, 2.0, 3.0, 4.0, '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'J', 'K', 'Q', 'T', 'bet', 'bets', 'betting_history', 'betting_round', 'big_blind', 'c', 'call', 'check', 'chip_normalization', 'community_cards', 'current_bet', 'current_bet_in_round', 'd', 'flop', 'fold', 'get_player', 'h', 'hands', 'normalization_scale', 'num_players', 'player_chips', 'player_order', 'players_map', 'pot', 'pre-flop', 'raise', 'river', 'rules', 's', 'small_blind', 'starting_stack', 'turn']

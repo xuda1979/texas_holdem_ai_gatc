@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/selfplay/distributed_self_play.py
+# hypothesis_version: 6.138.15
+
+['cfr_trainer', 'game_engine_config', 'num_hands', 'training_config']

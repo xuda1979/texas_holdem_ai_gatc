@@ -1,0 +1,4 @@
+# file: /app/src/poker_ai/logging_utils.py
+# hypothesis_version: 6.138.15
+
+[1024, '%Y-%m-%d %H:%M:%S', '***', '+00:00', ', ', '.', '<unserializable>', 'DEFAULT_LOG_DIR', 'DEFAULT_LOG_FILENAME', 'HEAD', 'Run metadata: %s', 'Z', 'component', 'config_keys', 'context', 'core', 'credential', 'cuda', 'cuda_available', 'cwd', 'datefmt', 'format', 'git', 'git_commit', 'hostname', 'key', 'level', 'log_dir', 'log_file', 'log_run_metadata', 'log_to_file', 'logs', 'password', 'platform', 'poker_ai.log', 'python_version', 'rev-parse', 'run_id', 'seconds', 'secret', 'session', 'setup_logging', 'timestamp', 'token', 'torch_version', 'unavailable']
