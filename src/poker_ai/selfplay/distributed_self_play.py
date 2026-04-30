@@ -1,11 +1,28 @@
-from __future__ import annotations
-
 """Distributed self-play utilities using multiprocessing."""
+
+from __future__ import annotations
 
 from multiprocessing import Pool
 from typing import Any
 
 from .self_play import SelfPlay
+
+
+def _hand_result_summary(payload: Any) -> list[Any]:
+    """Return a small pickle-safe summary for one generated hand.
+
+    ``SelfPlay.play_hand_for_training`` returns the trainer replay buffer.  In
+    normal trainers that buffer contains ``torch.Tensor`` instances.  Sending
+    those tensors back from child processes forces PyTorch's shared-memory IPC
+    path, which is not available in all sandboxed or CI environments.  The
+    distributed runner only needs one result per requested hand, so return a
+    compact summary instead of the raw buffer contents.
+    """
+
+    try:
+        return ["replay_buffer_size", len(payload)]
+    except TypeError:
+        return ["result_type", type(payload).__name__]
 
 
 def _run_multiple_hands(args: dict[str, Any]) -> list[list[Any]]:
@@ -33,7 +50,10 @@ def _run_multiple_hands(args: dict[str, Any]) -> list[list[Any]]:
         game_engine_config,
         training_config=training_config,
     )
-    return [sp.play_hand_for_training(iteration=i + 1) for i in range(num_hands)]
+    return [
+        _hand_result_summary(sp.play_hand_for_training(iteration=i + 1))
+        for i in range(num_hands)
+    ]
 
 
 class DistributedSelfPlay:

@@ -14,6 +14,11 @@ from collections.abc import Mapping, Sequence
 import torch
 import torch.nn as nn
 
+from poker_ai.ai.models.transformer import (
+    ExplicitTransformerEncoder,
+    ExplicitTransformerEncoderLayer,
+)
+
 # Assuming GameState and Player will be importable from these paths
 # from game_engine.game_state import GameState
 # from game_engine.player import Player
@@ -126,10 +131,12 @@ class CardSetTransformer(nn.Module):
     ) -> None:
         super().__init__()
         self.proj = nn.Linear(card_dim, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=num_heads, batch_first=True
+        encoder_layer = ExplicitTransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            batch_first=True,
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.encoder = ExplicitTransformerEncoder(encoder_layer, num_layers=num_layers)
         self.output_dim = hidden_dim
 
     def forward(self, cards: torch.Tensor) -> torch.Tensor:

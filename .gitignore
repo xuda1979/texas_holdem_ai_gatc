@@ -7,3 +7,12 @@ models/
 reports/
 *.egg-info/
 poker_ai.log
+.venv/
+.DS_Store
+.hypothesis/
+.huanxin_jobs/
+.openclaw/
+memory/
+browser-automation/
+scripts/
+skills/

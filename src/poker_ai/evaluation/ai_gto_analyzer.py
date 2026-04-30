@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 # Optional dependency: PyYAML.  The analyzer is rarely used in tests, so we
@@ -11,8 +12,14 @@ except Exception:  # pragma: no cover - PyYAML missing
     yaml = None
 
 from poker_ai.utils.action_mapping import action_to_tuple, get_action_from_index
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer as CFRTrainer
+from poker_ai.model_storage import (
+    remote_checkpoint_dir,
+    remote_default_model_path,
+    remote_trained_models_dir,
+)
 
 # We need access to game_engine.texas_holdem.TexasHoldem for type hinting
 # if game_state is passed directly. However, CFRTrainer.encode_state and
@@ -28,6 +35,41 @@ DEFAULT_MODEL_FILENAME = "cfr_model.pth"  # From config.yaml training.save_model
 _loaded_cfr_trainer = None
 _trainer_config = None
 _full_config = None
+
+
+def _resolve_model_path(
+    model_path: str | None,
+    full_config: dict[str, Any] | None,
+) -> str:
+    if model_path:
+        candidate = Path(model_path).expanduser()
+        if candidate.exists():
+            return str(candidate)
+        return str(candidate)
+
+    if isinstance(full_config, dict):
+        training_cfg = full_config.get("training", {})
+        configured_path = training_cfg.get("save_model_path")
+        if isinstance(configured_path, str) and configured_path:
+            configured_candidate = Path(configured_path).expanduser()
+            if configured_candidate.exists():
+                return str(configured_candidate)
+
+    latest = find_latest_model_checkpoint(directory=remote_checkpoint_dir())
+    if latest is not None:
+        latest_path, _ = latest
+        return latest_path
+
+    if model_path:
+        return str(Path(model_path).expanduser())
+
+    if isinstance(full_config, dict):
+        training_cfg = full_config.get("training", {})
+        configured_path = training_cfg.get("save_model_path")
+        if isinstance(configured_path, str) and configured_path:
+            return str(Path(configured_path).expanduser())
+
+    return str(remote_default_model_path())
 
 
 def load_cfr_model_and_config(
@@ -98,17 +140,11 @@ def load_cfr_model_and_config(
             print(f"Error loading or parsing {MODEL_CONFIG_PATH}: {e}")
             return None, None
 
-    current_model_path = model_path
-    if current_model_path is None:
-        _trainer_config.get(
-            "model_directory", _full_config.get("model", {}).get("directory", "trained_models")
-        )
-        actual_model_save_path = _full_config.get("training", {}).get(
-            "save_model_path", os.path.join("trained_models", DEFAULT_MODEL_FILENAME)
-        )
-        current_model_path = actual_model_save_path
-
-    os.makedirs(os.path.dirname(current_model_path), exist_ok=True)
+    _trainer_config.get(
+        "model_directory",
+        _full_config.get("model", {}).get("directory", str(remote_trained_models_dir())),
+    )
+    current_model_path = _resolve_model_path(model_path, _full_config)
 
     if _loaded_cfr_trainer is not None and _loaded_cfr_trainer.model_path == current_model_path:
         return _loaded_cfr_trainer, _trainer_config

@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.config import config, load_config
 from poker_ai.engine.texas_holdem import TexasHoldem
+from poker_ai.model_storage import prepare_model_write_path
 from poker_ai.utils.action_mapping import (
     action_to_tuple,
     get_action_from_index,
@@ -189,9 +190,6 @@ def initialize_new_model(device):
 
 
 def save_transformer_model(transformer_strategy):
-    models_dir = config.MODEL_DIR
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
     weight_path = get_save_path()
 
     save_weights(transformer_strategy, weight_path)
@@ -204,13 +202,14 @@ def get_save_path():
 
 def save_weights(transformer_strategy, weight_path):
     try:
+        target = prepare_model_write_path(weight_path)
         metadata = _metadata_from_config(transformer_strategy.config)
         payload = {
             "state_dict": transformer_strategy.model.state_dict(),
             "metadata": metadata,
         }
-        torch.save(payload, weight_path)
-        print(f"Saved model weights to {weight_path}")
+        torch.save(payload, str(target))
+        print(f"Saved model weights to {target}")
     except Exception as e:
         print(f"Error saving model weights: {e}")
 

@@ -202,6 +202,30 @@ def test_npu_multi_device(monkeypatch, capsys):
     )
 
     out = capsys.readouterr().out
+    assert "Found 3 NPUs, keeping single-device execution." in out
+    assert captured["device"] == "npu"
+    assert captured["use_data_parallel"] is False
+
+
+def test_npu_multi_device_dataparallel_opt_in(monkeypatch, capsys):
+    monkeypatch.setenv("POKER_AI_ENABLE_NPU_DATAPARALLEL", "1")
+    args = _make_args(npus=True)
+    original_zeros = train.torch.zeros
+
+    def zeros_ignore_npu(*shape, **kwargs):
+        if kwargs.get("device") == "npu":
+            kwargs = dict(kwargs)
+            kwargs.pop("device", None)
+        return original_zeros(*shape, **kwargs)
+
+    captured = _run_main(
+        monkeypatch,
+        args,
+        torch_npu=_NPUStub(True, count=3),
+        zeros_override=zeros_ignore_npu,
+    )
+
+    out = capsys.readouterr().out
     assert "Multi-NPU training enabled. Found 3 NPUs." in out
     assert captured["device"] == "npu"
     assert captured["use_data_parallel"] is True
@@ -311,3 +335,47 @@ def test_tpu_requires_torch_xla(monkeypatch):
         train.main()
 
     assert "torch_xla is required for TPU training" in str(excinfo.value)
+
+
+def test_load_latest_model_passes_path_to_bound_method(monkeypatch, tmp_path):
+    ckpt = tmp_path / "deep_cfr_final.pth"
+    ckpt.write_text("stub", encoding="utf-8")
+
+    class PathTrainer:
+        def __init__(self) -> None:
+            self.loaded: str | None = None
+
+        def load_model(self, path: str) -> None:
+            self.loaded = path
+
+    trainer_obj = PathTrainer()
+    config = {"model": {"directory": str(tmp_path), "filename_prefix": "deep_cfr"}}
+    monkeypatch.setattr(train, "_find_latest_model_path", lambda *_: str(ckpt))
+
+    loaded = train._load_latest_model(trainer_obj, config, "deep_cfr")
+
+    assert loaded is True
+    assert trainer_obj.loaded == str(ckpt)
+
+
+def test_load_latest_model_uses_config_path_for_zero_arg_loader(monkeypatch, tmp_path):
+    ckpt = tmp_path / "ai_cfr_final.pth"
+    ckpt.write_text("stub", encoding="utf-8")
+
+    class ZeroArgTrainer:
+        def __init__(self) -> None:
+            self.config = {"training": {}}
+            self.loaded: str | None = None
+
+        def load_model(self) -> None:
+            self.loaded = self.config["training"].get("save_model_path")
+
+    trainer_obj = ZeroArgTrainer()
+    config = {"model": {"directory": str(tmp_path), "filename_prefix": "ai_cfr"}}
+    monkeypatch.setattr(train, "_find_latest_model_path", lambda *_: str(ckpt))
+
+    loaded = train._load_latest_model(trainer_obj, config, "ai_cfr")
+
+    assert loaded is True
+    assert trainer_obj.loaded == str(ckpt)
+    assert trainer_obj.config["training"] == {}

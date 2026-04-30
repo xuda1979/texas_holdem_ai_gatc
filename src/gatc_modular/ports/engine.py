@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Protocol, Self, runtime_checkable
+import sys
+
+if sys.version_info >= (3, 11):
+    from typing import Any, Dict, List, Mapping, Optional, Protocol, Self, runtime_checkable
+else:
+    from typing import Any, Dict, List, Mapping, Optional, Protocol, runtime_checkable
+    from typing import TypeVar as _TypeVar
+
+    Self = _TypeVar("Self", bound="Engine")  # type: ignore[misc,assignment]
 
 PlayerId = int
 Action = int

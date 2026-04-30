@@ -26,7 +26,7 @@ training:
   cfr_algorithm: "vanilla" # "vanilla" or "plus" (for CFR+)
   cfr_discount_factor: 1.0 # Discount factor for discounted CFR+
   distributed_workers: 1 # Number of workers for distributed self-play
-  save_model_path: "trained_models/cfr_model.pth" # Moved from model section for ai_cfr_trainer compatibility
+  save_model_path: "/root/root/work/texas-holdem/trained_models/cfr_model.pth" # Remote-only model path on Huanxin ai1
   min_buffer_before_train: 256 # Minimum replay buffer size before starting a training step
   # CFR+ specific parameters (if used)
   # cfr_plus_alpha: 1.5 # Alpha parameter for CFR+ (controls regret weighting)
@@ -35,7 +35,7 @@ training:
 
 # Model persistence
 model:
-  directory: "trained_models/"
+  directory: "/root/root/work/texas-holdem/trained_models/"
   filename_prefix: "cfr_model"
   # Parameters for TransformerAverageStrategy (used by AICFRTrainer)
   hidden_dim: 768

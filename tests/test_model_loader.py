@@ -119,3 +119,79 @@ def test_load_model_strategy_trainer_payload(tmp_path: Path) -> None:
     assert strategy.config["card_feature_dim"] == trainer.card_feature_dim
     assert isinstance(device, torch.device)
     assert device.type == "cpu"
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_load_model_strategy_falls_back_to_latest_checkpoint(tmp_path: Path) -> None:
+    checkpoint_dir = tmp_path / "models"
+    checkpoint_dir.mkdir()
+    model_path = checkpoint_dir / "deep_cfr_final.pth"
+
+    metadata = {
+        "history_feature_dim": 18,
+        "card_feature_dim": 17,
+        "hidden_dim": 16,
+        "num_heads": 2,
+        "num_layers": 1,
+        "num_actions": 4,
+        "max_seq_len": 32,
+    }
+    model = AdvantageNetwork(
+        history_feature_dim=metadata["history_feature_dim"],
+        card_feature_dim=metadata["card_feature_dim"],
+        hidden_dim=metadata["hidden_dim"],
+        num_heads=metadata["num_heads"],
+        num_layers=metadata["num_layers"],
+        num_actions=metadata["num_actions"],
+    )
+    payload = {"state_dict": model.state_dict(), "metadata": metadata}
+    torch.save(payload, model_path)
+
+    with (
+        patch("poker_ai.ai.model_loader.remote_checkpoint_dir", return_value=checkpoint_dir),
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("error")
+        strategy, device = load_model_strategy()
+
+    assert isinstance(strategy, ModelAIStrategy)
+    assert strategy.config["history_feature_dim"] == metadata["history_feature_dim"]
+    assert isinstance(device, torch.device)
+    assert device.type == "cpu"
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_load_model_strategy_does_not_redirect_missing_explicit_path(tmp_path: Path) -> None:
+    requested_path = tmp_path / "missing_explicit_model.pth"
+    checkpoint_dir = tmp_path / "models"
+    checkpoint_dir.mkdir()
+
+    metadata = {
+        "history_feature_dim": 18,
+        "card_feature_dim": 17,
+        "hidden_dim": 16,
+        "num_heads": 2,
+        "num_layers": 1,
+        "num_actions": 4,
+        "max_seq_len": 32,
+    }
+    model = AdvantageNetwork(
+        history_feature_dim=metadata["history_feature_dim"],
+        card_feature_dim=metadata["card_feature_dim"],
+        hidden_dim=metadata["hidden_dim"],
+        num_heads=metadata["num_heads"],
+        num_layers=metadata["num_layers"],
+        num_actions=metadata["num_actions"],
+    )
+    payload = {"state_dict": model.state_dict(), "metadata": metadata}
+    torch.save(payload, checkpoint_dir / "deep_cfr_final.pth")
+
+    with (
+        patch("poker_ai.ai.model_loader.remote_checkpoint_dir", return_value=checkpoint_dir),
+        pytest.warns(RuntimeWarning),
+    ):
+        strategy, device = load_model_strategy(str(requested_path))
+
+    assert isinstance(strategy, RandomAIStrategy)
+    assert isinstance(device, torch.device)
+    assert device.type == "cpu"

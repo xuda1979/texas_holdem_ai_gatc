@@ -1,12 +1,29 @@
 import warnings
+from pathlib import Path
 
 import torch
 from collections.abc import Mapping
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.gui.playStrategy import ModelAIStrategy, PlayerStrategy, RandomAIStrategy
+from poker_ai.model_storage import remote_checkpoint_dir, remote_default_model_path
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
-DEFAULT_MODEL_PATH = "trained_models/cfr_model.pth"
+DEFAULT_MODEL_PATH = str(remote_default_model_path())
+
+
+def _resolve_model_path(model_path: str, *, allow_latest_fallback: bool) -> str:
+    candidate = Path(model_path).expanduser()
+    if candidate.is_file():
+        return str(candidate)
+
+    if allow_latest_fallback:
+        latest = find_latest_model_checkpoint(directory=remote_checkpoint_dir())
+        if latest is not None:
+            latest_path, _ = latest
+            return latest_path
+
+    return str(candidate)
 
 
 def load_model_strategy(
@@ -19,8 +36,12 @@ def load_model_strategy(
     loaded onto ``CUDA`` when available, otherwise ``CPU``.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    resolved_model_path = _resolve_model_path(
+        model_path,
+        allow_latest_fallback=model_path == DEFAULT_MODEL_PATH,
+    )
     try:
-        payload = torch.load(model_path, map_location=device)
+        payload = torch.load(resolved_model_path, map_location=device)
 
         if not isinstance(payload, Mapping):
             raise ValueError("Model payload missing metadata")
@@ -78,14 +99,14 @@ def load_model_strategy(
         return ModelAIStrategy(model, config, device), device
     except (FileNotFoundError, ValueError) as exc:
         warnings.warn(
-            f"Failed to load model from {model_path}: {exc}. Falling back to RandomAIStrategy.",
+            f"Failed to load model from {resolved_model_path}: {exc}. Falling back to RandomAIStrategy.",
             RuntimeWarning,
             stacklevel=2,
         )
         return RandomAIStrategy(), device
     except Exception as exc:  # pragma: no cover - unexpected error
         warnings.warn(
-            f"Unexpected error loading model from {model_path}: {exc}. "
+            f"Unexpected error loading model from {resolved_model_path}: {exc}. "
             "Falling back to RandomAIStrategy.",
             RuntimeWarning,
             stacklevel=2,

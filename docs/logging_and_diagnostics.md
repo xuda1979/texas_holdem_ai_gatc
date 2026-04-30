@@ -22,6 +22,19 @@ LLM for post-mortem analysis without additional context.
   structured INFO-level messages whenever models are saved, training steps
   complete, or significant events occur.  Rotating file handlers prevent logs
   from growing without bound.
+* The training CLI's machine-readable events all use the `Training event:`
+  prefix followed by stable JSON. Current event types emitted by
+  `poker_ai.cli.train` are:
+  * `checkpoint_saved` — includes `trigger`, `path`, and `total_samples`
+  * `cycle_complete` — includes `cycle`, `total_samples`,
+    `samples_this_cycle`, `train_steps`, `replay_buffer_size`, and `avg_loss`
+  * `evaluation_status` — includes `cycle`, `total_samples`,
+    `no_improvement_samples`, and `should_continue`
+  * `final_model_saved` — includes `path`, `total_samples`, and
+    `stopped_early`
+* These events are designed for remote log scraping on Huanxin `ai1`, so shell
+  commands such as `grep 'Training event:' <log>` can power lightweight
+  monitoring without needing to parse the full human-readable log stream.
 
 ## Quick diagnostics for algorithm validation
 

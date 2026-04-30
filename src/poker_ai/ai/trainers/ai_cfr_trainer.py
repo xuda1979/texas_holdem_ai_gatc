@@ -4,6 +4,8 @@ import hashlib
 import logging
 import os
 import random
+import sys
+import types
 from pathlib import Path
 
 import torch
@@ -16,6 +18,7 @@ except Exception:  # pragma: no cover - PyYAML missing
 import torch.nn.functional as F
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.model_storage import prepare_model_write_path, remote_default_model_path
 
 # CFR utilities live under the package namespace.
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
@@ -55,14 +58,29 @@ except Exception:
             "num_layers": AdvantageNetwork.DEFAULT_NUM_LAYERS,
             "num_heads": AdvantageNetwork.DEFAULT_NUM_HEADS,
         },
-        "training": {"save_model_path": "aicfr_model.pth"},
+        "training": {"save_model_path": str(remote_default_model_path())},
     }
 
 
-# Expose config for package-level access so tests can override it
-import sys
+def _publish_config_module(config_dict: dict) -> types.ModuleType:
+    """Expose trainer config as an importable module.
 
-sys.modules[__package__ + ".config"] = config
+    Some tooling iterates over ``sys.modules`` and expects module-like objects.
+    Publishing a raw dict there breaks callers such as ``inspect.getmodule``.
+    """
+
+    module_name = __package__ + ".config"
+    config_module = sys.modules.get(module_name)
+    if not isinstance(config_module, types.ModuleType):
+        config_module = types.ModuleType(module_name)
+        sys.modules[module_name] = config_module
+    config_module.config = config_dict
+    for key, value in config_dict.items():
+        setattr(config_module, key, value)
+    return config_module
+
+
+_publish_config_module(config)
 
 
 class AICFRTrainer:
@@ -341,8 +359,7 @@ class AICFRTrainer:
         try:
             if model_path is None:
                 model_path = self.config["training"]["save_model_path"]
-            path = Path(model_path).expanduser()
-            path.parent.mkdir(parents=True, exist_ok=True)
+            path = prepare_model_write_path(model_path)
             payload = {
                 "state_dict": self.model.state_dict(),
                 "metadata": {
@@ -369,6 +386,7 @@ class AICFRTrainer:
             )
         except Exception as e:
             self.logger.exception("Error saving model: %s", str(e))
+            raise
 
     def load_model(self, model_path: str | None = None):
         # Ensure config path is correct or make it an argument

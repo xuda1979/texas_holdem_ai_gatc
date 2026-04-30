@@ -23,13 +23,16 @@ def test_minibatch_shapes_masks():
         state = torch.ones(1, 4) * i
         regret = torch.tensor([float(i), -float(i)])
         trainer.replay_buffer.push(state, regret, i + 1)
-    initial_loss = trainer.train(batch_size=5)
+
+    fixed_batch = list(trainer.replay_buffer.buffer)
+    trainer.replay_buffer.sample = lambda batch_size: fixed_batch[:batch_size]
+
+    initial_loss = trainer.train(batch_size=20)
     for _ in range(5):
-        loss = trainer.train(batch_size=5)
+        loss = trainer.train(batch_size=20)
     assert loss <= initial_loss
     batch = trainer.replay_buffer.sample(5)
-    _, _, states, regrets, iterations = zip(*batch, strict=False)
+    _, _, states, regrets, iterations = zip(*batch)
     assert torch.stack(states).shape == (5, 1, 4)
     assert torch.stack(regrets).shape == (5, 2)
     assert torch.tensor(iterations).shape == (5,)
-

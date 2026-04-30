@@ -39,7 +39,7 @@ def test_category_order() -> None:
         scores.append(score)
         seen_types.append(eval7.handtype(score))
         assert seen_types[-1] == expected
-    for a, b in zip(scores, scores[1:], strict=False):
+    for a, b in zip(scores, scores[1:]):
         assert a > b, f"{a} !> {b}"
 
 

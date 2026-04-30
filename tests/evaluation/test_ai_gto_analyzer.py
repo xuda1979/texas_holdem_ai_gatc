@@ -80,6 +80,47 @@ def test_load_cfr_model_handles_missing_file(monkeypatch, capsys):
     assert config == ai_gto_analyzer._trainer_config
 
 
+def test_load_cfr_model_explicit_missing_path_does_not_redirect(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(ai_gto_analyzer, "CFRTrainer", DummyTrainer)
+    checkpoint_dir = tmp_path / "models"
+    checkpoint_dir.mkdir()
+    (checkpoint_dir / "deep_cfr_final.pth").write_bytes(b"checkpoint")
+
+    monkeypatch.setattr(ai_gto_analyzer, "remote_checkpoint_dir", lambda: checkpoint_dir)
+
+    missing_path = tmp_path / "trained_models" / "missing.pth"
+    trainer, config = ai_gto_analyzer.load_cfr_model_and_config(str(missing_path))
+
+    captured = capsys.readouterr().out
+    assert "AI model file not found" in captured
+    assert str(missing_path) in captured
+    assert trainer is None
+    assert config == ai_gto_analyzer._trainer_config
+
+
+def test_load_cfr_model_falls_back_to_latest_checkpoint(monkeypatch, tmp_path):
+    DummyTrainer.init_calls = 0
+    monkeypatch.setattr(ai_gto_analyzer, "CFRTrainer", DummyTrainer)
+    checkpoint_dir = tmp_path / "models"
+    checkpoint_dir.mkdir()
+    latest_model = checkpoint_dir / "deep_cfr_final.pth"
+    latest_model.write_bytes(b"checkpoint")
+
+    ai_gto_analyzer._full_config = {
+        "model": {"directory": "trained_models", "num_actions": 4},
+        "training": {"save_model_path": str(tmp_path / "trained_models" / "cfr_model.pth")},
+    }
+
+    monkeypatch.setattr(ai_gto_analyzer, "remote_checkpoint_dir", lambda: checkpoint_dir)
+
+    trainer, config = ai_gto_analyzer.load_cfr_model_and_config()
+
+    assert trainer is not None
+    assert config == ai_gto_analyzer._trainer_config
+    assert trainer.model_path == str(latest_model)
+    assert trainer.load_calls == 1
+
+
 def test_display_ai_gto_stats_formats_probabilities(monkeypatch, capsys):
     trainer = DummyTrainer(ai_gto_analyzer._trainer_config)
 

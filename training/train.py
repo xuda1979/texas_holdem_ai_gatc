@@ -8,13 +8,16 @@ import logging
 import math
 import os
 import shutil
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from poker_ai.selfplay.self_play import SelfPlay
 from poker_ai.ai import trainers as trainer_module
+from poker_ai.model_storage import (
+    prepare_model_write_path,
+    remote_default_model_path,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -25,7 +28,7 @@ class _CheckpointManager:
 
     def __init__(self, trainer: object, base_path: str | os.PathLike[str]):
         self._trainer = trainer
-        base = Path(base_path).expanduser()
+        base = prepare_model_write_path(base_path)
         if base.suffix:
             self.final_path = base
             snapshot_dir_name = f"{base.stem}_snapshots"
@@ -108,7 +111,7 @@ def _override_config(args: argparse.Namespace) -> dict[str, Any]:
 
     trainer_module.config = config
     trainer_module.ai_cfr_trainer_module.config = config
-    sys.modules["poker_ai.ai.trainers.config"] = config
+    trainer_module.ai_cfr_trainer_module._publish_config_module(config)
     return config
 
 
@@ -328,7 +331,7 @@ def main() -> None:
     if not base_save_path:
         base_save_path = trainer_cfg.get("training", {}).get("save_model_path") if isinstance(trainer_cfg, dict) else None
     if not base_save_path:
-        base_save_path = "aicfr_model.pth"
+        base_save_path = str(remote_default_model_path())
 
     checkpoint_manager = _CheckpointManager(trainer, base_save_path)
     training_cfg["save_model_path"] = str(checkpoint_manager.final_path)

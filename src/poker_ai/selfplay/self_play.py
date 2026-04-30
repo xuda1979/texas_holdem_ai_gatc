@@ -16,6 +16,7 @@ import torch
 
 # Assuming these imports are correct relative to the project structure
 from poker_ai.engine.texas_holdem import TexasHoldem, TexasHoldemRules
+from poker_ai.model_storage import remote_checkpoint_dir
 from poker_ai.utils.action_mapping import (
     action_to_tuple,
     get_action_from_index,
@@ -156,7 +157,7 @@ class SelfPlay:
         directories_to_search: list[Path] = []
         if isinstance(model_directory, str) and model_directory:
             directories_to_search.append(Path(model_directory).expanduser())
-        directories_to_search.append(Path("models"))
+        directories_to_search.append(remote_checkpoint_dir())
 
         patterns: list[str] = ["*.pth"]
         if isinstance(filename_prefix, str) and filename_prefix:
@@ -369,6 +370,24 @@ class SelfPlay:
                         float(loss),
                         buffer_length,
                     )
+
+                strategy_buffer = getattr(self.cfr_trainer, "strategy_buffer", None)
+                train_policy = getattr(self.cfr_trainer, "train_policy", None)
+                strategy_buffer_length = (
+                    len(strategy_buffer) if hasattr(strategy_buffer, "__len__") else 0
+                )
+                if (
+                    callable(train_policy)
+                    and strategy_buffer_length >= self.min_buffer_before_train
+                ):
+                    policy_loss = train_policy(batch_size=self.min_buffer_before_train)
+                    if policy_loss is not None:
+                        self.logger.info(
+                            "Iteration %s | policy training step complete | loss=%.6f | buffer=%s",
+                            iteration,
+                            float(policy_loss),
+                            strategy_buffer_length,
+                        )
             else:
                 self.logger.debug(
                     "Iteration %s | buffer below threshold (%s/%s)",

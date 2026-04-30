@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 import time
@@ -95,6 +97,78 @@ def test_play_hand_for_training_respects_custom_buffer_threshold():
         sp.play_hand_for_training(iteration=123)
 
     trainer.train.assert_called_once_with(batch_size=2)
+
+
+def test_play_hand_for_training_trains_policy_when_strategy_buffer_ready():
+    trainer = DummyTrainer()
+    trainer.replay_buffer.extend([object(), object()])
+    trainer.strategy_buffer = DummyTrainer.Buffer()
+    trainer.strategy_buffer.extend([object(), object()])
+    trainer.train = MagicMock(return_value=0.5)
+    trainer.train_policy = MagicMock(return_value=0.25)
+
+    training_cfg = {"min_buffer_before_train": 2}
+    sp = SelfPlay(
+        trainer,
+        {"num_players": 2, "starting_stack": 50},
+        training_config=training_cfg,
+    )
+
+    class DummyGame:
+        def __init__(self, num_players: int, starting_stack: int) -> None:
+            self.rules = SimpleNamespace(big_blind=0, small_blind=0, num_players=num_players)
+
+        def initialize_game(self) -> None:
+            pass
+
+        def clone(self) -> "DummyGame":
+            return self
+
+    with (
+        patch("poker_ai.selfplay.self_play.random.randint", return_value=2),
+        patch("poker_ai.selfplay.self_play.TexasHoldem", DummyGame),
+        patch.object(SelfPlay, "_traverse_mccfr", return_value=0),
+    ):
+        sp.play_hand_for_training(iteration=123)
+
+    trainer.train.assert_called_once_with(batch_size=2)
+    trainer.train_policy.assert_called_once_with(batch_size=2)
+
+
+def test_play_hand_for_training_skips_policy_until_strategy_buffer_threshold():
+    trainer = DummyTrainer()
+    trainer.replay_buffer.extend([object(), object()])
+    trainer.strategy_buffer = DummyTrainer.Buffer()
+    trainer.strategy_buffer.append(object())
+    trainer.train = MagicMock(return_value=0.5)
+    trainer.train_policy = MagicMock(return_value=0.25)
+
+    training_cfg = {"min_buffer_before_train": 2}
+    sp = SelfPlay(
+        trainer,
+        {"num_players": 2, "starting_stack": 50},
+        training_config=training_cfg,
+    )
+
+    class DummyGame:
+        def __init__(self, num_players: int, starting_stack: int) -> None:
+            self.rules = SimpleNamespace(big_blind=0, small_blind=0, num_players=num_players)
+
+        def initialize_game(self) -> None:
+            pass
+
+        def clone(self) -> "DummyGame":
+            return self
+
+    with (
+        patch("poker_ai.selfplay.self_play.random.randint", return_value=2),
+        patch("poker_ai.selfplay.self_play.TexasHoldem", DummyGame),
+        patch.object(SelfPlay, "_traverse_mccfr", return_value=0),
+    ):
+        sp.play_hand_for_training(iteration=123)
+
+    trainer.train.assert_called_once_with(batch_size=2)
+    trainer.train_policy.assert_not_called()
 
 
 def test_self_play_reloads_latest_checkpoint_when_updated(tmp_path):

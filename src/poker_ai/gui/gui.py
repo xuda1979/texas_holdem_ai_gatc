@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
+from pathlib import Path
 
 # Pillow is optional: the GUI falls back to text-based cards when it is not
 # installed.  Import lazily so tests can run in minimal environments.
@@ -19,7 +20,33 @@ if project_root not in sys.path:
 
 from game_engine.texas_holdem import TexasHoldem
 
+from poker_ai.ai import model_loader
+from poker_ai.ai.model_loader import DEFAULT_MODEL_PATH
 from poker_ai.gui.playStrategy import HumanStrategy, RandomAIStrategy
+
+
+THEME = {
+    "background": "#08141d",
+    "panel": "#102636",
+    "panel_alt": "#153447",
+    "table": "#0c5f3b",
+    "table_felt": "#0a7447",
+    "player": "#112948",
+    "actions": "#3f1d56",
+    "banner": "#132c3c",
+    "accent": "#53d6c6",
+    "accent_secondary": "#7b8cff",
+    "gold": "#f6c667",
+    "danger": "#ff6b6b",
+    "text": "#f4f8fb",
+    "muted": "#b9c7d3",
+    "chip": "#182937",
+}
+
+FONT_HERO = ("Arial", 28, "bold")
+FONT_SECTION = ("Arial", 18, "bold")
+FONT_BODY = ("Arial", 12)
+FONT_BUTTON = ("Arial", 12, "bold")
 
 
 class GUIHumanStrategy(HumanStrategy):
@@ -58,6 +85,7 @@ class PokerGameGUI:
         self.root = tk.Tk()
         self.root.title("Texas Hold'em Poker - Human vs AI")
         self.root.geometry("1400x900")
+        self.root.configure(bg=THEME["background"])
 
         # Attributes expected by legacy tests
         self.human_player_index = 0
@@ -77,10 +105,13 @@ class PokerGameGUI:
         self.game = None
         self.human_strategy = None
         self.current_game_state = {}
+        self.ai_summary_text = "AI mode: Random baseline opponents"
+        self.current_model_path = DEFAULT_MODEL_PATH
 
         # GUI elements
         self.info_frame = None
         self.cards_frame = None
+        self.player_frame = None
         self.actions_frame = None
         self.status_label = None
 
@@ -183,6 +214,58 @@ class PokerGameGUI:
     def _update_action_buttons_state(self):
         pass
 
+    def _get_selected_ai_mode(self) -> str:
+        """Return the configured AI mode, defaulting to the legacy random mode."""
+        mode_var = getattr(self, "ai_opponent_mode_var", None)
+        if mode_var is None:
+            return "random"
+
+        try:
+            raw_value = mode_var.get()
+        except AttributeError:
+            raw_value = mode_var
+
+        value = str(raw_value).strip().lower()
+        return "checkpoint" if value == "checkpoint" else "random"
+
+    def _get_selected_model_path(self) -> str:
+        """Return the checkpoint path requested by the user."""
+        model_path_var = getattr(self, "model_path_var", None)
+        if model_path_var is None:
+            return DEFAULT_MODEL_PATH
+
+        try:
+            raw_value = model_path_var.get()
+        except AttributeError:
+            raw_value = model_path_var
+
+        model_path = str(raw_value).strip()
+        return model_path or DEFAULT_MODEL_PATH
+
+    def _build_ai_strategies(self, num_ai: int) -> list[RandomAIStrategy]:
+        """Create AI opponents using either random play or a checkpoint model."""
+        if num_ai <= 0:
+            self.ai_summary_text = "Solo configuration"
+            return []
+
+        ai_mode = self._get_selected_ai_mode()
+        if ai_mode != "checkpoint":
+            self.ai_summary_text = f"AI mode: Random baseline • {num_ai} opponent(s)"
+            self.current_model_path = DEFAULT_MODEL_PATH
+            return [RandomAIStrategy() for _ in range(num_ai)]
+
+        self.current_model_path = self._get_selected_model_path()
+        strategy, device = model_loader.load_model_strategy(self.current_model_path)
+        strategy_label = "Checkpoint model"
+        if isinstance(strategy, RandomAIStrategy):
+            strategy_label = "Checkpoint unavailable • fallback random"
+
+        device_name = getattr(device, "type", str(device)).upper()
+        self.ai_summary_text = (
+            f"{strategy_label} • {Path(self.current_model_path).name} • {device_name}"
+        )
+        return [strategy for _ in range(num_ai)]
+
     def setup_gui(self):
         """Hook for setting up the initial GUI layout."""
         self.setup_initial_gui()
@@ -273,72 +356,226 @@ class PokerGameGUI:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Title
-        title_label = tk.Label(
-            self.root,
-            text="Texas Hold'em Poker - Human vs AI",
-            font=("Arial", 24, "bold"),
-            bg="green",
-            fg="white",
-        )
-        title_label.pack(pady=20, fill=tk.X)
+        self.root.configure(bg=THEME["background"])
 
-        # Configuration frame
-        config_frame = tk.Frame(self.root, bg="darkgreen")
-        config_frame.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
+        hero = tk.Frame(self.root, bg=THEME["banner"], padx=32, pady=26)
+        hero.pack(fill=tk.X, padx=24, pady=(24, 16))
 
-        # Total players
         tk.Label(
-            config_frame,
-            text="Total Players (2-10):",
-            font=("Arial", 14),
-            bg="darkgreen",
-            fg="white",
-        ).pack(pady=10)
+            hero,
+            text="Texas Hold'em Command Center",
+            font=FONT_HERO,
+            bg=THEME["banner"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        tk.Label(
+            hero,
+            text=(
+                "Launch a polished human-vs-AI table, load a trained checkpoint, "
+                "or benchmark your current build against random opponents."
+            ),
+            font=FONT_BODY,
+            bg=THEME["banner"],
+            fg=THEME["muted"],
+        ).pack(anchor="w", pady=(8, 0))
+
+        content = tk.Frame(self.root, bg=THEME["background"])
+        content.pack(expand=True, fill=tk.BOTH, padx=24, pady=(0, 24))
+
+        config_card = tk.Frame(
+            content,
+            bg=THEME["panel"],
+            padx=28,
+            pady=24,
+            highlightbackground=THEME["accent_secondary"],
+            highlightthickness=1,
+        )
+        config_card.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 12))
+
+        insight_card = tk.Frame(
+            content,
+            bg=THEME["panel_alt"],
+            padx=28,
+            pady=24,
+            highlightbackground=THEME["accent"],
+            highlightthickness=1,
+            width=360,
+        )
+        insight_card.pack(side=tk.LEFT, fill=tk.BOTH, padx=(12, 0))
+        insight_card.pack_propagate(False)
+
+        tk.Label(
+            config_card,
+            text="Table setup",
+            font=FONT_SECTION,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        tk.Label(
+            config_card,
+            text="Tune the table, choose your opponent mode, and jump straight into testing.",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["muted"],
+        ).pack(anchor="w", pady=(4, 18))
+
+        tk.Label(
+            config_card,
+            text="Total Players (2-10)",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
 
         self.total_players_var = tk.StringVar(value="3")
         total_players_spinbox = tk.Spinbox(
-            config_frame,
+            config_card,
             from_=2,
             to=10,
             textvariable=self.total_players_var,
-            font=("Arial", 12),
-            width=5,
+            font=FONT_BODY,
+            width=6,
+            justify="center",
+            relief="flat",
+            bd=0,
         )
-        total_players_spinbox.pack(pady=5)
+        total_players_spinbox.pack(anchor="w", pady=(6, 14))
 
-        # Number of humans (always 1 for this implementation)
         tk.Label(
-            config_frame,
-            text="Human Players: 1 (You)",
-            font=("Arial", 14),
-            bg="darkgreen",
-            fg="white",
-        ).pack(pady=10)
+            config_card,
+            text="Human Players",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        tk.Label(
+            config_card,
+            text="1 seated hero • AI fills the remaining seats",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["muted"],
+        ).pack(anchor="w", pady=(6, 14))
 
-        # Starting stack
         tk.Label(
-            config_frame, text="Starting Stack:", font=("Arial", 14), bg="darkgreen", fg="white"
-        ).pack(pady=10)
+            config_card,
+            text="Starting Stack",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
 
         self.starting_stack_var = tk.StringVar(value="10000")
         stack_options = ["1000", "5000", "10000", "20000", "50000"]
-        stack_combo = tk.OptionMenu(config_frame, self.starting_stack_var, *stack_options)
-        stack_combo.config(font=("Arial", 12))
-        stack_combo.pack(pady=5)
+        stack_combo = tk.OptionMenu(config_card, self.starting_stack_var, *stack_options)
+        stack_combo.config(font=FONT_BODY, bg=THEME["accent_secondary"], fg=THEME["text"], relief="flat")
+        stack_combo.pack(anchor="w", pady=(6, 14))
 
-        # Start game button
+        tk.Label(
+            config_card,
+            text="AI Opponent Mode",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        self.ai_opponent_mode_var = tk.StringVar(value="checkpoint")
+        mode_frame = tk.Frame(config_card, bg=THEME["panel"])
+        mode_frame.pack(anchor="w", pady=(8, 14))
+        for label, value in (("Checkpoint model", "checkpoint"), ("Random baseline", "random")):
+            tk.Radiobutton(
+                mode_frame,
+                text=label,
+                variable=self.ai_opponent_mode_var,
+                value=value,
+                selectcolor=THEME["panel_alt"],
+                bg=THEME["panel"],
+                fg=THEME["text"],
+                activebackground=THEME["panel"],
+                activeforeground=THEME["accent"],
+                font=FONT_BODY,
+            ).pack(anchor="w", pady=2)
+
+        tk.Label(
+            config_card,
+            text="Checkpoint Path",
+            font=FONT_BODY,
+            bg=THEME["panel"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        self.model_path_var = tk.StringVar(value=DEFAULT_MODEL_PATH)
+        tk.Entry(
+            config_card,
+            textvariable=self.model_path_var,
+            font=FONT_BODY,
+            bg="#0b1e2d",
+            fg=THEME["text"],
+            insertbackground=THEME["text"],
+            relief="flat",
+            width=48,
+        ).pack(anchor="w", fill=tk.X, pady=(6, 10))
+        tk.Label(
+            config_card,
+            text="Leave blank to use the default checkpoint path.",
+            font=("Arial", 10),
+            bg=THEME["panel"],
+            fg=THEME["muted"],
+        ).pack(anchor="w")
+
         start_button = tk.Button(
-            config_frame,
-            text="Start Game",
+            config_card,
+            text="Launch Beautiful Table",
             font=("Arial", 16, "bold"),
-            bg="red",
-            fg="white",
+            bg=THEME["accent"],
+            fg="#08141d",
             command=self.start_new_game,
-            width=15,
+            width=22,
             height=2,
+            relief="flat",
+            activebackground="#7bf2e4",
+            activeforeground="#08141d",
         )
-        start_button.pack(pady=30)
+        start_button.pack(anchor="w", pady=(26, 0))
+
+        tk.Label(
+            insight_card,
+            text="Why this setup helps debugging",
+            font=FONT_SECTION,
+            bg=THEME["panel_alt"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+
+        tips = [
+            "Checkpoint mode exercises the real model-loading path used for trained agents.",
+            "Random mode gives a low-friction fallback for quick smoke tests and GUI checks.",
+            "The in-game HUD shows which model path and device are active for each run.",
+            "If a checkpoint cannot load, the GUI now reports the fallback instead of silently hiding it.",
+        ]
+        for tip in tips:
+            tk.Label(
+                insight_card,
+                text=f"• {tip}",
+                justify="left",
+                wraplength=300,
+                font=FONT_BODY,
+                bg=THEME["panel_alt"],
+                fg=THEME["muted"],
+            ).pack(anchor="w", pady=6)
+
+        tk.Label(
+            insight_card,
+            text="Default checkpoint",
+            font=("Arial", 11, "bold"),
+            bg=THEME["panel_alt"],
+            fg=THEME["gold"],
+        ).pack(anchor="w", pady=(20, 4))
+        tk.Label(
+            insight_card,
+            text=DEFAULT_MODEL_PATH,
+            justify="left",
+            wraplength=300,
+            font=("Arial", 10),
+            bg=THEME["panel_alt"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
 
     def start_new_game(self):
         """Start a new game with the configured settings."""
@@ -362,8 +599,7 @@ class PokerGameGUI:
 
         # Add AI strategies
         num_ai = total_players - 1
-        for _ in range(num_ai):
-            player_strategies.append(RandomAIStrategy())
+        player_strategies.extend(self._build_ai_strategies(num_ai))
 
         # Create game
         self.game = TexasHoldem(total_players, starting_stack, player_strategies)
@@ -393,51 +629,78 @@ class PokerGameGUI:
         for widget in self.root.winfo_children():
             widget.destroy()
 
+        self.root.configure(bg=THEME["background"])
+
+        top_banner = tk.Frame(self.root, bg=THEME["banner"], padx=18, pady=14)
+        top_banner.pack(fill=tk.X, padx=16, pady=(16, 8))
+        tk.Label(
+            top_banner,
+            text="Live table",
+            font=FONT_SECTION,
+            bg=THEME["banner"],
+            fg=THEME["text"],
+        ).pack(anchor="w")
+        tk.Label(
+            top_banner,
+            text=self.ai_summary_text,
+            font=FONT_BODY,
+            bg=THEME["banner"],
+            fg=THEME["muted"],
+        ).pack(anchor="w", pady=(4, 0))
+
         # Status bar
         self.status_label = tk.Label(
-            self.root, text="Game Starting...", font=("Arial", 14), bg="navy", fg="white", height=2
+            self.root,
+            text="Game Starting...",
+            font=("Arial", 14, "bold"),
+            bg=THEME["accent_secondary"],
+            fg=THEME["text"],
+            height=2,
         )
-        self.status_label.pack(fill=tk.X)
+        self.status_label.pack(fill=tk.X, padx=16, pady=(0, 8))
 
         # Game info frame
-        self.info_frame = tk.Frame(self.root, bg="darkgreen", height=150)
-        self.info_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.info_frame = tk.Frame(self.root, bg=THEME["panel"], height=165)
+        self.info_frame.pack(fill=tk.X, padx=16, pady=8)
         self.info_frame.pack_propagate(False)
-        # Community cards and pot frame (increased height for card images)
-        self.cards_frame = tk.Frame(self.root, bg="green", height=250)
-        self.cards_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # Community cards and pot frame
+        self.cards_frame = tk.Frame(self.root, bg=THEME["table"], height=270)
+        self.cards_frame.pack(fill=tk.X, padx=16, pady=8)
         self.cards_frame.pack_propagate(False)
 
-        # Human player info frame (increased height for card images)
-        self.player_frame = tk.Frame(self.root, bg="darkblue", height=200)
-        self.player_frame.pack(fill=tk.X, padx=10, pady=5)
+        # Human player info frame
+        self.player_frame = tk.Frame(self.root, bg=THEME["player"], height=210)
+        self.player_frame.pack(fill=tk.X, padx=16, pady=8)
         self.player_frame.pack_propagate(False)
 
         # Actions frame
-        self.actions_frame = tk.Frame(self.root, bg="red", height=100)
-        self.actions_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.actions_frame = tk.Frame(self.root, bg=THEME["actions"], height=110)
+        self.actions_frame.pack(fill=tk.X, padx=16, pady=8)
         self.actions_frame.pack_propagate(False)
 
         # Control buttons frame
-        control_frame = tk.Frame(self.root, bg="gray")
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
+        control_frame = tk.Frame(self.root, bg=THEME["background"])
+        control_frame.pack(fill=tk.X, padx=16, pady=(8, 16))
 
         tk.Button(
             control_frame,
             text="New Game",
             command=self.setup_initial_gui,
-            font=("Arial", 12),
-            bg="orange",
-            fg="white",
+            font=FONT_BUTTON,
+            bg=THEME["gold"],
+            fg="#1e2430",
+            relief="flat",
         ).pack(side=tk.LEFT, padx=5)
 
         tk.Button(
             control_frame,
             text="Quit",
             command=self.root.quit,
-            font=("Arial", 12),
-            bg="darkred",
-            fg="white",
+            font=FONT_BUTTON,
+            bg=THEME["danger"],
+            fg=THEME["text"],
+            relief="flat",
         ).pack(side=tk.RIGHT, padx=5)
 
     def update_display(self):

@@ -10,6 +10,8 @@ stores them in a reservoir-sampling replay buffer.  Training is performed with
 the "Linear CFR" weighted mean-squared error loss.
 """
 
+import copy
+import logging
 import random
 from pathlib import Path
 from typing import Tuple
@@ -29,6 +31,7 @@ def _load_xla_module():
     return xm
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
+from poker_ai.model_storage import prepare_model_write_path
 
 
 class ReplayBuffer:
@@ -164,6 +167,9 @@ class DeepCFRTrainer:
 
         self.replay_buffer = ReplayBuffer(replay_buffer_capacity, self.card_feature_dim)
         self.strategy_buffer = ReplayBuffer(replay_buffer_capacity, self.card_feature_dim)
+        self._parallel_train_devices = self._resolve_parallel_train_devices()
+        self._parallel_network_copies: dict[str, list[torch.nn.Module]] = {}
+        self._parallel_training_logged = False
 
         # Minimal config dict retained for backward compatibility with callers.
         self.config = {
@@ -177,6 +183,162 @@ class DeepCFRTrainer:
                 "num_layers": self.num_layers,
             }
         }
+
+    def _resolve_parallel_train_devices(self) -> list[str]:
+        """Return device strings to use for sharded training updates.
+
+        The ai1 Ascend environment is stable when self-play inference remains on
+        a single NPU, but it still exposes multiple visible NPUs that can be
+        used safely for optimizer steps.  Keep the primary trainer model on the
+        main device and shard only the training batch across the remaining NPUs.
+        """
+
+        if not isinstance(self.device, str) or not self.device.startswith("npu"):
+            return []
+
+        npu_module = getattr(torch, "npu", None)
+        if npu_module is None:
+            return []
+
+        try:
+            device_count = int(npu_module.device_count())
+        except Exception:  # pragma: no cover - defensive
+            return []
+
+        if device_count <= 1:
+            return []
+
+        primary = self.device
+        devices = [primary]
+        devices.extend(f"npu:{idx}" for idx in range(1, device_count))
+        return devices
+
+    def _parallel_replicas(
+        self, network_name: str, master_network: torch.nn.Module
+    ) -> list[torch.nn.Module]:
+        devices = self._parallel_train_devices
+        if len(devices) <= 1:
+            return [master_network]
+
+        replicas = self._parallel_network_copies.get(network_name)
+        if replicas is None or len(replicas) != len(devices):
+            replicas = [master_network]
+            for device in devices[1:]:
+                replicas.append(copy.deepcopy(master_network).to(device))
+            self._parallel_network_copies[network_name] = replicas
+
+        state_dict = master_network.state_dict()
+        replicas[0] = master_network
+        for replica in replicas[1:]:
+            replica.load_state_dict(state_dict)
+        for replica in replicas:
+            replica.train(master_network.training)
+            replica.zero_grad(set_to_none=True)
+        return replicas
+
+    def _train_network_sharded(
+        self,
+        network_name: str,
+        buffer: ReplayBuffer,
+        optimizer: optim.Optimizer,
+        batch_size: int,
+        is_policy: bool,
+    ) -> float:
+        batch = buffer.sample(batch_size)
+        if not batch:
+            return 0.0
+
+        master_network = getattr(self, network_name)
+        devices = self._parallel_train_devices
+        if len(devices) <= 1:
+            return self._train_network(buffer, master_network, optimizer, batch_size, is_policy)
+
+        holes, communities, histories, targets, iterations = zip(*batch)
+        holes_cpu = torch.stack(list(holes))
+        communities_cpu = torch.stack(list(communities))
+        histories_cpu = torch.stack(list(histories))
+        targets_cpu = torch.stack(list(targets))
+        iterations_cpu = torch.as_tensor(iterations, dtype=torch.float32).view(-1, 1)
+
+        chunk_count = min(len(devices), holes_cpu.size(0))
+        if chunk_count <= 1:
+            return self._train_network(buffer, master_network, optimizer, batch_size, is_policy)
+
+        holes_chunks = list(torch.chunk(holes_cpu, chunk_count, dim=0))
+        communities_chunks = list(torch.chunk(communities_cpu, chunk_count, dim=0))
+        histories_chunks = list(torch.chunk(histories_cpu, chunk_count, dim=0))
+        targets_chunks = list(torch.chunk(targets_cpu, chunk_count, dim=0))
+        iteration_chunks = list(torch.chunk(iterations_cpu, chunk_count, dim=0))
+
+        replicas = self._parallel_replicas(network_name, master_network)
+        replicas = replicas[:chunk_count]
+        optimizer.zero_grad(set_to_none=True)
+
+        if not self._parallel_training_logged:
+            logging.getLogger(__name__).info(
+                "Using sharded Deep CFR training across %d devices for %s updates.",
+                chunk_count,
+                network_name,
+            )
+            self._parallel_training_logged = True
+
+        total_weight = float(iterations_cpu.clamp_min(0.0).sum().item())
+        total_elements = sum(int(chunk.numel()) for chunk in targets_chunks)
+        use_weighted = total_weight > 0.0
+        loss_value_numerator = 0.0
+
+        for device, replica, hole_chunk, community_chunk, history_chunk, target_chunk, iter_chunk in zip(
+            devices,
+            replicas,
+            holes_chunks,
+            communities_chunks,
+            histories_chunks,
+            targets_chunks,
+            iteration_chunks,
+        ):
+            hole_chunk = hole_chunk.to(device)
+            community_chunk = community_chunk.to(device)
+            history_chunk = history_chunk.to(device)
+            target_chunk = target_chunk.to(device)
+            iter_chunk = iter_chunk.to(device)
+
+            preds = replica(hole_chunk, community_chunk, history_chunk)
+            if not is_policy:
+                preds = preds - preds.mean(dim=-1, keepdim=True)
+                target_chunk = target_chunk - target_chunk.mean(dim=-1, keepdim=True)
+                loss_vals = (preds - target_chunk) ** 2
+            else:
+                pred_probs = torch.softmax(preds, dim=-1)
+                loss_vals = (pred_probs - target_chunk) ** 2
+
+            if use_weighted:
+                local_numerator = (loss_vals * iter_chunk.clamp_min(0.0)).sum()
+                scaled_loss = local_numerator / total_weight
+                loss_value_numerator += float(local_numerator.detach().cpu().item())
+            else:
+                local_numerator = loss_vals.sum()
+                scaled_loss = local_numerator / max(total_elements, 1)
+                loss_value_numerator += float(local_numerator.detach().cpu().item())
+
+            scaled_loss.backward()
+
+        master_params = list(master_network.parameters())
+        for replica in replicas[1:]:
+            for master_param, replica_param in zip(master_params, replica.parameters()):
+                if replica_param.grad is None:
+                    continue
+                replica_grad = replica_param.grad.to(master_param.device)
+                if master_param.grad is None:
+                    master_param.grad = replica_grad
+                else:
+                    master_param.grad.add_(replica_grad)
+
+        clip_grad_norm_(master_network.parameters(), max_norm=1.0)
+        optimizer.step()
+
+        if use_weighted:
+            return loss_value_numerator / total_weight
+        return loss_value_numerator / max(total_elements, 1)
 
     @torch.no_grad()
     def get_advantages(
@@ -290,22 +452,22 @@ class DeepCFRTrainer:
 
     def train(self, batch_size: int = 256) -> float:
         """Perform one training step on the Advantage Network."""
-        return self._train_network(
+        return self._train_network_sharded(
+            "advantage_net",
             self.replay_buffer,
-            self.advantage_net,
             self.optimizer,
             batch_size,
-            is_policy=False
+            is_policy=False,
         )
 
     def train_policy(self, batch_size: int = 256) -> float:
         """Perform one training step on the Policy Network."""
-        return self._train_network(
+        return self._train_network_sharded(
+            "policy_net",
             self.strategy_buffer,
-            self.policy_net,
             self.policy_optimizer,
             batch_size,
-            is_policy=True
+            is_policy=True,
         )
 
     def _train_network(
@@ -365,8 +527,7 @@ class DeepCFRTrainer:
         return float(weighted_loss.item())
 
     def save_model(self, path: str) -> None:
-        target = Path(path).expanduser()
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = prepare_model_write_path(path)
         payload = {
             "state_dict": self.advantage_net.state_dict(),
             "policy_net_state_dict": self.policy_net.state_dict(),
@@ -408,4 +569,3 @@ class DeepCFRTrainer:
         self.advantage_net.eval()
         self.policy_net.to(target_device)
         self.policy_net.eval()
-

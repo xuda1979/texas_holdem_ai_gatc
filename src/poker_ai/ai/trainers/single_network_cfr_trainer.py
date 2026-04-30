@@ -8,6 +8,7 @@ import torch.optim as optim
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.ai.trainers.deep_cfr_trainer import ReplayBuffer
+from poker_ai.model_storage import prepare_model_write_path
 from poker_ai.rules.cfr import calculate_strategy, update_regret, update_strategy
 
 
@@ -170,8 +171,7 @@ class SingleNetworkCFRTrainer:
         return float(weighted_loss.item())
 
     def save_model(self, path: str) -> None:
-        target = Path(path).expanduser()
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = prepare_model_write_path(path)
         payload = {
             "state_dict": self.model.state_dict(),
             "metadata": {

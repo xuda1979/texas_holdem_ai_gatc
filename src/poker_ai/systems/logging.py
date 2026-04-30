@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,7 +13,7 @@ from .base import Subsystem
 
 
 @dataclass
-class LoggingSubsystem(Subsystem[logging_utils]):
+class LoggingSubsystem(Subsystem):
     """Expose logging helpers for other subsystems."""
 
     @classmethod
@@ -29,3 +31,10 @@ class LoggingSubsystem(Subsystem[logging_utils]):
 
     def run_metadata(self, *args: Any, **kwargs: Any) -> None:
         logging_utils.log_run_metadata(*args, **kwargs)
+
+    def event(self, event_name: str, **payload: Any) -> None:
+        logging.getLogger(__name__).info(
+            "%s | %s",
+            event_name,
+            json.dumps(payload, sort_keys=True, default=repr),
+        )

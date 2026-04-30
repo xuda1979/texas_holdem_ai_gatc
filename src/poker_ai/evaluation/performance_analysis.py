@@ -5,6 +5,8 @@ import logging
 import os
 from datetime import datetime
 
+from poker_ai.model_storage import prepare_model_write_path, resolve_model_write_path
+
 import torch
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
@@ -199,6 +201,7 @@ class ModelPerformanceAnalyzer:
             return True
         if iteration % self.save_every_iterations != 0:
             return True
+        resolve_model_write_path(self.models_dir)
         os.makedirs(self.models_dir, exist_ok=True)
         path = self._save_snapshot(trainer)
         self.logger.info("Model saved to %s at iteration %s", path, iteration)
@@ -222,7 +225,7 @@ class ModelPerformanceAnalyzer:
     def _save_snapshot(self, trainer) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"model_{timestamp}.pth"
-        path = os.path.join(self.models_dir, filename)
+        path = str(prepare_model_write_path(os.path.join(self.models_dir, filename)))
         trainer.save_model(path)
         return path
 

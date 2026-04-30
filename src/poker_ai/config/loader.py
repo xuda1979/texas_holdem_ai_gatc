@@ -6,6 +6,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from poker_ai.model_storage import remote_default_model_path, remote_trained_models_dir
+
 DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 ENV_CONFIG_PATH = "POKER_AI_CONFIG"
 ENV_PREFIX = "POKER_AI__"
@@ -26,11 +28,11 @@ _FALLBACK_CONFIG: dict[str, Any] = {
         "cfr_algorithm": "vanilla",
         "cfr_discount_factor": 1.0,
         "distributed_workers": 1,
-        "save_model_path": "trained_models/cfr_model.pth",
+        "save_model_path": str(remote_default_model_path()),
         "min_buffer_before_train": 256,
     },
     "model": {
-        "directory": "trained_models/",
+        "directory": str(remote_trained_models_dir()),
         "filename_prefix": "cfr_model",
         "hidden_dim": 768,
         "num_actions": 10,

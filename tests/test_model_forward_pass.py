@@ -1,6 +1,7 @@
 import os
 import sys
 
+import pytest
 import torch
 
 # Adjust the Python path to include the root directory of the project
@@ -75,6 +76,65 @@ def test_advantage_network_forward_pass():
     )
 
     print("AdvantageNetwork forward pass test completed successfully!")
+
+
+def test_advantage_network_legacy_transformer_state_dict_compatibility():
+    legacy = torch.nn.TransformerEncoder(
+        torch.nn.TransformerEncoderLayer(d_model=16, nhead=4, batch_first=True),
+        num_layers=2,
+    )
+    model = AdvantageNetwork(
+        history_feature_dim=3,
+        card_feature_dim=5,
+        hidden_dim=16,
+        num_heads=4,
+        num_layers=2,
+        num_actions=6,
+    )
+
+    transformed_state = {
+        f"transformer.{key}": value.clone()
+        for key, value in legacy.state_dict().items()
+    }
+
+    missing, unexpected = model.load_state_dict(transformed_state, strict=False)
+
+    assert not unexpected
+    assert all(not key.startswith("transformer.") for key in missing)
+    assert torch.allclose(
+        model.transformer.layers[0].self_attn.in_proj_weight,
+        legacy.layers[0].self_attn.in_proj_weight,
+    )
+
+
+def test_explicit_transformer_respects_padding_mask():
+    torch.manual_seed(0)
+    model = AdvantageNetwork(
+        history_feature_dim=4,
+        card_feature_dim=6,
+        hidden_dim=16,
+        num_heads=4,
+        num_layers=1,
+        num_actions=3,
+    )
+    model.eval()
+
+    hole = torch.randn(2, 6)
+    community = torch.randn(2, 6)
+    history = torch.randn(2, 5, 4)
+    padding_mask = torch.tensor(
+        [
+            [False, False, False, True, True],
+            [False, False, True, True, True],
+        ]
+    )
+
+    with torch.no_grad():
+        masked = model(hole, community, history, padding_mask=padding_mask)
+        unmasked = model(hole, community, history)
+
+    assert masked.shape == (2, 3)
+    assert not torch.allclose(masked, unmasked)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import glob
 import inspect
+import json
 import logging
 import math
 import os
@@ -14,17 +15,29 @@ import unittest.mock as mock
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, cast
+import importlib
 
 import torch
+
+try:  # Prefer early Ascend backend registration before project modules import torch internals.
+    import torch_npu  # type: ignore  # noqa: F401
+    _TORCH_NPU_IMPORTED = True
+    _TORCH_NPU_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - optional dependency on non-NPU hosts
+    _TORCH_NPU_IMPORTED = False
+    _TORCH_NPU_IMPORT_ERROR = exc
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 
 from poker_ai.config import load_config
-from poker_ai.evaluation.performance_analysis import ModelPerformanceAnalyzer
 from poker_ai.logging_utils import (
     log_configuration_snapshot,
     log_run_metadata,
     setup_logging,
+)
+from poker_ai.model_storage import (
+    remote_algorithm_checkpoint_path,
+    remote_checkpoint_dir,
 )
 
 _ORIGINAL_TIME_TIME = time.time
@@ -104,6 +117,18 @@ def _safe_exception(logger: logging.Logger, message: str, *args: Any, **kwargs: 
     _safe_log(logger, logging.ERROR, message, *args, **kwargs)
 
 
+def _emit_training_event(logger: logging.Logger, event: str, **payload: Any) -> None:
+    """Emit a machine-readable training event as stable JSON."""
+
+    event_payload = {"event": event, **payload}
+    _safe_log(
+        logger,
+        logging.INFO,
+        "Training event: %s",
+        json.dumps(event_payload, sort_keys=True, default=str),
+    )
+
+
 def _probe_device_allocation(device: str) -> tuple[bool, str | None]:
     """Return ``True`` if ``torch`` can allocate a tensor on ``device``.
 
@@ -119,6 +144,31 @@ def _probe_device_allocation(device: str) -> tuple[bool, str | None]:
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
     return True, None
+
+
+def _ensure_torch_npu_loaded(logger: logging.Logger | None = None) -> bool:
+    """Best-effort import of ``torch_npu`` before NPU probing.
+
+    Ascend environments can expose ``torch.npu`` while still requiring the
+    ``torch_npu`` module import to complete backend registration.  Importing it
+    eagerly makes the subsequent availability and allocation probe match the
+    successful manual shell sequence used on Huanxin ai1.
+    """
+
+    if _TORCH_NPU_IMPORTED:
+        return True
+
+    try:
+        importlib.import_module("torch_npu")
+        return True
+    except ImportError as exc:
+        if logger is not None:
+            _safe_debug(logger, "torch_npu import unavailable: %s", exc)
+        return False
+    except Exception as exc:  # pragma: no cover - defensive logging
+        if logger is not None:
+            _safe_warning(logger, "torch_npu import failed during NPU setup: %s", exc)
+        return False
 
 
 def _resolve_tpu_device(logger: logging.Logger, *, strict: bool) -> str | None:
@@ -154,7 +204,22 @@ def _resolve_tpu_device(logger: logging.Logger, *, strict: bool) -> str | None:
 
 # Assuming the script is run from the project root,
 # and trainers, self_play, etc., are packages in that root.
-from poker_ai.selfplay.self_play import SelfPlay
+SelfPlay = None
+ModelPerformanceAnalyzer = None
+
+
+def _load_self_play_class() -> type[Any]:
+    if SelfPlay is not None:
+        return SelfPlay
+    module = importlib.import_module("poker_ai.selfplay.self_play")
+    return getattr(module, "SelfPlay")
+
+
+def _load_model_performance_analyzer_class() -> type[Any]:
+    if ModelPerformanceAnalyzer is not None:
+        return ModelPerformanceAnalyzer
+    module = importlib.import_module("poker_ai.evaluation.performance_analysis")
+    return getattr(module, "ModelPerformanceAnalyzer")
 
 
 def parse_args() -> argparse.Namespace:
@@ -269,6 +334,20 @@ def _data_parallel_kwargs_for_device(device: str) -> dict[str, Any]:
         device_ids = list(range(device_count))
         return {"device_ids": device_ids, "output_device": device_ids[0]}
     return {}
+
+
+def _npu_data_parallel_enabled() -> bool:
+    """Return whether multi-NPU DataParallel should be used.
+
+    Ascend ``torch.nn.DataParallel`` has been unstable in the ai1 environment:
+    NPU initialization succeeds, but self-play generation aborts shortly after
+    launch with TBE subprocess failures once the model is wrapped for
+    multi-device execution.  Keep NPU training on a single visible device by
+    default and require an explicit opt-in before fanning out across multiple
+    NPUs.
+    """
+
+    return os.environ.get("POKER_AI_ENABLE_NPU_DATAPARALLEL", "").strip() == "1"
 
 
 def initialize_trainer(
@@ -394,7 +473,7 @@ def _find_latest_model_path(config: dict, algorithm: str) -> str | None:
     directories_to_glob: list[str] = []
     if isinstance(directory, str) and directory:
         directories_to_glob.append(directory)
-    directories_to_glob.append("models")
+    directories_to_glob.append(str(remote_checkpoint_dir()))
 
     patterns: list[str] = ["*.pth"]
     if isinstance(filename_prefix, str) and filename_prefix:
@@ -485,7 +564,20 @@ def _load_latest_model(
         signature = None
 
     try:
-        if signature is not None and len(signature.parameters) > 1:
+        required_positional = 0
+        if signature is not None:
+            required_positional = sum(
+                1
+                for parameter in signature.parameters.values()
+                if parameter.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+                and parameter.default is inspect._empty
+            )
+
+        if signature is None or required_positional >= 1:
             load_attr(latest_path)
         else:
             training_cfg = getattr(trainer, "config", {})
@@ -579,6 +671,7 @@ def main() -> None:  # noqa: C901
         device_printable = f"{device} ({xla_device})"
         _safe_info(logger, "TPU training enabled on device %s", xla_device)
     elif npu_requested:
+        _ensure_torch_npu_loaded(logger)
         if hasattr(torch, "npu") and torch.npu.is_available():
             allocation_ok, failure_reason = _probe_device_allocation("npu")
             if allocation_ok:
@@ -586,8 +679,15 @@ def main() -> None:  # noqa: C901
                 device_printable = device
                 npu_count = torch.npu.device_count()
                 if npu_count > 1:
-                    use_data_parallel = True
-                    _announce(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+                    if _npu_data_parallel_enabled():
+                        use_data_parallel = True
+                        _announce(f"Multi-NPU training enabled. Found {npu_count} NPUs.")
+                    else:
+                        _announce(
+                            "NPU training enabled. "
+                            f"Found {npu_count} NPUs, keeping single-device execution. "
+                            "Set POKER_AI_ENABLE_NPU_DATAPARALLEL=1 to enable DataParallel.",
+                        )
                 else:
                     _announce("NPU training enabled.")
             else:
@@ -632,6 +732,7 @@ def main() -> None:  # noqa: C901
     else:
         preferred_device: str | None = None
         preferred_device_printable: str | None = None
+        _ensure_torch_npu_loaded(logger)
         if hasattr(torch, "npu") and torch.npu.is_available():
             allocation_ok, failure_reason = _probe_device_allocation("npu")
             if allocation_ok:
@@ -639,10 +740,17 @@ def main() -> None:  # noqa: C901
                 preferred_device_printable = "npu"
                 npu_count = torch.npu.device_count()
                 if npu_count > 1:
-                    use_data_parallel = True
-                    _announce(
-                        f"Auto-selected NPU acceleration with {npu_count} devices."
-                    )
+                    if _npu_data_parallel_enabled():
+                        use_data_parallel = True
+                        _announce(
+                            f"Auto-selected NPU acceleration with {npu_count} devices."
+                        )
+                    else:
+                        _announce(
+                            "Auto-selected NPU acceleration. "
+                            f"Found {npu_count} NPUs, keeping single-device execution. "
+                            "Set POKER_AI_ENABLE_NPU_DATAPARALLEL=1 to enable DataParallel.",
+                        )
                 else:
                     _announce("Auto-selected NPU acceleration.")
             else:
@@ -769,9 +877,9 @@ def main() -> None:  # noqa: C901
     )
     if max_samples_raw is not None:
         max_samples_candidate = int(max_samples_raw)
-        max_samples = max_samples_candidate if max_samples_candidate > 0 else None
+        max_samples = max_samples_candidate if max_samples_candidate > 0 else 0
     else:
-        max_samples = num_iterations if num_iterations > 0 else None
+        max_samples = num_iterations if num_iterations > 0 else 0
 
     training_params["train_during_generation"] = False
 
@@ -782,6 +890,7 @@ def main() -> None:  # noqa: C901
     big_blind = game_engine_config.get("big_blind", 10)
     small_blind = game_engine_config.get("small_blind", 5)
 
+    _announce(f"Total training iterations: {num_iterations}")
     _safe_info(logger, "Configuration summary: iterations=%s", num_iterations)
     _safe_info(
         logger, "Model snapshot interval (samples): %s", save_model_every_samples
@@ -845,16 +954,20 @@ def main() -> None:  # noqa: C901
 
     # The new SelfPlay class for MCCFR doesn't need curriculum learning or complex setup.
     # It's simplified for the core algorithm.
-    self_play_env = SelfPlay(
+    self_play_class = _load_self_play_class()
+    self_play_env = self_play_class(
         cfr_trainer=cfr_trainer,
         game_engine_config=game_config_for_selfplay,
         training_config=training_params,
     )
+    supports_self_play = callable(getattr(cfr_trainer, "get_advantages", None))
+    warned_missing_self_play_support = False
 
     # Training Loop
     _safe_info(logger, "Starting training loop")
-    analyzer = ModelPerformanceAnalyzer(
-        models_dir="models",
+    analyzer_class = _load_model_performance_analyzer_class()
+    analyzer = analyzer_class(
+        models_dir=str(remote_checkpoint_dir()),
         save_every_iterations=save_model_every_samples,
         tournament_threshold=20,
         tournament_size=20,
@@ -892,14 +1005,26 @@ def main() -> None:  # noqa: C901
 
             for _ in range(samples_this_cycle):
                 total_samples += 1
-                self_play_env.play_hand_for_training(total_samples)
+                if supports_self_play:
+                    self_play_env.play_hand_for_training(total_samples)
+                elif not warned_missing_self_play_support:
+                    _safe_warning(
+                        logger,
+                        "Trainer %s does not expose get_advantages(); skipping self-play sample generation.",
+                        type(cfr_trainer).__name__,
+                    )
+                    warned_missing_self_play_support = True
 
                 if (
                     save_model_every_n_hands > 0
                     and total_samples % save_model_every_n_hands == 0
                 ):
-                    path = f"models/{args.algorithm}_hand_{total_samples}.pth"
-                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    path = str(
+                        remote_algorithm_checkpoint_path(
+                            args.algorithm,
+                            f"hand_{total_samples}",
+                        )
+                    )
                     cfr_trainer.save_model(path)
                     _safe_info(
                         logger,
@@ -907,18 +1032,36 @@ def main() -> None:  # noqa: C901
                         path,
                         total_samples,
                     )
+                    _emit_training_event(
+                        logger,
+                        "checkpoint_saved",
+                        trigger="hand_interval",
+                        path=path,
+                        total_samples=total_samples,
+                    )
 
                 if save_model_every_minutes > 0:
                     current_time = time.time()
                     if (current_time - last_save_time) >= save_model_every_minutes * 60:
-                        path = f"models/{args.algorithm}_time_{total_samples}.pth"
-                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        path = str(
+                            remote_algorithm_checkpoint_path(
+                                args.algorithm,
+                                f"time_{total_samples}",
+                            )
+                        )
                         cfr_trainer.save_model(path)
                         _safe_info(
                             logger,
                             "Model saved to %s due to time interval at sample %s",
                             path,
                             total_samples,
+                        )
+                        _emit_training_event(
+                            logger,
+                            "checkpoint_saved",
+                            trigger="time_interval",
+                            path=path,
+                            total_samples=total_samples,
                         )
                         last_save_time = current_time
 
@@ -973,13 +1116,14 @@ def main() -> None:  # noqa: C901
                 )
                 steps = 0
 
-            if losses:
+            average_loss = (sum(losses) / len(losses)) if losses else None
+            if average_loss is not None:
                 _safe_info(
                     logger,
                     "Cycle %s | completed %s training steps | avg loss=%.6f",
                     cycle_index,
                     steps,
-                    sum(losses) / len(losses),
+                    average_loss,
                 )
             else:
                 _safe_info(
@@ -987,8 +1131,31 @@ def main() -> None:  # noqa: C901
                     "Cycle %s | completed %s training steps", cycle_index, steps
                 )
 
+            _emit_training_event(
+                logger,
+                "cycle_complete",
+                cycle=cycle_index,
+                total_samples=total_samples,
+                samples_this_cycle=samples_this_cycle,
+                train_steps=steps,
+                replay_buffer_size=buffer_length,
+                avg_loss=average_loss,
+            )
+
             should_continue = analyzer.on_iteration_end(
                 cfr_trainer, iteration=total_samples
+            )
+            _emit_training_event(
+                logger,
+                "evaluation_status",
+                cycle=cycle_index,
+                total_samples=total_samples,
+                should_continue=should_continue,
+                no_improvement_samples=getattr(
+                    analyzer,
+                    "no_improvement_samples",
+                    None,
+                ),
             )
             if not should_continue:
                 _safe_info(
@@ -1007,12 +1174,20 @@ def main() -> None:  # noqa: C901
         if stopped_early:
             status_msg += " (early stop)"
         _safe_info(logger, f"{status_msg}. Saving final model...")
-        final_model_path = f"models/{args.algorithm}_final.pth"
-        os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+        final_model_path = str(
+            remote_algorithm_checkpoint_path(args.algorithm, "final")
+        )
         try:
             cfr_trainer.save_model(final_model_path)
             _safe_info(
                 logger, "Final model saved successfully to %s", final_model_path
+            )
+            _emit_training_event(
+                logger,
+                "final_model_saved",
+                path=final_model_path,
+                total_samples=total_samples,
+                stopped_early=stopped_early,
             )
         except Exception as e:
             _safe_exception(logger, "Error saving final model: %s", e)
