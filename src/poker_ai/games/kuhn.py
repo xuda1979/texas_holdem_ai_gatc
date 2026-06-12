@@ -58,7 +58,6 @@ class KuhnTrainer:
         """Return the payoff for ``player`` at a terminal history, if terminal."""
         if len(history) < 2:
             return None
-        opponent = 1 - player
         if history == "pp":
             winner = 0 if cards[0] > cards[1] else 1
             payoff = 1
@@ -117,7 +116,6 @@ class KuhnTrainer:
 def _br_terminal(cards: List[int], history: str, player: int) -> float | None:
     if len(history) < 2:
         return None
-    opponent = 1 - player
     if history == "pp":
         winner = 0 if cards[0] > cards[1] else 1
         payoff = 1
@@ -135,39 +133,64 @@ def _br_terminal(cards: List[int], history: str, player: int) -> float | None:
     return payoff if winner == player else -payoff
 
 
-def _best_response_rec(cards: List[int], history: str, player: int, strategy: Dict[str, List[float]]) -> float:
-    payoff = _br_terminal(cards, history, player)
-    if payoff is not None:
-        return payoff
-    current_player = len(history) % 2
-    info_set = f"{cards[current_player]}{history}"
-    if current_player == player:
-        return max(
-            _best_response_rec(cards, history + a, player, strategy) for a in ACTIONS
-        )
-    probs = strategy.get(info_set, [0.5, 0.5])
-    value = 0.0
-    for i, a in enumerate(ACTIONS):
-        value += probs[i] * _best_response_rec(cards, history + a, player, strategy)
-    return value
-
-
 def best_response_value(strategy: Dict[str, List[float]], player: int) -> float:
-    """Expected value of the best response for ``player`` against ``strategy``."""
-    total = 0.0
-    for cards in itertools.permutations(CARDS, 2):
-        total += _best_response_rec(list(cards), "", player, strategy)
-    return total / 6.0
+    """Exact expected value of the best response for ``player`` against ``strategy``.
+
+    The best responder maximizes *per information set* (own card + public
+    history), weighting each deal consistent with the infoset by the
+    opponent's reach probability.  This is the standard game-theoretic best
+    response; a previous implementation maximized per deal, which assumed the
+    responder could see the opponent's card (a "clairvoyant" upper bound that
+    does not vanish at a Nash equilibrium and therefore cannot be used to
+    measure convergence).
+    """
+    deals = [tuple(c) for c in itertools.permutations(CARDS, 2)]
+
+    def rec(history: str, reach: Dict[tuple, float]) -> Dict[tuple, float]:
+        """Return ``deal -> value`` for ``player`` given opponent reach weights."""
+        first = _br_terminal(list(deals[0]), history, player)
+        if first is not None:
+            return {d: _br_terminal(list(d), history, player) for d in deals}
+        current = len(history) % 2
+        if current == player:
+            subtree = [rec(history + a, reach) for a in ACTIONS]
+            out: Dict[tuple, float] = {}
+            for card in CARDS:
+                group = [d for d in deals if d[current] == card]
+                if not group:
+                    continue
+                best = max(
+                    range(len(ACTIONS)),
+                    key=lambda ai: sum(reach[d] * subtree[ai][d] for d in group),
+                )
+                for d in group:
+                    out[d] = subtree[best][d]
+            return out
+        out = {d: 0.0 for d in deals}
+        for ai, a in enumerate(ACTIONS):
+            probs = {
+                d: strategy.get(f"{d[current]}{history}", [0.5, 0.5])[ai] for d in deals
+            }
+            new_reach = {d: reach[d] * probs[d] for d in deals}
+            sub = rec(history + a, new_reach)
+            for d in deals:
+                out[d] += probs[d] * sub[d]
+        return out
+
+    values = rec("", {d: 1.0 for d in deals})
+    return sum(values.values()) / 6.0
 
 
 def exploitability(strategy: Dict[str, List[float]]) -> float:
-    """Return a normalized exploitability metric for a two-player game.
+    """Return the exploitability of a strategy profile in chips.
 
-    The raw best-response values are expressed in chip units where a called
-    bet results in a pot of four chips.  To keep test thresholds intuitive we
-    normalise by this maximum swing, effectively returning the mean per-player
-    exploitability expressed in "bets" rather than chips.
+    For a two-player zero-sum game, ``eps = (br0 + br1) / 2`` where ``br_i``
+    is the value of an exact best response for player ``i`` against the
+    profile.  Since the Nash values of the two players cancel
+    (``v0 + v1 = 0``), this quantity is always non-negative and equals zero
+    exactly at a Nash equilibrium, making it a sound convergence measure for
+    CFR (Zinkevich et al., 2007).
     """
     br0 = best_response_value(strategy, 0)
     br1 = best_response_value(strategy, 1)
-    return (br0 + br1) / 4.0
+    return (br0 + br1) / 2.0

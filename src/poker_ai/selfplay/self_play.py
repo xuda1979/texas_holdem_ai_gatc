@@ -613,12 +613,13 @@ class SelfPlay:
             node_value = (action_utilities * policy).sum().item()
             regrets = action_utilities - node_value
 
-            opponent_reach = 1.0
-            for idx, prob in enumerate(reach_probs):
-                if idx != traverser_id:
-                    opponent_reach *= prob
-            weighted_regrets = regrets * opponent_reach
-
+            # External Sampling MCCFR (Lanctot et al., 2009; Brown et al., 2019):
+            # opponent actions are *sampled* from their current policy, so the
+            # sampled instantaneous regret u(a) - v is already an unbiased
+            # estimator of the opponent-reach-weighted counterfactual regret.
+            # Multiplying by the realized opponent reach again would weight the
+            # targets by pi_{-i}^2 and bias the regret estimates, breaking the
+            # convergence guarantee.  The reach is therefore NOT applied here.
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
@@ -635,18 +636,9 @@ class SelfPlay:
                     community_s,
                     state_tensor,
                     action_values=action_utilities.detach().clone(),
-                    regrets=weighted_regrets.detach().clone(),
+                    regrets=regrets.detach().clone(),
                     legal_mask=legal_actions_mask,
-                    opponent_reach=opponent_reach,
-                    iteration=iteration,
-                )
-
-            if hasattr(self.cfr_trainer, "add_strategy_experience"):
-                self.cfr_trainer.add_strategy_experience(
-                    hole_s,
-                    community_s,
-                    state_tensor,
-                    strategy=policy.detach().clone(),
+                    opponent_reach=1.0,
                     iteration=iteration,
                 )
 
@@ -658,7 +650,7 @@ class SelfPlay:
                         state_tensor,
                         action_utilities.detach().clone(),
                         legal_mask=legal_actions_mask,
-                        opponent_reach=opponent_reach,
+                        opponent_reach=1.0,
                         iteration=iteration,
                     )
                 except TypeError:
@@ -666,11 +658,37 @@ class SelfPlay:
                         hole_s,
                         community_s,
                         state_tensor,
-                        weighted_regrets,
+                        regrets.detach().clone(),
                         iteration,
                     )
 
             return node_value
+
+        # --- Opponent Node ---
+        # Deep CFR (Brown et al., 2019, Algorithm 1) collects average-strategy
+        # samples at the *opponent's* decision nodes.  Because the opponent's
+        # actions along the sampled trajectory are drawn from their own current
+        # policy, infosets are visited with probability proportional to the
+        # acting player's reach, which yields the correct reach weighting of
+        # the average strategy without explicit multiplication.
+        if hasattr(self.cfr_trainer, "add_strategy_experience"):
+            model_config = self.cfr_trainer.config.get("model", {})
+            max_seq_len = model_config.get("max_seq_len", 256)
+            d_raw_feature = model_config.get("d_raw_feature", 18)
+            hole_s, community_s, state_tensor = prepare_transformer_input(
+                game,
+                current_player,
+                max_seq_len,
+                d_raw_feature,
+                normalization_scale=normalization_scale,
+            )
+            self.cfr_trainer.add_strategy_experience(
+                hole_s,
+                community_s,
+                state_tensor,
+                strategy=policy.detach().clone(),
+                iteration=iteration,
+            )
 
         action_idx = torch.multinomial(policy, 1).item()
         undo_stack.append(self._snapshot_state(game))
