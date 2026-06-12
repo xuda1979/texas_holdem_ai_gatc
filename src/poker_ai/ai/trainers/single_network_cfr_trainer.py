@@ -104,6 +104,31 @@ class SingleNetworkCFRTrainer:
 
         return logits.squeeze(0)
 
+    @torch.no_grad()
+    def _current_policy(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        legal_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Regret-matched policy implied by the advantage network."""
+
+        advantages = self.get_advantages(hole_summary, community_summary, history_tensor)
+        positive = torch.clamp(advantages, min=0.0)
+        if legal_mask is not None:
+            mask = legal_mask.to(positive.device).bool()
+            positive = torch.where(mask, positive, torch.zeros_like(positive))
+        else:
+            mask = None
+        total = positive.sum()
+        if total.item() > 0:
+            return positive / total
+        if mask is not None and bool(mask.any()):
+            uniform = mask.to(positive.dtype)
+            return uniform / uniform.sum()
+        return torch.full_like(positive, 1.0 / positive.numel())
+
     def add_experience(
         self,
         hole_summary: torch.Tensor,
@@ -123,14 +148,23 @@ class SingleNetworkCFRTrainer:
                 raise ValueError(
                     "SingleNetworkCFRTrainer.add_experience requires regrets or action_values."
                 )
-            processed = action_values
+            values = action_values
+            mask = None
             if legal_mask is not None:
-                legal_mask = legal_mask.to(processed.device).bool()
-                processed = torch.where(legal_mask, processed, torch.zeros_like(processed))
-            processed = processed - processed.mean()
+                mask = legal_mask.to(values.device).bool()
+                values = torch.where(mask, values, torch.zeros_like(values))
+            # CFR instantaneous regret r(a) = Q(a) - V where the baseline is the
+            # state value under the current regret-matched policy, not the
+            # uniform mean of action values (which biases regret matching).
+            sigma = self._current_policy(hole_summary, community_summary, history_tensor, mask)
+            sigma = sigma.to(values.device, dtype=values.dtype)
+            state_value = torch.sum(sigma * values)
+            regrets = values - state_value
+            if mask is not None:
+                regrets = torch.where(mask, regrets, torch.zeros_like(regrets))
             if isinstance(opponent_reach, torch.Tensor):
                 opponent_reach = float(opponent_reach.detach().cpu().item())
-            regrets = processed * float(opponent_reach)
+            regrets = regrets * float(opponent_reach)
 
         self.replay_buffer.push(
             hole_summary,
@@ -206,7 +240,11 @@ class SingleNetworkCFRTrainer:
         logits = self.model(zeros, zeros, state.unsqueeze(0)).squeeze(0)
         strategy_pred = torch.softmax(logits, dim=-1)
 
-        state_value = torch.sum(strategy_pred.detach() * counterfactual_payoffs)
+        # Regrets are measured against sigma_t, the regret-matched policy from
+        # the cumulative regrets prior to this update (standard CFR), rather
+        # than the network's softmax approximation.
+        sigma_t = calculate_strategy(self.cumulative_regret, self.num_actions).detach()
+        state_value = torch.sum(sigma_t * counterfactual_payoffs)
         action_regrets = counterfactual_payoffs - state_value
 
         self.cumulative_regret = update_regret(self.cumulative_regret, action_regrets)

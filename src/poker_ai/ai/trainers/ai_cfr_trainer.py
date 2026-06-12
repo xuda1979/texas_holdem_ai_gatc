@@ -270,7 +270,14 @@ class AICFRTrainer:
             cumulative_regret = self.cumulative_regret[info_set_id]
             cumulative_strategy = self.cumulative_strategy[info_set_id]
 
-            state_value = torch.sum(strategy_pred.detach() * payoffs)
+            # CFR iteration t computes regrets against sigma_t, the
+            # regret-matched policy from the cumulative regrets *before* this
+            # update.  Using the network's softmax (an approximation of an
+            # older sigma) as the baseline would bias the tabular regrets.
+            sigma_t = calculate_strategy(
+                cumulative_regret, self.num_actions, legal_actions_mask=legal_mask
+            ).detach()
+            state_value = torch.sum(sigma_t * payoffs)
             action_regrets = payoffs - state_value
             if legal_mask is not None:
                 action_regrets = torch.where(legal_mask, action_regrets, torch.zeros_like(action_regrets))

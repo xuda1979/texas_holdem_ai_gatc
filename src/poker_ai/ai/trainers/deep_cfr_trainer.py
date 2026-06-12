@@ -400,6 +400,36 @@ class DeepCFRTrainer:
         )
         return torch.softmax(logits, dim=-1).squeeze(0)
 
+    @torch.no_grad()
+    def _current_policy(
+        self,
+        hole_summary: torch.Tensor,
+        community_summary: torch.Tensor,
+        history_tensor: torch.Tensor,
+        legal_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Regret-matched policy implied by the advantage network.
+
+        This mirrors the policy used during self-play traversal so regret
+        baselines computed inside the trainer match the distribution the data
+        was generated under.
+        """
+
+        advantages = self.get_advantages(hole_summary, community_summary, history_tensor)
+        positive = torch.clamp(advantages, min=0.0)
+        if legal_mask is not None:
+            mask = legal_mask.to(positive.device).bool()
+            positive = torch.where(mask, positive, torch.zeros_like(positive))
+        else:
+            mask = None
+        total = positive.sum()
+        if total.item() > 0:
+            return positive / total
+        if mask is not None and bool(mask.any()):
+            uniform = mask.to(positive.dtype)
+            return uniform / uniform.sum()
+        return torch.full_like(positive, 1.0 / positive.numel())
+
     def add_experience(
         self,
         hole_summary: torch.Tensor,
@@ -417,14 +447,25 @@ class DeepCFRTrainer:
         if regrets is None:
             if action_values is None:
                 raise ValueError("DeepCFRTrainer.add_experience requires regrets or action_values.")
-            processed = action_values
+            values = action_values
+            mask = None
             if legal_mask is not None:
-                legal_mask = legal_mask.to(processed.device).bool()
-                processed = torch.where(legal_mask, processed, torch.zeros_like(processed))
-            processed = processed - processed.mean()
+                mask = legal_mask.to(values.device).bool()
+                values = torch.where(mask, values, torch.zeros_like(values))
+            # CFR instantaneous regret is r(a) = Q(a) - V with the baseline
+            # V = sum_a sigma(a) Q(a) under the *current regret-matched policy*
+            # (the policy self-play actually follows), not the uniform mean of
+            # action values.  Using the mean shifts which regrets clamp
+            # positive and biases regret matching.
+            sigma = self._current_policy(hole_summary, community_summary, history_tensor, mask)
+            sigma = sigma.to(values.device, dtype=values.dtype)
+            state_value = torch.sum(sigma * values)
+            regrets = values - state_value
+            if mask is not None:
+                regrets = torch.where(mask, regrets, torch.zeros_like(regrets))
             if isinstance(opponent_reach, torch.Tensor):
                 opponent_reach = float(opponent_reach.detach().cpu().item())
-            regrets = processed * float(opponent_reach)
+            regrets = regrets * float(opponent_reach)
         self.replay_buffer.push(
             hole_summary,
             community_summary,

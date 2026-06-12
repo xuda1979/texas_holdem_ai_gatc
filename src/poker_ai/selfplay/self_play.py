@@ -620,6 +620,16 @@ class SelfPlay:
             # Multiplying by the realized opponent reach again would weight the
             # targets by pi_{-i}^2 and bias the regret estimates, breaking the
             # convergence guarantee.  The reach is therefore NOT applied here.
+            #
+            # Targets are expressed in units of the chip normalization scale so
+            # they match the magnitude of the (normalized) network inputs.
+            # Regret matching is invariant to positive rescaling, so this does
+            # not change the induced policies -- only the conditioning of the
+            # regression problem.
+            target_scale = max(float(normalization_scale), 1e-12)
+            scaled_regrets = regrets / target_scale
+            scaled_action_values = action_utilities / target_scale
+
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
@@ -635,8 +645,8 @@ class SelfPlay:
                     hole_s,
                     community_s,
                     state_tensor,
-                    action_values=action_utilities.detach().clone(),
-                    regrets=regrets.detach().clone(),
+                    action_values=scaled_action_values.detach().clone(),
+                    regrets=scaled_regrets.detach().clone(),
                     legal_mask=legal_actions_mask,
                     opponent_reach=1.0,
                     iteration=iteration,
@@ -648,7 +658,7 @@ class SelfPlay:
                         hole_s,
                         community_s,
                         state_tensor,
-                        action_utilities.detach().clone(),
+                        scaled_action_values.detach().clone(),
                         legal_mask=legal_actions_mask,
                         opponent_reach=1.0,
                         iteration=iteration,
@@ -658,7 +668,7 @@ class SelfPlay:
                         hole_s,
                         community_s,
                         state_tensor,
-                        regrets.detach().clone(),
+                        scaled_regrets.detach().clone(),
                         iteration,
                     )
 
