@@ -222,6 +222,66 @@ def _load_model_performance_analyzer_class() -> type[Any]:
     return getattr(module, "ModelPerformanceAnalyzer")
 
 
+def _build_comprehensive_eval_hook(
+    *,
+    config: dict,
+    device: str,
+    logger: logging.Logger,
+) -> Any | None:
+    """Build a :class:`TrainingEvalHook` from the ``evaluation`` config section.
+
+    Returns ``None`` when evaluation is disabled (no section or
+    ``every_samples <= 0``).  Importing
+    :mod:`poker_ai.evaluation.comprehensive` is deferred so the heavy eval
+    stack only loads when actually needed.
+    """
+
+    eval_cfg = config.get("evaluation") or {}
+    if not isinstance(eval_cfg, dict):
+        return None
+    every_samples = int(eval_cfg.get("every_samples", 0) or 0)
+    if every_samples <= 0:
+        return None
+    try:
+        from poker_ai.evaluation.comprehensive import (
+            ComprehensiveEvaluator,
+            RegressionTracker,
+            TrainingEvalHook,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        _safe_warning(
+            logger,
+            "Comprehensive evaluation module unavailable; in-training eval disabled: %s",
+            exc,
+        )
+        return None
+
+    h2h_hands = int(eval_cfg.get("h2h_hands", 200) or 200)
+    health_num_states = int(eval_cfg.get("health_num_states", 32) or 32)
+    seed = int(eval_cfg.get("seed", 7) or 7)
+    emit_events = bool(eval_cfg.get("emit_events", True))
+    stop_on_error = bool(eval_cfg.get("stop_on_error", False))
+    tracker_path = eval_cfg.get("tracker_path") or os.path.join(
+        str(remote_checkpoint_dir()), "eval_history.json"
+    )
+
+    evaluator = ComprehensiveEvaluator(
+        h2h_hands=h2h_hands,
+        health_num_states=health_num_states,
+        seed=seed,
+        device=device,
+    )
+    tracker = RegressionTracker(history_path=tracker_path, margin_bb=10.0)
+    return TrainingEvalHook(
+        evaluator=evaluator,
+        every_samples=every_samples,
+        tracker=tracker,
+        emit_events=emit_events,
+        logger=logger,
+        stop_on_error=stop_on_error,
+    )
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments for the training script."""
     parser = argparse.ArgumentParser(description="Run Poker AI training session")
@@ -384,7 +444,22 @@ def initialize_trainer(
         hidden = int(model_cfg.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM))
         num_actions = int(model_cfg.get("num_actions", 10))
         lr = float(model_cfg.get("learning_rate", 1e-3))
-        trainer = DeepCFRTrainer(d_raw, hidden, num_actions, learning_rate=lr, device=device)
+        # Respect config-specified transformer architecture so model size can
+        # be tuned per environment.  Falls back to AdvantageNetwork defaults
+        # when the config omits these keys (preserving prior behaviour).
+        cfg_num_layers = model_cfg.get("num_layers")
+        cfg_num_heads = model_cfg.get("num_heads")
+        cfg_max_seq_len = model_cfg.get("max_seq_len")
+        trainer = DeepCFRTrainer(
+            d_raw,
+            hidden,
+            num_actions,
+            learning_rate=lr,
+            device=device,
+            num_layers=int(cfg_num_layers) if cfg_num_layers is not None else None,
+            num_heads=int(cfg_num_heads) if cfg_num_heads is not None else None,
+            max_seq_len=int(cfg_max_seq_len) if cfg_max_seq_len is not None else None,
+        )
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
 
@@ -975,6 +1050,26 @@ def main() -> None:  # noqa: C901
         max_no_improvement_samples=200_000,
     )
 
+    # Comprehensive in-training evaluation hook.
+    # Reads the ``evaluation`` section of the config (if present) and wires up
+    # the ``ComprehensiveEvaluator`` so health + head-to-head checks run
+    # periodically during training.  Disabled entirely when
+    # ``evaluation.every_samples <= 0`` (the default for legacy configs that
+    # don't have an ``evaluation`` section).
+    eval_hook = _build_comprehensive_eval_hook(
+        config=config,
+        device=analyzer_device,
+        logger=logger,
+    )
+    if eval_hook is not None:
+        _safe_info(
+            logger,
+            "Comprehensive in-training evaluation enabled (every_samples=%s)",
+            eval_hook.every_samples,
+        )
+    else:
+        _safe_debug(logger, "Comprehensive in-training evaluation disabled")
+
     last_save_time = time.time()
     total_samples = 0
     cycle_index = 0
@@ -1165,6 +1260,41 @@ def main() -> None:  # noqa: C901
                 )
                 stopped_early = True
                 break
+
+            # Comprehensive in-training evaluation.  Runs only when the hook
+            # decides we've crossed the ``every_samples`` threshold.  The
+            # latest checkpoint (saved above by the hand/time/samples trigger)
+            # is used as the eval target so we always evaluate what's on disk.
+            if eval_hook is not None:
+                try:
+                    latest_ckpt = _find_latest_model_path(config, args.algorithm)
+                    eval_report = None
+                    if latest_ckpt:
+                        eval_report = eval_hook.maybe_evaluate(
+                            latest_ckpt,
+                            total_samples,
+                        )
+                except Exception as eval_exc:  # pragma: no cover - defensive
+                    _safe_warning(
+                        logger,
+                        "In-training evaluation failed at sample %s: %s",
+                        total_samples,
+                        eval_exc,
+                    )
+                    eval_report = None
+                if (
+                    eval_report is not None
+                    and eval_report.severity == "error"
+                    and eval_hook.stop_on_error
+                ):
+                    _safe_exception(
+                        logger,
+                        "Stopping training due to evaluation error at sample %s: %s",
+                        total_samples,
+                        eval_report.issues,
+                    )
+                    stopped_early = True
+                    break
 
     except Exception as e:
         error = e

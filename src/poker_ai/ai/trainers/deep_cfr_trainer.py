@@ -104,6 +104,9 @@ class DeepCFRTrainer:
         replay_buffer_capacity: int = 1_000_000,
         buffer_capacity: int | None = None,
         device: str | None = None,
+        num_layers: int | None = None,
+        num_heads: int | None = None,
+        max_seq_len: int | None = None,
     ) -> None:
 
         if buffer_capacity is not None:
@@ -139,9 +142,17 @@ class DeepCFRTrainer:
         self.card_feature_dim = 17
         self.history_feature_dim = input_feature_dim
         self.hidden_dim = hidden_dim
-        self.num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
-        self.num_layers = AdvantageNetwork.DEFAULT_NUM_LAYERS
-        self.max_seq_len = 256
+        self.num_heads = (
+            num_heads
+            if num_heads is not None
+            else AdvantageNetwork.recommended_num_heads(hidden_dim)
+        )
+        self.num_layers = (
+            num_layers
+            if num_layers is not None
+            else AdvantageNetwork.DEFAULT_NUM_LAYERS
+        )
+        self.max_seq_len = max_seq_len if max_seq_len is not None else 256
 
         self.advantage_net = AdvantageNetwork(
             history_feature_dim=input_feature_dim,
