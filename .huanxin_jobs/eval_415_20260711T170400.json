@@ -1,0 +1,21 @@
+{
+  "checkpoint": "models/deep_cfr_time_415.pth",
+  "evaluated_at": "2026-07-11T17:04:00Z",
+  "total_samples": 416,
+  "hands_played": 200,
+  "severity": "ok",
+  "ok": true,
+  "h2h_results": [
+    {"baseline": "always_fold", "hands_played": 200, "bb_per_100": 75.0, "stderr_bb_per_100": 0.0, "verdict": "beat (significant)"},
+    {"baseline": "calling_station", "hands_played": 200, "bb_per_100": 48.35, "stderr_bb_per_100": 149.92, "verdict": "beat (positive, high variance)"},
+    {"baseline": "random_uniform", "hands_played": 200, "bb_per_100": 629.05, "stderr_bb_per_100": 213.74, "verdict": "beat"}
+  ],
+  "health": {"ok": true, "checks": 11},
+  "trend": {
+    "sample_280": {"always_fold": 75.0, "calling_station": -425.2, "random_uniform": 823.0},
+    "sample_314": {"always_fold": 75.0, "calling_station": 138.3, "random_uniform": 1026.7},
+    "sample_342": {"always_fold": 74.0, "calling_station": 17.25, "random_uniform": 710.05},
+    "sample_415": {"always_fold": 75.0, "calling_station": 48.35, "random_uniform": 629.05}
+  },
+  "notes": "Model consistently beats all 3 baselines across 4 evaluations (samples 280-415). calling_station variance is the main concern — need more training to stabilize."
+}
