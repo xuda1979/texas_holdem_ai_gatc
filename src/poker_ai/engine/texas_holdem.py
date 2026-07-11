@@ -31,11 +31,24 @@ try:  # pragma: no cover - exercised implicitly when treys is installed
 except Exception:  # pragma: no cover - treys missing
 
     class _Evaluator:  # minimal stub
+        """Stub used when ``treys`` is not installed.
+
+        ``evaluate`` raises so that :meth:`TexasHoldemRules._hand_strength`
+        falls through to its ``eval7``-based fallback, which produces *correct*
+        hand rankings.  Returning a constant ``0`` here (the old behaviour)
+        silently made every showdown a tie and corrupted both training targets
+        and evaluation metrics.
+        """
+
         def evaluate(self, community_cards, hole_cards):
-            return 0
+            raise RuntimeError(
+                "treys is not installed; hand evaluation is delegated to eval7"
+            )
 
         def get_rank_class(self, score):
-            return 0
+            raise RuntimeError(
+                "treys is not installed; hand evaluation is delegated to eval7"
+            )
 
         def class_to_string(self, rank_class):
             return "High Card"
@@ -665,15 +678,25 @@ class TexasHoldem:
             score = evaluator.evaluate(board_cards, hole_cards)
             rank_class = evaluator.get_rank_class(score)
         except Exception:
-            rank_order = {
-                r: i
-                for i, r in enumerate(
-                    ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
-                )
-            }
-            all7 = hole + board
-            all7_sorted = sorted(all7, key=lambda x: (rank_order[x[0]], x[1]), reverse=True)
-            score = -sum((rank_order[c[0]] + 2) for c in all7_sorted[:5])
+            # treys unavailable or failed.  Fall back to ``eval7`` (a declared
+            # dependency) which returns an integer where *higher is better*.
+            # We negate it so the "lower is better" convention used throughout
+            # this module (and the treys ``Evaluator``) is preserved.
+            import eval7 as _eval7
+
+            def _norm(c: str) -> str:
+                c = c.strip()
+                if len(c) != 2:
+                    raise ValueError(f"Invalid card: {c!r}")
+                return c[0].upper() + c[1].lower()
+
+            all_cards = [_eval7.Card(_norm(c)) for c in (hole + board)]
+            # eval7.evaluate returns a score where higher is better; negate so
+            # that lower is better (matching treys convention).
+            score = -int(_eval7.evaluate(all_cards))
+            # Map the eval7 score to a rough treys-compatible rank class so the
+            # ``rank_class`` field stays informative.  treys rank classes:
+            # 0=Royal Flush ... 9=Pair, but we only need a comparable value.
             rank_class = 0
         return score, sorted(hole + board), rank_class
 
