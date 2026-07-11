@@ -18,10 +18,13 @@
 | 1 | 4.0275 | 32 | 7001 | 14:18-14:26 (8m) |
 | 2 | 1.7047 | 64 | 16042 | 14:26-14:36 (10m) |
 | 3 | 1.5239 | 96 | 24932 | 14:36-14:48 (12m) |
-| 4 | in progress | 96+ | — | 14:48+ |
+| 4 | 1.5624 | 128 | 37497 | 14:48-15:03 (15m) |
+| 5 | 1.5404 | 160 | 47419 | 15:03-15:15 (12m) |
+| 6 | in progress | 160+ | — | 15:15+ |
 
-Loss is decreasing steadily (~58% drop from cycle 1 to 3). No evaluation
-results yet (first h2h at 1000 samples ≈ cycle 31).
+Loss is decreasing steadily (~62% drop from cycle 1 to 5) and plateauing
+around 1.5. No evaluation results yet (first h2h at 1000 samples ≈ cycle 31,
+~6h away at current pace).
 
 ## NAS Backup
 - Snapshot: `/root/work/backups/texas-holdem/snapshot-20260711T141826.tar.gz` (2.9MB)
