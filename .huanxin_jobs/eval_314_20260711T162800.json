@@ -1,0 +1,36 @@
+{
+  "checkpoint": "models/deep_cfr_time_314.pth",
+  "evaluated_at": "2026-07-11T16:28:00Z",
+  "total_samples": 320,
+  "severity": "ok",
+  "ok": true,
+  "h2h_results": [
+    {
+      "baseline": "always_fold",
+      "hands_played": 100,
+      "bb_per_100": 75.0,
+      "stderr_bb_per_100": 0.0,
+      "verdict": "beat"
+    },
+    {
+      "baseline": "calling_station",
+      "hands_played": 100,
+      "bb_per_100": 138.3,
+      "stderr_bb_per_100": 202.63,
+      "verdict": "beat (flipped from -425.20 at sample 280!)"
+    },
+    {
+      "baseline": "random_uniform",
+      "hands_played": 100,
+      "bb_per_100": 1026.7,
+      "stderr_bb_per_100": 322.17,
+      "verdict": "beat"
+    }
+  ],
+  "health": {
+    "ok": true,
+    "checks": 11
+  },
+  "milestone": "MODEL NOW BEATS ALL 3 BASELINES at 320 samples. Calling station flipped from -425 to +138 bb/100 in 32 samples.",
+  "notes": "Variance still high (±202 on calling_station) — need more hands and more training to confirm statistical significance. But the mean is positive across all baselines."
+}
