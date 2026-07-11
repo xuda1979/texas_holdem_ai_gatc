@@ -1,0 +1,67 @@
+# ASI3 NPU training configuration.
+#
+# Sized for the Ascend NPU environment on ai3.  The model is small enough to
+# fit comfortably in NPU memory but large enough to be expressive, and the
+# sample/cycle cadence is tuned so checkpoints land frequently enough to
+# debug training trajectories without slowing down the main loop.
+#
+# All paths in this config are *relative*; the training CLI resolves them
+# against the configured Huanxin remote root (see model_storage.py) unless
+# POKER_AI_ALLOW_LOCAL_MODEL_WRITES=1 is set for local smoke tests.
+
+game_engine:
+  min_players: 2
+  max_players: 2
+  starting_stack: 1000
+  small_blind: 5
+  big_blind: 10
+
+training:
+  # A "hand" in MCCFR == one full tree traversal == one iteration.
+  num_training_hands: 20000          # smoke-tier run; raise for real training
+  save_model_every_n_hands: 500      # snapshot every 500 hands
+  save_model_every_minutes: 10       # ...or every 10 minutes, whichever fires first
+  save_model_every_samples: 0        # disabled; we drive snapshots by hands/time
+  min_buffer_before_train: 64        # warm up the replay buffer before any grad step
+  train_steps_per_cycle: 4           # 4 gradient steps per self-play cycle
+  train_batch_size: 64               # batch size per gradient step
+  samples_per_cycle: 32              # 32 self-play traversals per cycle
+  max_samples: 20000                 # hard cap == num_training_hands
+
+model:
+  directory: models
+  filename_prefix: deep_cfr_ai3
+  hidden_dim: 128
+  num_actions: 10
+  d_raw_feature: 18
+  num_layers: 4
+  num_heads: 8
+
+self_play:
+  model_reload_interval: 0
+  save_interval: 0
+  temperature: 1.0
+  epsilon: 0.05
+
+# Evaluation hooks driven by the training loop.
+# The comprehensive evaluator (poker_ai.evaluation.comprehensive) reads this
+# section to decide how often to run health checks and head-to-head matches
+# during training.
+evaluation:
+  # Run a comprehensive evaluation every N samples generated.
+  every_samples: 1000
+  # How many hands to play per head-to-head match.
+  h2h_hands: 200
+  # Random seed for reproducible evaluation matches.
+  seed: 7
+  # Number of random game states used by the health check.
+  health_num_states: 32
+  # If true, evaluation results are emitted as training events (JSON lines).
+  emit_events: true
+  # If true, evaluation aborts training when an error-severity health check fires.
+  stop_on_error: false
+
+logging:
+  level: INFO
+  log_to_file: true
+  log_file: poker_ai.log

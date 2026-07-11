@@ -1,0 +1,58 @@
+# ASI1 NPU training configuration (4x Ascend NPUs).
+#
+# Tuned for the ASI1 environment:
+#   - torch 2.7.1+cpu + torch_npu 2.7.1
+#   - 4 NPUs available (we use 1 by default; multi-NPU DataParallel is gated
+#     by POKER_AI_ENABLE_NPU_DATAPARALLEL=1 because it has been unstable).
+#   - Model size kept moderate so training fits comfortably in NPU memory.
+#
+# All paths are relative; the training CLI resolves them against the
+# configured Huanxin remote root (POKER_AI_HUANXIN_REMOTE_ROOT).
+
+game_engine:
+  min_players: 2
+  max_players: 2
+  starting_stack: 1000
+  small_blind: 5
+  big_blind: 10
+
+training:
+  # A "hand" in MCCFR == one full tree traversal == one iteration.
+  num_training_hands: 50000          # longer run for ASI1
+  save_model_every_n_hands: 1000     # snapshot every 1000 hands
+  save_model_every_minutes: 15       # ...or every 15 minutes
+  save_model_every_samples: 0
+  min_buffer_before_train: 128       # warm up replay buffer
+  train_steps_per_cycle: 8           # 8 gradient steps per cycle
+  train_batch_size: 128              # larger batch for NPU throughput
+  samples_per_cycle: 64              # 64 self-play traversals per cycle
+  max_samples: 50000
+
+model:
+  directory: models
+  filename_prefix: deep_cfr_asi1
+  hidden_dim: 128
+  num_actions: 10
+  d_raw_feature: 18
+  num_layers: 4
+  num_heads: 8
+
+self_play:
+  model_reload_interval: 0
+  save_interval: 0
+  temperature: 1.0
+  epsilon: 0.05
+
+# Comprehensive in-training evaluation.
+evaluation:
+  every_samples: 2000       # run the battery every 2000 samples
+  h2h_hands: 100            # hands per head-to-head match
+  health_num_states: 32
+  seed: 7
+  emit_events: true
+  stop_on_error: false
+
+logging:
+  level: INFO
+  log_to_file: true
+  log_file: poker_ai.log

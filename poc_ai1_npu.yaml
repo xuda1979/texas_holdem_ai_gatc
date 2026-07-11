@@ -1,0 +1,37 @@
+game_engine:
+  min_players: 2
+  max_players: 2
+  starting_stack: 1000
+  small_blind: 5
+  big_blind: 10
+
+training:
+  num_training_hands: 40
+  save_model_every_n_hands: 10
+  save_model_every_minutes: 0
+  save_model_every_samples: 0
+  min_buffer_before_train: 8
+  train_steps_per_cycle: 1
+  train_batch_size: 8
+  samples_per_cycle: 5
+  max_samples: 40
+
+model:
+  directory: models
+  filename_prefix: deep_cfr_poc_ai1
+  hidden_dim: 128
+  num_actions: 10
+  d_raw_feature: 18
+  num_layers: 2
+  num_heads: 4
+
+self_play:
+  model_reload_interval: 0
+  save_interval: 0
+  temperature: 1.0
+  epsilon: 0.05
+
+logging:
+  level: INFO
+  log_to_file: true
+  log_file: poker_ai.log
