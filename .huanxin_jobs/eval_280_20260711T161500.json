@@ -1,0 +1,38 @@
+{
+  "checkpoint": "models/deep_cfr_time_280.pth",
+  "evaluated_at": "2026-07-11T16:15:00Z",
+  "total_samples": 288,
+  "severity": "ok",
+  "ok": true,
+  "h2h_results": [
+    {
+      "baseline": "always_fold",
+      "hands_played": 50,
+      "bb_per_100": 75.0,
+      "stderr_bb_per_100": 0.0,
+      "verdict": "beat"
+    },
+    {
+      "baseline": "calling_station",
+      "hands_played": 50,
+      "bb_per_100": -425.2,
+      "stderr_bb_per_100": 280.72,
+      "verdict": "lost (high variance, early training)"
+    },
+    {
+      "baseline": "random_uniform",
+      "hands_played": 50,
+      "bb_per_100": 823.0,
+      "stderr_bb_per_100": 434.17,
+      "verdict": "beat"
+    }
+  ],
+  "health": {
+    "ok": true,
+    "checks": 11,
+    "policy_mean_entropy": 1.5176,
+    "policy_legal_mass": 1.0,
+    "weight_total_params": 2380682
+  },
+  "notes": "First ad-hoc evaluation at 288 samples. Model already beats always_fold and random_uniform. Calling station loss is expected at this early stage — the model hasn't learned to value-bet against passive callers yet."
+}
