@@ -20,11 +20,14 @@
 | 3 | 1.5239 | 96 | 24932 | 14:36-14:48 (12m) |
 | 4 | 1.5624 | 128 | 37497 | 14:48-15:03 (15m) |
 | 5 | 1.5404 | 160 | 47419 | 15:03-15:15 (12m) |
-| 6 | in progress | 160+ | — | 15:15+ |
+| 6 | 1.5933 | 192 | 58990 | 15:15-15:30 (15m) |
+| 7 | 1.5080 | 224 | 68375 | 15:30-15:43 (13m) |
+| 8 | 1.5713 | 256 | 79491 | 15:43-15:57 (14m) |
+| 9 | in progress | 256+ | — | 15:57+ |
 
-Loss is decreasing steadily (~62% drop from cycle 1 to 5) and plateauing
-around 1.5. No evaluation results yet (first h2h at 1000 samples ≈ cycle 31,
-~6h away at current pace).
+Loss oscillating around 1.5-1.6 (typical early Deep CFR). Best so far 1.5080.
+No evaluation results yet (first h2h at 1000 samples ≈ cycle 31, ~5h away).
+~14 min per cycle average.
 
 ## NAS Backup
 - Snapshot: `/root/work/backups/texas-holdem/snapshot-20260711T141826.tar.gz` (2.9MB)
