@@ -1,0 +1,41 @@
+# Minimal, deterministic diagnostics for Belief--MCTS--Street-CRF
+# Seeds: cpb=101, isrs=42, rucvar=777, dpw=31415, symmetry=7
+
+# CPB projection on a toy finite support with orbit completion
+# Fields: gamma residual num_orbits
+cpb gamma=1.00 residual=0.001 num_orbits=6
+cpb gamma=0.30 residual=0.000 num_orbits=6
+cpb gamma=0.10 residual=0.000 num_orbits=6
+cpb gamma=0.03 residual=0.000 num_orbits=6
+cpb gamma=0.01 residual=0.000 num_orbits=6
+
+# IS-RS unbiasedness sanity check under an H-independent opponent generator with CRN
+# Fields: mean_no_resample mean_resample ci_halfwidth mean_diff ci_halfwidth_diff sims
+isrs mean_no_resample=0.001 mean_resample=0.001 ci_halfwidth=0.000160 mean_diff=0.000000 ci_halfwidth_diff=0.000000 sims=20000
+
+# RU CVaR estimator on Uniform[-1,1] losses (ground-truth CVaR_alpha = alpha)
+# alpha=0.90 fields: n cvar_est abs_err
+rucvar alpha=0.90 n=100   cvar_est=1.000 abs_err=0.100
+rucvar alpha=0.90 n=300   cvar_est=0.881 abs_err=0.019
+rucvar alpha=0.90 n=1000  cvar_est=0.932 abs_err=0.032
+rucvar alpha=0.90 n=3000  cvar_est=0.942 abs_err=0.042
+rucvar alpha=0.90 n=10000 cvar_est=0.934 abs_err=0.034
+
+# alpha=0.95 fields: n cvar_est abs_err
+rucvar alpha=0.95 n=100   cvar_est=1.000 abs_err=0.050
+rucvar alpha=0.95 n=300   cvar_est=0.954 abs_err=0.004
+rucvar alpha=0.95 n=1000  cvar_est=0.950 abs_err=0.000
+rucvar alpha=0.95 n=3000  cvar_est=0.977 abs_err=0.027
+rucvar alpha=0.95 n=10000 cvar_est=0.966 abs_err=0.016
+
+# DPW coverage diagnostics on [a_min, a_max] with forced-accept epsilon_N=c/(N+1)
+# Fields: N accepted_count min_gap
+dpw N=100   accepted_count=41  min_gap=0.000
+dpw N=300   accepted_count=74  min_gap=0.000
+dpw N=1000  accepted_count=123 min_gap=0.000
+dpw N=3000  accepted_count=216 min_gap=0.000
+dpw N=10000 accepted_count=374 min_gap=0.000
+
+# Symmetry invariance under a nontrivial G(x) (transposition of two indistinguishable seats)
+# Fields: L1_distance trials group_size seed
+symmetry L1_distance=0.0000 trials=10000 group_size=2 seed=7

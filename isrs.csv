@@ -1,0 +1,2 @@
+mean_no_resample,mean_resample,ci_halfwidth,mean_diff,ci_halfwidth_diff,sims
+0.001,0.001,0.000160,0.000000,0.000000,20000
