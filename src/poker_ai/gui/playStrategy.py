@@ -88,6 +88,40 @@ class ModelAIStrategy(PlayerStrategy):
         self.device = device
         self._fallback_strategy = fallback_strategy
 
+        # Deep CFR deploys the *average* strategy (policy network) at inference
+        # time, not the instantaneous regret-matched advantages.  The checkpoint
+        # loader stashes the policy-net weights on ``model._policy_net_state_dict``;
+        # build a dedicated network from those weights so ``choose_action`` can
+        # play the converged average strategy.
+        self._policy_net: AdvantageNetwork | None = None
+        use_policy = bool(self.config.get("use_policy_network", False))
+        policy_state = getattr(model, "_policy_net_state_dict", None) if model is not None else None
+        if use_policy and policy_state is not None and self.model is not None:
+            try:
+                # Lazily import to avoid pulling the model module at import time.
+                from poker_ai.ai.models.transformer import AdvantageNetwork as _ANet
+
+                def _cfg_int(key: str, default: int) -> int:
+                    """Read an int from config, treating None/missing as default."""
+                    v = self.config.get(key, default)
+                    return int(v) if v is not None else default
+
+                self._policy_net = _ANet(
+                    history_feature_dim=getattr(self.model, "history_feature_dim", self.config.get("input_feature_dim", 18)),
+                    card_feature_dim=getattr(self.model, "card_feature_dim", self.config.get("card_feature_dim", 17)),
+                    hidden_dim=_cfg_int("hidden_dim", 128),
+                    num_heads=_cfg_int("num_heads", 8),
+                    num_layers=_cfg_int("num_layers", 4),
+                    num_actions=_cfg_int("num_actions", getattr(self.model, "num_actions", 10)),
+                )
+                self._policy_net.load_state_dict(policy_state, strict=False)
+                self._policy_net.to(self.device)
+                self._policy_net.eval()
+            except Exception:
+                # If the policy net cannot be built for any reason, fall back
+                # silently to the advantage-net regret-matching path.
+                self._policy_net = None
+
     @property
     def is_human(self) -> bool:
         return False
@@ -142,6 +176,35 @@ class ModelAIStrategy(PlayerStrategy):
         community_batch = community.unsqueeze(0).to(self.device)
         history_batch = history.unsqueeze(0).to(self.device)
         key_padding_mask = (~mask.unsqueeze(0)).to(self.device)
+        num_actions = self.config.get("num_actions", self.model.num_actions)
+        legal_mask = get_legal_actions_mask(game, player_index, num_actions)
+
+        if self._policy_net is not None:
+            # Deep CFR average-strategy inference: softmax over policy logits,
+            # masked to legal actions.  This is the theoretically-correct way
+            # to deploy a Deep CFR model and is markedly more stable than
+            # regret-matching the instantaneous advantage network.
+            with torch.no_grad():
+                logits = self._policy_net(
+                    hole_batch,
+                    community_batch,
+                    history_batch,
+                    key_padding_mask=key_padding_mask,
+                ).squeeze(0).cpu()
+            masked = logits.masked_fill(~legal_mask, float("-inf"))
+            policy = torch.softmax(masked, dim=-1)
+            # Guard against a degenerate all -inf row (shouldn't happen because
+            # legal_mask has at least one True entry, but be defensive).
+            if not torch.isfinite(policy).any():
+                policy = legal_mask.float() / legal_mask.float().sum()
+            else:
+                policy = policy * legal_mask.float()
+                policy = policy / policy.sum()
+            action_idx = torch.multinomial(policy, 1).item()
+            action = get_action_from_index(action_idx, game, player_index)
+            return action_to_tuple(action)
+
+        # Fallback: regret-matched advantages (instantaneous strategy).
         advantages = (
             self.model(
                 hole_batch,
@@ -152,8 +215,6 @@ class ModelAIStrategy(PlayerStrategy):
             .squeeze(0)
             .cpu()
         )
-        num_actions = self.config.get("num_actions", self.model.num_actions)
-        legal_mask = get_legal_actions_mask(game, player_index, num_actions)
 
         advantages[~legal_mask] = -float("inf")
         positive = torch.clamp(advantages, min=0) * legal_mask.float()
