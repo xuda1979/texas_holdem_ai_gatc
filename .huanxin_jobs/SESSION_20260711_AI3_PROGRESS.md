@@ -23,11 +23,21 @@
 | 6 | 1.5933 | 192 | 58990 | 15:15-15:30 (15m) |
 | 7 | 1.5080 | 224 | 68375 | 15:30-15:43 (13m) |
 | 8 | 1.5713 | 256 | 79491 | 15:43-15:57 (14m) |
-| 9 | in progress | 256+ | — | 15:57+ |
+| 9 | 1.4597 | 288 | 92368 | 15:57-16:14 (17m) |
+| 10 | 1.4823 | 320 | 98856 | 16:14-16:22 (8m) |
+| 11 | in progress | 320+ | — | 16:22+ |
 
-Loss oscillating around 1.5-1.6 (typical early Deep CFR). Best so far 1.5080.
-No evaluation results yet (first h2h at 1000 samples ≈ cycle 31, ~5h away).
-~14 min per cycle average.
+Loss stable around 1.45-1.55. Best so far 1.4597 (cycle 9).
+
+## H2H Evaluation Milestones
+| Checkpoint | Samples | always_fold | calling_station | random_uniform | All beat? |
+|------------|---------|-------------|-----------------|----------------|-----------|
+| time_280 | 288 | +75.00 ✓ | -425.20 ✗ | +823.00 ✓ | 2/3 |
+| time_314 | 320 | +75.00 ✓ | **+138.30** ✓ | +1026.70 ✓ | **3/3 YES** |
+
+**MILESTONE**: At 320 samples, the model beats all 3 baselines. Calling station
+flipped from -425 to +138 bb/100 in 32 samples. Variance still high (±202),
+need more hands/training for statistical significance.
 
 ## NAS Backup
 - Snapshot: `/root/work/backups/texas-holdem/snapshot-20260711T141826.tar.gz` (2.9MB)
