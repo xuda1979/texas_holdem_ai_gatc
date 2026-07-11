@@ -1,0 +1,16 @@
+{
+  "job_id": "ai3-rd-20260711T141826Z",
+  "name": "ai3-rd-20260711",
+  "pid": 1185,
+  "log_path": "/root/work/software/texas-holdem/logs/ai3-rd-20260711.log",
+  "remote_root": "/root/work/software/texas-holdem",
+  "transport": "daemon",
+  "env": "ai3",
+  "daemon_port": 19003,
+  "command": "python3 run_training.py --config poc_ai3_npu.yaml --algorithm deep_cfr --npus",
+  "config": "poc_ai3_npu.yaml",
+  "algorithm": "deep_cfr",
+  "created_at": "2026-07-11T14:18:26Z",
+  "status": "running",
+  "notes": "Fresh training run on ai3 with treys evaluator fix. 4-layer model, 128 hidden_dim, 32 samples/cycle, 20000 max samples. NPU 4 in use."
+}
