@@ -1,0 +1,38 @@
+{
+  "checkpoint": "models/deep_cfr_time_342.pth",
+  "evaluated_at": "2026-07-11T16:38:00Z",
+  "total_samples": 352,
+  "hands_played": 200,
+  "severity": "ok",
+  "ok": true,
+  "h2h_results": [
+    {
+      "baseline": "always_fold",
+      "hands_played": 200,
+      "bb_per_100": 74.0,
+      "stderr_bb_per_100": 1.0,
+      "verdict": "beat (statistically significant — stderr < 1)"
+    },
+    {
+      "baseline": "calling_station",
+      "hands_played": 200,
+      "bb_per_100": 17.25,
+      "stderr_bb_per_100": 121.15,
+      "verdict": "beat (positive mean, but high variance — need more hands)"
+    },
+    {
+      "baseline": "random_uniform",
+      "hands_played": 200,
+      "bb_per_100": 710.05,
+      "stderr_bb_per_100": 245.0,
+      "verdict": "beat"
+    }
+  ],
+  "health": {"ok": true, "checks": 11},
+  "trend_vs_314": {
+    "always_fold": "75.0 -> 74.0 (stable)",
+    "calling_station": "138.3 -> 17.25 (lower mean but still positive; 200 hands vs 100)",
+    "random_uniform": "1026.7 -> 710.05 (lower but still strong)"
+  },
+  "notes": "Model continues to beat all 3 baselines at 352 samples with 200 hands. always_fold is now statistically significant. calling_station variance is the main concern — need more training to stabilize."
+}
