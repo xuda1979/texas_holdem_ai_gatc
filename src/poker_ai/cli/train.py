@@ -459,6 +459,7 @@ def initialize_trainer(
             num_layers=int(cfg_num_layers) if cfg_num_layers is not None else None,
             num_heads=int(cfg_num_heads) if cfg_num_heads is not None else None,
             max_seq_len=int(cfg_max_seq_len) if cfg_max_seq_len is not None else None,
+            buffer_capacity=int(model_cfg.get("buffer_capacity", 1_000_000)),
         )
     elif algorithm == "single_network":
         from poker_ai.ai.trainers.single_network_cfr_trainer import SingleNetworkCFRTrainer
@@ -873,6 +874,15 @@ def main() -> None:  # noqa: C901
     training_params = config.get("training", {})
     if not isinstance(training_params, dict):
         training_params = dict(training_params or {})
+    # Merge ``self_play`` section into the params handed to the SelfPlay
+    # manager so that epsilon-greedy exploration and other self-play
+    # hyperparameters are honoured by the MCCFR traversal.  We flatten the
+    # nested keys (e.g. ``self_play.epsilon`` -> ``epsilon``) so the trainer
+    # can read them without walking nested dicts.
+    self_play_cfg = config.get("self_play", {})
+    if isinstance(self_play_cfg, dict) and self_play_cfg:
+        for key, value in self_play_cfg.items():
+            training_params.setdefault(key, value)
     _curriculum_stages: list[dict] = config.get("curriculum", {}).get("stages", [])
 
     # Training Parameters with CLI overrides

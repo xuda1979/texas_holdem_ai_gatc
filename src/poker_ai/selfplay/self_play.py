@@ -86,6 +86,25 @@ class SelfPlay:
         self._model_reload_interval = self._determine_model_reload_interval(cfg)
         self._last_loaded_model_path: Path | None = None
         self._last_loaded_model_mtime: float | None = None
+        # Epsilon-greedy exploration during MCCFR self-play.  The config may
+        # put this under ``self_play.epsilon`` (matching the YAML schema) or
+        # inline in the training section.  Default to 0.0 (pure regret
+        # matching) to preserve prior behaviour when the key is absent.
+        epsilon_raw = 0.0
+        if isinstance(cfg, dict):
+            epsilon_raw = cfg.get("epsilon", cfg.get("self_play_epsilon", 0.0))
+        try:
+            epsilon = float(epsilon_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            epsilon = 0.0
+        # Clamp to [0, 1] — values outside this range are nonsensical for an
+        # epsilon-greedy mixture weight.
+        self.epsilon = max(0.0, min(1.0, epsilon))
+        if self.epsilon > 0:
+            self.logger.info(
+                "SelfPlay epsilon-greedy exploration enabled | epsilon=%.3f",
+                self.epsilon,
+            )
         self._maybe_refresh_model(iteration=0, force=True)
         self.logger.debug(
             "Initialized SelfPlay | stack=%s | blinds=(%s,%s) | players=%s-%s",
@@ -464,6 +483,19 @@ class SelfPlay:
             num_legal = int(legal_actions_mask.sum().item())
             if num_legal > 0:
                 policy[legal_actions_mask] = 1.0 / num_legal
+
+        # Epsilon-greedy exploration: mix the regret-matched policy with a
+        # uniform distribution over legal actions.  This prevents the
+        # strategy buffer from collapsing to a single dominant line (which
+        # produces a policy network that exploits one baseline but loses to
+        # another).  The mixture weight is read from the ``self_play.epsilon``
+        # config key (default 0.0 preserves prior behaviour).
+        if self.epsilon > 0.0:
+            num_legal = int(legal_actions_mask.sum().item())
+            if num_legal > 0:
+                uniform = torch.zeros_like(policy)
+                uniform[legal_actions_mask] = 1.0 / num_legal
+                policy = (1.0 - self.epsilon) * policy + self.epsilon * uniform
 
         if return_mask:
             return policy, legal_actions_mask_cpu

@@ -36,11 +36,29 @@ model:
   d_raw_feature: 18
   num_layers: 4
   num_heads: 8
+  # Learning rate lowered from the cli default of 1e-3: at 1e-3 the model
+  # plateaued quickly (loss ~1.3-1.5 by cycle 11) and then drifted into an
+  # over-aggressive equilibrium that beats random_uniform but loses to
+  # calling_station. 3e-4 is a more conservative step size that should
+  # keep the policy network responsive to regret signals without
+  # overshooting.
+  learning_rate: 3.0e-4
+  # Replay buffer capacity. The default 1_000_000 fills around cycle 93
+  # (~2800 samples) and then evicts old data, leaving only recent self-play
+  # which reinforces the current (possibly degenerate) strategy. 5x larger
+  # so older diverse samples survive longer.
+  buffer_capacity: 5000000
 
 self_play:
   model_reload_interval: 0
   save_interval: 0
   temperature: 1.0
+  # Epsilon-greedy exploration applied during MCCFR self-play traversal.
+  # At 0.05 the policy mixes 5% uniform over legal actions so the strategy
+  # buffer collects a diverse range of actions rather than collapsing to a
+  # single dominant line. This is critical against calling_station: without
+  # exploration the model over-commits to all-in lines that lose to a
+  # station that never folds.
   epsilon: 0.05
 
 # Evaluation hooks driven by the training loop.
