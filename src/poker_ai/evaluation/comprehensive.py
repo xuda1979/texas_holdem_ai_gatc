@@ -789,6 +789,11 @@ class TrainingEvalHook:
         emit_events: bool = True,
         logger: logging.Logger | None = None,
         stop_on_error: bool = False,
+        best_baseline: str | None = None,
+        best_checkpoint_dir: str | os.PathLike[str] | None = None,
+        stop_on_regression: bool = False,
+        regression_margin_bb: float = 50.0,
+        regression_patience: int = 2,
     ) -> None:
         self.evaluator = evaluator
         self.every_samples = int(every_samples)
@@ -798,6 +803,27 @@ class TrainingEvalHook:
         self.stop_on_error = bool(stop_on_error)
         self._last_eval_samples: int = -1
         self._last_report: EvaluationReport | None = None
+        # Best-checkpoint tracking: when ``best_baseline`` is set (e.g.
+        # "calling_station"), every evaluation copies the checkpoint to
+        # ``best_checkpoint_dir/best_<baseline>_<samples>.pth`` if its bb/100
+        # against that baseline exceeds the best seen so far.  This guards
+        # against the observed regression pattern where the model peaks
+        # around sample 1000 and then degrades -- without this hook the peak
+        # checkpoint is silently overwritten by continued training.
+        self.best_baseline = best_baseline
+        self.best_checkpoint_dir = (
+            str(best_checkpoint_dir) if best_checkpoint_dir is not None else None
+        )
+        self._best_bb_per_100: float | None = None
+        self._best_checkpoint_samples: int | None = None
+        # Optional early-stop on regression: if the latest bb/100 against
+        # ``best_baseline`` falls more than ``regression_margin_bb`` below the
+        # peak for ``regression_patience`` consecutive evaluations, stop
+        # training (the peak checkpoint has already been saved).
+        self.stop_on_regression = bool(stop_on_regression)
+        self.regression_margin_bb = float(regression_margin_bb)
+        self.regression_patience = int(regression_patience)
+        self._regression_strikes = 0
 
     def maybe_evaluate(
         self,
@@ -839,6 +865,87 @@ class TrainingEvalHook:
             for w in warnings:
                 report.update_severity("warning", w)
 
+        # Best-checkpoint tracking against ``best_baseline``.
+        bb_now = self._extract_baseline_bb(report, self.best_baseline) if self.best_baseline else None
+        if bb_now is not None:
+            is_new_best = (
+                self._best_bb_per_100 is None or bb_now > self._best_bb_per_100
+            )
+            if is_new_best:
+                self._best_bb_per_100 = bb_now
+                self._best_checkpoint_samples = total_samples
+                self._regression_strikes = 0
+                saved = self._save_best_checkpoint(checkpoint_path, total_samples, bb_now)
+                if saved:
+                    self.logger.info(
+                        "best_checkpoint[%s]: new peak bb/100=%.2f at samples=%s -> %s",
+                        self.best_baseline,
+                        bb_now,
+                        total_samples,
+                        saved,
+                    )
+                self._emit_event(
+                    "best_checkpoint",
+                    {
+                        "baseline": self.best_baseline,
+                        "bb_per_100": bb_now,
+                        "total_samples": total_samples,
+                        "checkpoint_path": saved or str(checkpoint_path),
+                        "is_new_best": True,
+                    },
+                )
+            else:
+                # Not a new best.  If the gap from peak exceeds the margin,
+                # count a regression strike.
+                if (
+                    self.stop_on_regression
+                    and self._best_bb_per_100 is not None
+                    and bb_now < self._best_bb_per_100 - self.regression_margin_bb
+                ):
+                    self._regression_strikes += 1
+                    self.logger.warning(
+                        "regression_strike[%s]: bb/100=%.2f < peak=%.2f - margin=%.2f "
+                        "(strikes=%s/%s)",
+                        self.best_baseline,
+                        bb_now,
+                        self._best_bb_per_100,
+                        self.regression_margin_bb,
+                        self._regression_strikes,
+                        self.regression_patience,
+                    )
+                    if self._regression_strikes >= self.regression_patience:
+                        report.update_severity(
+                            "warning",
+                            f"regression_stop[{self.best_baseline}]: "
+                            f"bb/100={bb_now:.2f} stayed below peak="
+                            f"{self._best_bb_per_100:.2f} - margin="
+                            f"{self.regression_margin_bb:.2f} for "
+                            f"{self._regression_strikes} evaluations. "
+                            f"Best checkpoint preserved at samples="
+                            f"{self._best_checkpoint_samples}.",
+                        )
+                        self.logger.error(
+                            "Evaluation hook stopping training due to sustained "
+                            "regression against %s (peak samples=%s).",
+                            self.best_baseline,
+                            self._best_checkpoint_samples,
+                        )
+                        self._emit_event(
+                            "regression_stop",
+                            {
+                                "baseline": self.best_baseline,
+                                "bb_per_100": bb_now,
+                                "peak_bb_per_100": self._best_bb_per_100,
+                                "peak_samples": self._best_checkpoint_samples,
+                                "total_samples": total_samples,
+                            },
+                        )
+                        if self.emit_events:
+                            self._emit_event(
+                                "comprehensive_evaluation", report.to_dict()
+                            )
+                        return report
+
         if self.emit_events:
             self._emit_event("comprehensive_evaluation", report.to_dict())
 
@@ -850,6 +957,74 @@ class TrainingEvalHook:
             return report  # caller is responsible for checking severity and stopping
 
         return report
+
+    @staticmethod
+    def _extract_baseline_bb(
+        report: "EvaluationReport", baseline: str | None
+    ) -> float | None:
+        """Return the bb/100 of ``baseline`` from ``report``, or ``None``.
+
+        Handles both dict entries (the serialized form stored on
+        ``EvaluationReport.h2h_results``) and ``H2HResult`` dataclasses.
+        """
+        if not baseline:
+            return None
+        for h2h in getattr(report, "h2h_results", []) or []:
+            if isinstance(h2h, dict):
+                if h2h.get("baseline") == baseline:
+                    val = h2h.get("bb_per_100")
+                    if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                        return float(val)
+            else:
+                if getattr(h2h, "baseline", None) == baseline:
+                    val = getattr(h2h, "bb_per_100", None)
+                    if val is not None and not (isinstance(val, float) and math.isnan(val)):
+                        return float(val)
+        return None
+
+    def _save_best_checkpoint(
+        self,
+        checkpoint_path: str | os.PathLike[str],
+        total_samples: int,
+        bb_per_100: float,
+    ) -> str | None:
+        """Copy ``checkpoint_path`` to the best-checkpoint directory.
+
+        Returns the destination path on success, ``None`` on failure.  Errors
+        are logged but never raised so the training loop is unaffected.
+        """
+        if not self.best_checkpoint_dir:
+            return None
+        import shutil
+
+        try:
+            os.makedirs(self.best_checkpoint_dir, exist_ok=True)
+            tag = self.best_baseline or "baseline"
+            dst = os.path.join(
+                self.best_checkpoint_dir,
+                f"best_{tag}_{total_samples}.pth",
+            )
+            shutil.copy2(str(checkpoint_path), dst)
+            # Also maintain a stable ``best_<tag>_latest.pth`` symlink/copy
+            # pointing at the current peak for convenience.
+            latest = os.path.join(
+                self.best_checkpoint_dir, f"best_{tag}_latest.pth"
+            )
+            try:
+                if os.path.islink(latest) or os.path.exists(latest):
+                    os.remove(latest)
+                os.symlink(os.path.basename(dst), latest)
+            except OSError:
+                # Filesystem may not support symlinks; fall back to a copy.
+                shutil.copy2(str(checkpoint_path), latest)
+            return dst
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "Failed to save best checkpoint to %s: %s",
+                self.best_checkpoint_dir,
+                exc,
+            )
+            return None
 
     def _emit_event(self, event: str, payload: dict[str, Any]) -> None:
         # Emit a single JSON line to the logger.  Downstream tooling can grep

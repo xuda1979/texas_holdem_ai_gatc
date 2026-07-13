@@ -67,7 +67,9 @@ self_play:
 # during training.
 evaluation:
   # Run a comprehensive evaluation every N samples generated.
-  every_samples: 1000
+  # Lowered from 1000 -> 500 to catch the calling_station peak around sample
+  # 1000-1100 with finer granularity (see SESSION_20260713_TRAJECTORY.md).
+  every_samples: 500
   # How many hands to play per head-to-head match.
   h2h_hands: 200
   # Random seed for reproducible evaluation matches.
@@ -78,6 +80,18 @@ evaluation:
   emit_events: true
   # If true, evaluation aborts training when an error-severity health check fires.
   stop_on_error: false
+  # Best-checkpoint tracking: copy the checkpoint to ``models/best/`` whenever
+  # bb/100 against calling_station exceeds the best seen so far.  This guards
+  # against the regression pattern where the model peaks ~sample 1000 and
+  # then degrades -- the peak is preserved even as training continues.
+  best_baseline: calling_station
+  best_checkpoint_dir: models/best
+  # If true, stop training after the model regresses by more than
+  # ``regression_margin_bb`` for ``regression_patience`` consecutive
+  # evaluations.  The peak checkpoint is already saved before stopping.
+  stop_on_regression: true
+  regression_margin_bb: 80.0
+  regression_patience: 2
 
 logging:
   level: INFO

@@ -265,6 +265,19 @@ def _build_comprehensive_eval_hook(
         str(remote_checkpoint_dir()), "eval_history.json"
     )
 
+    # Best-checkpoint tracking against a target baseline (e.g.
+    # "calling_station").  When set, every evaluation copies the checkpoint
+    # to ``best_checkpoint_dir`` if it beats the current peak bb/100 against
+    # that baseline.  See SESSION_20260713_TRAJECTORY.md for the regression
+    # pattern this guards against.
+    best_baseline = eval_cfg.get("best_baseline") or None
+    best_checkpoint_dir = eval_cfg.get("best_checkpoint_dir") or os.path.join(
+        str(remote_checkpoint_dir()), "best"
+    )
+    stop_on_regression = bool(eval_cfg.get("stop_on_regression", False))
+    regression_margin_bb = float(eval_cfg.get("regression_margin_bb", 50.0) or 50.0)
+    regression_patience = int(eval_cfg.get("regression_patience", 2) or 2)
+
     evaluator = ComprehensiveEvaluator(
         h2h_hands=h2h_hands,
         health_num_states=health_num_states,
@@ -279,6 +292,11 @@ def _build_comprehensive_eval_hook(
         emit_events=emit_events,
         logger=logger,
         stop_on_error=stop_on_error,
+        best_baseline=best_baseline,
+        best_checkpoint_dir=best_checkpoint_dir,
+        stop_on_regression=stop_on_regression,
+        regression_margin_bb=regression_margin_bb,
+        regression_patience=regression_patience,
     )
 
 
@@ -1300,6 +1318,27 @@ def main() -> None:  # noqa: C901
                     _safe_exception(
                         logger,
                         "Stopping training due to evaluation error at sample %s: %s",
+                        total_samples,
+                        eval_report.issues,
+                    )
+                    stopped_early = True
+                    break
+                # Regression early-stop: the eval hook flags a sustained
+                # regression against the tracked baseline (e.g.
+                # calling_station).  The peak checkpoint has already been
+                # preserved in ``best_checkpoint_dir`` by the hook.
+                if (
+                    eval_report is not None
+                    and getattr(eval_hook, "stop_on_regression", False)
+                    and any(
+                        isinstance(i, str) and i.startswith("regression_stop[")
+                        for i in (eval_report.issues or [])
+                    )
+                ):
+                    _safe_warning(
+                        logger,
+                        "Stopping training due to sustained regression at sample "
+                        "%s: %s",
                         total_samples,
                         eval_report.issues,
                     )
