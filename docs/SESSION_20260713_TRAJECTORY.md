@@ -57,3 +57,57 @@ performance while also not preventing regression.
   (c) add calling_station as a training opponent, (d) use best-checkpoint
   tracking that evaluates vs calling_station and saves the best.
 - Back up the current peak checkpoint (1088) to NAS.
+
+## Updated Trajectory (run2, 300 hands each)
+
+| samples | bb/100 vs calling_station | stderr |
+|---------|---------------------------|--------|
+| 396     | -212.07                   | 107    |
+| 747     | +77.57                    | 105    |
+| 1002    | +168.00 (NAS best)        | 112    |
+| 1088    | +111.30 (peak, in-run)    | 110    |
+| 1294    | +21.83                    | 76     |
+| 1400    | -175.63                   | 155    |
+| 1650    | -97.57                    | 100    |
+
+Regression onset: between 1088 and 1294. By 1400 deeply negative.
+
+## Weight Norm Diagnostic
+Checked |advantage_net| and |policy_net| L2 norms at samples 100 and 1650:
+both ~70.6 with <0.1% drift. **No catastrophic weight explosion** -- the
+regression is a subtle policy-quality issue, not numerical instability.
+
+## Root Cause Analysis (deeper)
+
+The self-play is **pure self-play** (both players use the same model).
+The model converges toward a Nash equilibrium of self-play, which is NOT
+the same as an exploitive strategy vs calling_station. Early in training
+(samples 400-1100), the model passes through a transient state that
+happens to exploit calling_station well. As training continues, self-play
+convergence "unlearns" this exploitive behavior in favor of the Nash
+equilibrium, which is more passive/non-exploitive against a station.
+
+Key evidence:
+- The strategy buffer records the epsilon-mixed policy at each infoset
+  (self_play.py line 731). As the advantage net converges to Nash, the
+  recorded strategies become less exploitive.
+- Weight norms are stable, so this is not a training instability -- it
+  is the optimization objective (self-play Nash) diverging from the
+  evaluation target (exploit calling_station).
+
+## Fix Implemented This Session: Best-Checkpoint Tracking
+- `TrainingEvalHook` now saves the peak checkpoint (vs `best_baseline`)
+  to `models/best/` with a `_latest` symlink.
+- Optional `stop_on_regression` halts training after sustained regression
+  (margin + patience).
+- `evaluation.every_samples` lowered 1000 -> 500 for finer granularity.
+- Run3 started at 2026-07-13 06:01 UTC with these features enabled.
+
+## Next Fix Proposal: Add Calling Station as Training Opponent
+To make the model ROBUSTLY exploit calling_station (not just transiently),
+the self-play should mix in calling_station as an opponent during a
+fraction of traversals. This gives the advantage net direct signal about
+calling_station's exploitable tendencies (calling too much, never folding),
+so the Nash equilibrium of the mixed game includes exploitation of the
+station. This is "fictitious play" / opponent-pool self-play.
+
