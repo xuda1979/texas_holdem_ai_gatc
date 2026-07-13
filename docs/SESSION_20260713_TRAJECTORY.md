@@ -124,6 +124,24 @@ every 500 samples).
 improved. No regression detected through 864 samples (cycle 28).
 Best checkpoint: `models/best/best_calling_station_512.pth`.
 
+**REGRESSION CONFIRMED at 1024 samples:** calling_station dropped from
++116.55 to **-132.00 bb/100** (a 248 bb/100 swing), while random_uniform
+*improved* from +735 to +838. This is the exact pattern documented for
+runs 1-2: the model over-commits to aggressive lines that beat
+random_uniform but lose to a station that never folds. The
+`stop_on_regression` mechanism flagged strike 1/2; training will stop if
+the 1500-sample eval also regresses.
+
+| Baseline | 512 samples | 1024 samples | Change |
+|---|---|---|---|
+| always_fold | +75.00 | +75.00 | stable |
+| calling_station | +116.55 | -132.00 | **-248 bb/100** |
+| random_uniform | +735.15 | +838.10 | +103 bb/100 |
+
+This definitively confirms pure self-play cannot robustly exploit
+calling_station. The opponent-mix fix (implemented below) is the next
+experiment.
+
 ### Opponent-Mix Feature (implemented, not yet deployed)
 Added `self_play.opponent_mix` config to `SelfPlay`:
 - `probability` (float 0-1): per-hand probability that one non-traverser
