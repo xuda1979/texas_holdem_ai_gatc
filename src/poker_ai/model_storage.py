@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 DEFAULT_HUANXIN_REMOTE_ROOT = Path(
-    os.environ.get("POKER_AI_HUANXIN_REMOTE_ROOT", "/root/root/work/texas-holdem")
+    os.environ.get("POKER_AI_HUANXIN_REMOTE_ROOT", "/root/root/work/cfr")
 )
 DEFAULT_CHECKPOINT_DIRNAME = os.environ.get("POKER_AI_CHECKPOINT_DIRNAME", "models")
 DEFAULT_TRAINED_MODELS_DIRNAME = os.environ.get(

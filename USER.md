@@ -11,7 +11,7 @@ _Learn about the person you're helping. Update this as you go._
 ## Context
 
 - Working on Texas Hold'em AI productionization and remote Huanxin training workflow.
-- Use the Huanxin **ai3** environment for training going forward when live checks pass; keep the project under `~/software/texas-holdem` there.
+- Use the Huanxin **ai3** environment for training going forward when live checks pass; keep the project under `~/software/cfr` there.
 - Wants local workspace kept light: no local checkpoints or large model files.
 
 ---

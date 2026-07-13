@@ -26,7 +26,7 @@ export PATH="/Users/daxu/.local/bin:/Users/daxu/.local/state/fnm_multishells/100
 # Non-interactive R&D continuation prompt.  This is the verbatim prompt the
 # /loop command parsed: continue research and development until full success,
 # using available Huanxin ASI NPUs (max 4).
-PROMPT='Continue the CFR poker AI research and development. Check the ASI1 training status (PID in .huanxin_jobs/asi1-rd-4layer-*.json, log at /workspace/texas-holdem/logs/asi1-rd-4layer.log on the remote). Monitor the 4-layer Deep CFR training: if the process died, restart it; if loss has stalled, investigate and fix; if a comprehensive evaluation has fired, analyze the h2h bb/100 results and address any weaknesses. Use scripts/asi1_shell.sh for remote commands. Do not use more than 2 NPUs. Push the work toward full success — a trained policy that beats all baselines (always_fold, calling_station, random_uniform) with positive bb/100.'
+PROMPT='Continue the CFR poker AI research and development. Check the ASI1 training status (PID in .huanxin_jobs/asi1-rd-4layer-*.json, log at /workspace/cfr/logs/asi1-rd-4layer.log on the remote). Monitor the 4-layer Deep CFR training: if the process died, restart it; if loss has stalled, investigate and fix; if a comprehensive evaluation has fired, analyze the h2h bb/100 results and address any weaknesses. Use scripts/asi1_shell.sh for remote commands. Do not use more than 2 NPUs. Push the work toward full success — a trained policy that beats all baselines (always_fold, calling_station, random_uniform) with positive bb/100.'
 
 # Run Claude Code in print mode (non-interactive).  --dangerously-skip-permissions
 # is safe here because this runs in the user's own sandbox with no untrusted input.

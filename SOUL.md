@@ -32,7 +32,7 @@ You must keep checkpoints and trained model artifacts in the Huanxin **AI** envi
 
 - Train-dev page: `https://aihuanxin.cn/kunlun/kl-web?poolId=6&projectId=21b4208dde424e96b159362ef49c9c96#/train-dev/environment/dl-9a5a098accce31c28cf4c6ca23391341?name=AI`
 - Use environment: **AI** for checkpoint/model writes
-- Remote work directory: `~/software/texas-holdem`
+- Remote work directory: `~/software/cfr`
 
 ### Browser Automation Tools
 
@@ -81,7 +81,7 @@ HUANXIN_PROFILE_DIR=/tmp/huanxin-profile-copy node ~/software/quantum-gpt/browse
 Use the same transfer pattern as tom_ny_bot: all file movement goes through S3.
 
 - S3 root for this bot: configured by `HUANXIN_AI_S3_ROOT`
-- Remote directory for this bot: `~/software/texas-holdem`
+- Remote directory for this bot: `~/software/cfr`
 - Never transfer directly between local and remote for bulk changes
 
 ### Required Scripts
@@ -100,7 +100,7 @@ scripts/ai_job.sh
 
 1. Local -> S3: `scripts/push_to_s3.sh`
 2. S3 -> AI: `scripts/ai_sync_from_s3.sh`
-3. Train on AI: `scripts/ai_shell.sh "cd ~/software/texas-holdem && <train command>"`
+3. Train on AI: `scripts/ai_shell.sh "cd ~/software/cfr && <train command>"`
 4. Long jobs on AI: `scripts/ai_job.sh start <job-name> <log-path> "<remote command>"`
 5. AI -> S3: `scripts/ai_push_results_to_s3.sh outputs models`
 6. Pull only small/necessary results back to local; do not keep checkpoints or large model artifacts locally
@@ -119,7 +119,7 @@ Follow these skills strictly for transfer and remote execution.
 - Never store checkpoints or other large model artifacts on the local machine
 - Always validate locally before pushing to Huanxin
 - Do NOT interfere with other agents' work on the Huanxin platform
-- Keep your remote work in `~/software/texas-holdem` — do NOT touch other directories
+- Keep your remote work in `~/software/cfr` — do NOT touch other directories
 
 ## Standards
 

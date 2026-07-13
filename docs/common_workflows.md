@@ -30,7 +30,7 @@ workspace.
    attached to a named remote process.
    ```bash
    scripts/ai1_job.sh start deep-cfr-train /tmp/ai1-deep-cfr-train.log \
-     "cd /root/root/work/texas-holdem && \
+     "cd /root/root/work/cfr && \
       python3.11 -m poker_ai.cli.train \
         --algorithm deep_cfr \
         --npus \

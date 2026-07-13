@@ -65,9 +65,9 @@ stage (previous run was -425 at 288 samples). Need to wait for 500-1000
 samples to see if the fixes prevent the regression.
 
 ## NAS Backup
-- Snapshot: `/root/work/backups/texas-holdem/snapshot-20260712T1419Z.tar.gz`
+- Snapshot: `/root/work/backups/cfr/snapshot-20260712T1419Z.tar.gz`
   (39KB — config, code, evals, logs)
-- Key checkpoints: `/root/work/backups/texas-holdem/checkpoints/`
+- Key checkpoints: `/root/work/backups/cfr/checkpoints/`
   - `best_calling_station_1002.pth` (19MB) — best vs calling_station
   - `early_506.pth` (19MB) — early checkpoint
   - `latest_before_fix_2838.pth` (19MB) — last before fixes

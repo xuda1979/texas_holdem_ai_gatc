@@ -4,13 +4,13 @@
 - **Live env**: ai3 (ASI3). ai1 (ASI1) is stopped.
 - **NPU**: 4 (single NPU, 2056MB used per process)
 - **Python**: 3.11.14, torch 2.9.0+cpu, torch_npu 2.9.0, treys 0.1.8
-- **Project path**: `/root/work/software/texas-holdem` (NAS-mounted: `v4hw03pool04.nas.cidc-rp-210.internal`)
+- **Project path**: `/root/work/software/cfr` (NAS-mounted: `v4hw03pool04.nas.cidc-rp-210.internal`)
 
 ## Training Run: ai3-rd-20260711T141826Z
 - **Config**: `poc_ai3_npu.yaml` (4-layer model, 128 hidden_dim, 32 samples/cycle, 20k max samples)
 - **Algorithm**: deep_cfr
 - **PID**: 1149 (worker), 1185 (launcher)
-- **Log**: `/root/work/software/texas-holdem/logs/ai3-rd-20260711.log`
+- **Log**: `/root/work/software/cfr/logs/ai3-rd-20260711.log`
 
 ## Progress (loss trajectory)
 | Cycle | Loss | Samples | Replay Buffer | Time |
@@ -40,9 +40,9 @@ flipped from -425 to +138 bb/100 in 32 samples. Variance still high (±202),
 need more hands/training for statistical significance.
 
 ## NAS Backup
-- Snapshot: `/root/work/backups/texas-holdem/snapshot-20260711T141826.tar.gz` (2.9MB)
+- Snapshot: `/root/work/backups/cfr/snapshot-20260711T141826.tar.gz` (2.9MB)
 - The project lives on the NAS-mounted `/root/work/` so all training
-  checkpoints in `/root/work/software/texas-holdem/models/` are automatically
+  checkpoints in `/root/work/software/cfr/models/` are automatically
   on NAS.
 
 ## Notes

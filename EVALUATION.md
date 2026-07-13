@@ -151,15 +151,15 @@ scripts/asi3_train.sh list
 
 ```bash
 # Health-check a checkpoint (runs on ASI3)
-scripts/asi3_evaluate.sh health ~/software/texas-holdem/models/deep_cfr_final.pth
+scripts/asi3_evaluate.sh health ~/software/cfr/models/deep_cfr_final.pth
 
 # Sweep all checkpoints on ASI3
-scripts/asi3_evaluate.sh sweep ~/software/texas-holdem/models --latest-only
+scripts/asi3_evaluate.sh sweep ~/software/cfr/models --latest-only
 
 # Compare two checkpoints
 scripts/asi3_evaluate.sh h2h \
-    ~/software/texas-holdem/models/deep_cfr_hand_1000.pth \
-    ~/software/texas-holdem/models/deep_cfr_hand_2000.pth
+    ~/software/cfr/models/deep_cfr_hand_1000.pth \
+    ~/software/cfr/models/deep_cfr_hand_2000.pth
 ```
 
 ### Pull artifacts back to your laptop
