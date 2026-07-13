@@ -105,6 +105,41 @@ class SelfPlay:
                 "SelfPlay epsilon-greedy exploration enabled | epsilon=%.3f",
                 self.epsilon,
             )
+        # Opponent-pool self-play (fictitious-play style).  With probability
+        # ``opponent_mix_probability`` per hand, one non-traverser is designated
+        # to play a fixed baseline strategy (default ``calling_station``) instead
+        # of the model policy.  This gives the advantage network a direct
+        # exploitation signal against that opponent, so the learned equilibrium
+        # robustly beats the baseline rather than only transiently peaking
+        # against it.  See SESSION_20260713_TRAJECTORY.md for the regression
+        # analysis that motivated this.
+        opp_mix_raw = 0.0
+        opp_strategy_name = "calling_station"
+        if isinstance(cfg, dict):
+            opp_cfg = cfg.get("opponent_mix", None)
+            if isinstance(opp_cfg, dict):
+                opp_mix_raw = opp_cfg.get("probability", opp_cfg.get("mix_probability", 0.0))
+                opp_strategy_name = opp_cfg.get("strategy", opp_cfg.get("name", "calling_station"))
+            else:
+                opp_mix_raw = cfg.get("opponent_mix_probability", 0.0)
+                opp_strategy_name = cfg.get("opponent_mix_strategy", "calling_station")
+        try:
+            opp_mix = float(opp_mix_raw)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            opp_mix = 0.0
+        self.opponent_mix_probability = max(0.0, min(1.0, opp_mix))
+        self.opponent_mix_strategy = str(opp_strategy_name).strip() or "calling_station"
+        self._opponent_strategy = self._make_fixed_opponent_strategy(self.opponent_mix_strategy)
+        if self.opponent_mix_probability > 0.0 and self._opponent_strategy is not None:
+            self.logger.info(
+                "SelfPlay opponent-mix enabled | probability=%.3f | strategy=%s",
+                self.opponent_mix_probability,
+                self.opponent_mix_strategy,
+            )
+        # Per-hand state: when a hand is drawn as a "mixed opponent" hand, this
+        # holds the player id that plays the fixed strategy for this hand, or
+        # ``None`` when the hand uses pure self-play.
+        self._current_fixed_opponent_id: int | None = None
         self._maybe_refresh_model(iteration=0, force=True)
         self.logger.debug(
             "Initialized SelfPlay | stack=%s | blinds=(%s,%s) | players=%s-%s",
@@ -331,7 +366,87 @@ class SelfPlay:
             preferred_scale = float(self.starting_stack)
 
         return infer_normalization_scale(game, preferred_scale)
- 
+
+    # ------------------------------------------------------------------
+    # Opponent-pool self-play helpers (fictitious-play style).
+    # ------------------------------------------------------------------
+    def _make_fixed_opponent_strategy(self, name: str) -> Any | None:
+        """Return a fixed-strategy opponent by name, or ``None`` if disabled.
+
+        Currently supports ``calling_station`` (check/call every decision) and
+        ``always_fold`` (fold to any bet, otherwise check).  Unknown names log a
+        warning and return ``None`` (pure self-play).
+        """
+        normalized = (name or "").strip().lower()
+        if normalized in ("", "none", "off", "disabled"):
+            return None
+        try:
+            from poker_ai.evaluation.head_to_head import (
+                AlwaysFoldStrategy,
+                CallingStationStrategy,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.warning(
+                "Could not import baseline strategies for opponent-mix: %s", exc
+            )
+            return None
+        if normalized == "calling_station":
+            return CallingStationStrategy()
+        if normalized == "always_fold":
+            return AlwaysFoldStrategy()
+        self.logger.warning(
+            "Unknown opponent_mix strategy %r; opponent-mix disabled.", name
+        )
+        return None
+
+    def _fixed_opponent_action_index(
+        self, game: TexasHoldem, player_id: int, legal_actions_mask
+    ) -> int | None:
+        """Map a fixed-strategy opponent's decision to an action index.
+
+        Returns the action index compatible with ``_apply_action_in_place`` that
+        best matches the fixed strategy's ``choose_action`` result, or ``None``
+        if no legal mapping exists (the caller should fall back to the model
+        policy in that case).  Index mapping: 0=FOLD, 1=CHECK/CALL, 2+=RAISE
+        buckets (see ``utils.action_mapping.get_action_from_index``).
+        """
+        if self._opponent_strategy is None:
+            return None
+        try:
+            action_str, amount = self._opponent_strategy.choose_action(game, player_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            self.logger.debug(
+                "Fixed-opponent strategy raised %s for player %s; falling back to model.",
+                exc,
+                player_id,
+            )
+            return None
+        # ``legal_actions_mask`` is a torch.BoolTensor aligned with the action
+        # index space used by ``_get_policy``.  We map the strategy's action
+        # string to the first legal index that implements it.
+        import torch as _torch  # local import to avoid module-level dep in tests
+
+        if not isinstance(legal_actions_mask, _torch.Tensor):
+            mask_list = list(legal_actions_mask)
+        else:
+            mask_list = legal_actions_mask.detach().cpu().tolist()
+        # Index 1 is always CHECK/CALL in the canonical mapping.  If it is legal
+        # and the strategy wants check/call, use it.
+        if action_str in ("check", "call"):
+            if len(mask_list) > 1 and bool(mask_list[1]):
+                return 1
+            # If index 1 is illegal (shouldn't happen for check/call in normal
+            # play), scan for the first legal index — but that would be a fold,
+            # which contradicts calling_station, so return None to fall back.
+            return None
+        if action_str == "fold":
+            if len(mask_list) > 0 and bool(mask_list[0]):
+                return 0
+            return None
+        # Raises / bets: the fixed strategies we support never choose these, so
+        # this branch is unreachable for calling_station/always_fold.  Return
+        # None to let the caller fall back to the model policy.
+        return None
 
     def play_hand_for_training(self, iteration: int = 0) -> list[Any]:
         """Run one full MCCFR traversal for a new hand."""
@@ -369,11 +484,42 @@ class SelfPlay:
             "Iteration %s | initialized game with %s players", iteration, num_players
         )
 
-        # 2. Perform a traversal for each player in the hand
+        # 2. Decide whether this hand uses an opponent-pool (fictitious-play)
+        # opponent.  When enabled, one non-traverser seat plays a fixed
+        # baseline strategy (e.g. calling_station) so the advantage network
+        # receives direct exploitation signal.  The designation is per-hand and
+        # applies to all traversers in that hand.
+        self._current_fixed_opponent_id = None
+        if (
+            self.opponent_mix_probability > 0.0
+            and self._opponent_strategy is not None
+            and num_players >= 2
+            and random.random() < self.opponent_mix_probability
+        ):
+            # Pick a non-traverser seat.  The traverser is the "learner" and the
+            # fixed opponent must be a different seat.  We pick seat 1 as the
+            # fixed opponent for 2-player hands (seat 0 is the first traverser);
+            # for >2 players pick a random non-traverser seat per traversal.
+            # The actual designation is resolved per-traverser inside the loop
+            # below so the fixed opponent is always a non-traverser seat.
+            self._current_fixed_opponent_id = -1  # sentinel: resolve per-traverser
+
+        # 3. Perform a traversal for each player in the hand
         base_reach = [1.0] * num_players
         for traverser_id in range(num_players):
+            # Resolve the fixed-opponent seat for this traverser: any seat
+            # other than the traverser.
+            if self._current_fixed_opponent_id == -1:
+                others = [p for p in range(num_players) if p != traverser_id]
+                self._current_fixed_opponent_id = random.choice(others) if others else None
             snapshot = self._snapshot_state(game)
             self._traverse_mccfr(game, traverser_id, iteration, base_reach.copy(), [])
+            self._restore_state(game, snapshot)
+            # Reset for the next traverser.
+            if self.opponent_mix_probability > 0.0:
+                self._current_fixed_opponent_id = -1 if (
+                    self._opponent_strategy is not None and num_players >= 2
+                ) else None
             self._restore_state(game, snapshot)
 
         # 3. After the traversals, run a training step on the collected data
@@ -713,6 +859,24 @@ class SelfPlay:
         # policy, infosets are visited with probability proportional to the
         # acting player's reach, which yields the correct reach weighting of
         # the average strategy without explicit multiplication.
+        #
+        # Opponent-pool extension: when this hand was designated a
+        # "mixed-opponent" hand and ``current_player`` is the fixed-opponent
+        # seat, the opponent plays the baseline strategy (e.g. calling_station)
+        # instead of the model policy.  We still collect the strategy-buffer
+        # sample using the *model's* policy (so the policy network learns to
+        # imitate the model's own average strategy at this infoset), but the
+        # *action taken along the trajectory* is the fixed strategy's action.
+        # This keeps the Deep CFR strategy-buffer semantics intact while giving
+        # the advantage network direct exploitation signal: the traverser's
+        # regret targets reflect "what's the value of each action when the
+        # opponent plays calling_station?".
+        use_fixed_opponent = (
+            self._current_fixed_opponent_id is not None
+            and self._current_fixed_opponent_id >= 0
+            and current_player == self._current_fixed_opponent_id
+            and self._opponent_strategy is not None
+        )
         if hasattr(self.cfr_trainer, "add_strategy_experience"):
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
@@ -731,6 +895,26 @@ class SelfPlay:
                 strategy=policy.detach().clone(),
                 iteration=iteration,
             )
+
+        if use_fixed_opponent:
+            fixed_idx = self._fixed_opponent_action_index(
+                game, current_player, legal_actions_mask_cpu
+            )
+            if fixed_idx is not None:
+                action_idx = fixed_idx
+                # Use the model's policy probability at that index for the
+                # reach update so External Sampling's reach-weighting remains
+                # consistent with the on-policy trajectory.
+                undo_stack.append(self._snapshot_state(game))
+                self._apply_action_in_place(game, current_player, action_idx)
+                new_reach = reach_probs.copy()
+                new_reach[current_player] *= max(float(policy[action_idx].item()), 1e-12)
+                value = self._traverse_mccfr(game, traverser_id, iteration, new_reach, undo_stack)
+                snapshot = undo_stack.pop()
+                self._restore_state(game, snapshot)
+                return value
+            # If the fixed strategy had no legal mapping (rare edge case),
+            # fall through to the model-policy sampling below.
 
         action_idx = torch.multinomial(policy, 1).item()
         undo_stack.append(self._snapshot_state(game))

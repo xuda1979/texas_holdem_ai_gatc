@@ -111,3 +111,53 @@ calling_station's exploitable tendencies (calling too much, never folding),
 so the Nash equilibrium of the mixed game includes exploitation of the
 station. This is "fictitious play" / opponent-pool self-play.
 
+## 2026-07-13 Update: Opponent-Pool Self-Play Implemented
+
+### Run6 Status (in progress)
+Run6 (`ai3-rd-20260713T074300Z`) restarted from the run2 peak checkpoint
+`deep_cfr_time_1088.pth` (+111 bb/100 vs calling_station) with the existing
+fixes (lr 3e-4, buffer 5M, epsilon 0.05, best-checkpoint tracking, eval
+every 500 samples).
+
+**Milestone at 512 samples:** new peak **+116.55 bb/100** vs calling_station
+(up from run2's +111.30). The restart from the peak checkpoint held and
+improved. No regression detected through 864 samples (cycle 28).
+Best checkpoint: `models/best/best_calling_station_512.pth`.
+
+### Opponent-Mix Feature (implemented, not yet deployed)
+Added `self_play.opponent_mix` config to `SelfPlay`:
+- `probability` (float 0-1): per-hand probability that one non-traverser
+  seat plays a fixed baseline strategy instead of the model policy.
+- `strategy` (str): the fixed strategy name. Currently supports
+  `calling_station` (default) and `always_fold`.
+
+Mechanism: on a "mixed-opponent" hand, the designated non-traverser seat
+plays the fixed strategy (e.g. calling_station check/call) while the
+traverser still collects regret/strategy samples via the normal MCCFR
+traversal. The strategy-buffer sample at the opponent node still uses the
+*model's* policy (preserving Deep CFR average-strategy semantics), but the
+*action taken along the trajectory* is the fixed strategy's action. This
+gives the advantage network direct exploitation signal: "what's the value
+of each action when the opponent plays calling_station?".
+
+Config (in `poc_ai3_npu.yaml`):
+```yaml
+self_play:
+  opponent_mix:
+    probability: 0.3
+    strategy: calling_station
+```
+
+Tests: `tests/selfplay/test_opponent_mix.py` (9 tests, all passing).
+Covers config parsing/clamping, unknown-strategy handling, flat-config
+fallback, action-index mapping for calling_station/always_fold, and a full
+`play_hand_for_training` smoke test with the feature enabled.
+
+### Next Steps
+- Let run6 continue to confirm whether the regression still occurs around
+  1000-1100 samples with the existing fixes.
+- When run6 regresses or completes, deploy run7 with `opponent_mix.probability=0.3`
+  to test whether fictitious-play self-play produces a robustly positive
+  calling_station result that doesn't regress.
+- If 0.3 is too disruptive, try 0.1-0.2. If still regressing, try 0.5.
+

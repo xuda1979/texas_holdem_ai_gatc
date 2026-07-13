@@ -60,6 +60,16 @@ self_play:
   # exploration the model over-commits to all-in lines that lose to a
   # station that never folds.
   epsilon: 0.05
+  # Opponent-pool self-play (fictitious-play style).  With this probability
+  # per hand, one non-traverser seat plays the ``calling_station`` baseline
+  # strategy instead of the model policy.  This gives the advantage network a
+  # direct exploitation signal so the learned equilibrium robustly beats
+  # calling_station rather than only transiently peaking at ~1000 samples.
+  # See SESSION_20260713_TRAJECTORY.md for the regression analysis.
+  # Set to 0.0 to disable (preserves prior pure-self-play behaviour).
+  opponent_mix:
+    probability: 0.3
+    strategy: calling_station
 
 # Evaluation hooks driven by the training loop.
 # The comprehensive evaluator (poker_ai.evaluation.comprehensive) reads this
