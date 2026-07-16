@@ -168,3 +168,43 @@ def test_play_hand_runs_with_opponent_mix_enabled():
     ):
         data = sp.play_hand_for_training()
     assert isinstance(data, list)
+
+
+def test_opponent_mix_engagement_counters():
+    """The engagement counters track how many hands used the fixed opponent.
+
+    With probability=1.0 every hand should be a mixed-opponent hand, so after
+    N hands the counters should reflect N total and N mixed.
+    """
+    sp = _make_sp(opponent_mix_probability=1.0, strategy="calling_station")
+    policy = torch.ones(sp.cfr_trainer.num_actions) / sp.cfr_trainer.num_actions
+    mask = torch.ones(sp.cfr_trainer.num_actions, dtype=torch.bool)
+    with (
+        patch.object(SelfPlay, "_get_policy", return_value=(policy, mask)),
+        patch(
+            "poker_ai.selfplay.self_play.prepare_transformer_input",
+            return_value=(torch.zeros(1), torch.zeros(1), torch.zeros(1)),
+        ),
+    ):
+        for _ in range(5):
+            sp.play_hand_for_training()
+    assert sp._opponent_mix_total_hands == 5
+    assert sp._opponent_mix_hands == 5
+
+
+def test_opponent_mix_engagement_counters_disabled():
+    """When the feature is disabled (probability=0), mixed hands stay at 0."""
+    sp = _make_sp(opponent_mix_probability=0.0, strategy="calling_station")
+    policy = torch.ones(sp.cfr_trainer.num_actions) / sp.cfr_trainer.num_actions
+    mask = torch.ones(sp.cfr_trainer.num_actions, dtype=torch.bool)
+    with (
+        patch.object(SelfPlay, "_get_policy", return_value=(policy, mask)),
+        patch(
+            "poker_ai.selfplay.self_play.prepare_transformer_input",
+            return_value=(torch.zeros(1), torch.zeros(1), torch.zeros(1)),
+        ),
+    ):
+        for _ in range(3):
+            sp.play_hand_for_training()
+    assert sp._opponent_mix_total_hands == 3
+    assert sp._opponent_mix_hands == 0

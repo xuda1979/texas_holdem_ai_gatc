@@ -140,6 +140,11 @@ class SelfPlay:
         # holds the player id that plays the fixed strategy for this hand, or
         # ``None`` when the hand uses pure self-play.
         self._current_fixed_opponent_id: int | None = None
+        # Cumulative counters for opponent-mix engagement diagnostics.  Logged
+        # periodically so run7 results can be verified to actually engage the
+        # fixed-opponent strategy (see SESSION_20260716_AUTH_BLOCKER.md).
+        self._opponent_mix_hands: int = 0
+        self._opponent_mix_total_hands: int = 0
         self._maybe_refresh_model(iteration=0, force=True)
         self.logger.debug(
             "Initialized SelfPlay | stack=%s | blinds=(%s,%s) | players=%s-%s",
@@ -490,6 +495,7 @@ class SelfPlay:
         # receives direct exploitation signal.  The designation is per-hand and
         # applies to all traversers in that hand.
         self._current_fixed_opponent_id = None
+        is_mixed_opponent_hand = False
         if (
             self.opponent_mix_probability > 0.0
             and self._opponent_strategy is not None
@@ -503,6 +509,30 @@ class SelfPlay:
             # The actual designation is resolved per-traverser inside the loop
             # below so the fixed opponent is always a non-traverser seat.
             self._current_fixed_opponent_id = -1  # sentinel: resolve per-traverser
+            is_mixed_opponent_hand = True
+
+        # Track opponent-mix engagement for diagnostics.
+        self._opponent_mix_total_hands += 1
+        if is_mixed_opponent_hand:
+            self._opponent_mix_hands += 1
+        # Log engagement every 500 hands so run7 results can be verified to
+        # actually use the fixed-opponent strategy.
+        if (
+            self.opponent_mix_probability > 0.0
+            and self._opponent_mix_total_hands % 500 == 0
+        ):
+            rate = (
+                self._opponent_mix_hands / self._opponent_mix_total_hands
+                if self._opponent_mix_total_hands > 0
+                else 0.0
+            )
+            self.logger.info(
+                "opponent-mix engagement | hands=%d | mixed=%d | rate=%.3f (target=%.3f)",
+                self._opponent_mix_total_hands,
+                self._opponent_mix_hands,
+                rate,
+                self.opponent_mix_probability,
+            )
 
         # 3. Perform a traversal for each player in the hand
         base_reach = [1.0] * num_players
