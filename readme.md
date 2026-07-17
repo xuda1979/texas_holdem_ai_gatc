@@ -1,6 +1,6 @@
 # Texas Hold'em AI GATC Project
 
-[![CI](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/OWNER/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml)
+[![CI](https://github.com/xuda1979/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/xuda1979/texas_holdem_ai_gatc/actions/workflows/build-and-test.yml)
 
 ## Table of Contents
 - [Introduction](#introduction)
@@ -381,7 +381,7 @@ project as a package and expose convenient accelerator flags.
    lists the exact commands for the chosen image.
 2. **Clone the repository.**
    ```bash
-   git clone https://github.com/OWNER/texas_holdem_ai_gatc.git
+   git clone https://github.com/xuda1979/texas_holdem_ai_gatc.git
    cd texas_holdem_ai_gatc
    ```
 3. **Bootstrap dependencies and launch training + monitoring.**
@@ -390,7 +390,7 @@ project as a package and expose convenient accelerator flags.
        --install-deps \
        --num-gpus 4 \
        --rl-extra "--enable-gpus --num-hands 200000 --save-model-every 1000" \
-       --run-extra "--config configs/self_play.yaml" \
+       --run-extra "--config src/poker_ai/config/config.yaml" \
        --log-dir logs/gce
    ```
    - `--num-gpus` limits the visible GPUs (omit to use every detected device).
@@ -470,7 +470,7 @@ Notable entries include:
 | `ModuleNotFoundError: poker_ai` | Ensure you are executing commands from the repository root or install the package in editable mode (`pip install -e .`). |
 | CUDA devices not detected | Confirm the correct CUDA runtime is installed and pass `--gpus` to the training CLI. Use `nvidia-smi` to verify driver versions. |
 | TPU training fails with wheel mismatch | Reinstall `torch`, `torchvision`, and `torch-xla` using versions aligned with the TPU VM image as shown above. |
-| GUI assets missing | Run `python setup_card_images.py` or `python tools/verify_images.py` to download and validate card art. |
+| GUI assets missing | Run `python setup_card_images.py` or `python verify_images.py` to download and validate card art. |
 | Replay buffer fills slowly | Lower `--min-buffer-before-train` or reduce the number of players in the CLI arguments for quicker iterations. |
 
 ## Contributing

@@ -24,7 +24,7 @@ Run the following cell to install system packages and Python dependencies:
 ```python
 !sudo apt-get update -y
 !sudo apt-get install -y git
-!git clone https://github.com/OWNER/texas_holdem_ai_gatc.git
+!git clone https://github.com/xuda1979/texas_holdem_ai_gatc.git
 %cd texas_holdem_ai_gatc
 !pip install -r requirements.txt
 ```
@@ -131,7 +131,7 @@ gcloud auth application-default login
 4. Inside the VM, clone the repository and install dependencies:
 
    ```bash
-   git clone https://github.com/OWNER/texas_holdem_ai_gatc.git
+   git clone https://github.com/xuda1979/texas_holdem_ai_gatc.git
    cd texas_holdem_ai_gatc
    pip install -r requirements.txt
    ```
@@ -181,7 +181,7 @@ gcloud auth application-default login
    ```bash
    pip install torch==2.2.0 torch-xla==2.2.0 torchvision==0.17.0 -f \
        https://storage.googleapis.com/tpu-pytorch/wheels/colab.html
-   git clone https://github.com/OWNER/texas_holdem_ai_gatc.git
+   git clone https://github.com/xuda1979/texas_holdem_ai_gatc.git
    cd texas_holdem_ai_gatc
    pip install -r requirements.txt
    ```
