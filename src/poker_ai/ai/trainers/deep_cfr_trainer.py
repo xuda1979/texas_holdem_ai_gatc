@@ -14,7 +14,7 @@ import copy
 import logging
 import random
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Tuple, cast
 
 import torch
 import torch.optim as optim
@@ -40,7 +40,11 @@ class ReplayBuffer:
     def __init__(self, capacity: int, card_feature_dim: int = 17):
         self.capacity = capacity
         self.card_feature_dim = card_feature_dim
-        self.buffer: list[Tuple[torch.Tensor, ...]] = []
+        # Each entry is (hole, community, history, regrets, iteration) where
+        # the first four are CPU tensors and iteration is a Python int. Typed
+        # as tuple[Any, ...] because the legacy 3-arg push path also stores
+        # (history, regrets, iteration) shaped entries.
+        self.buffer: list[tuple[Any, ...]] = []
         self.n_seen = 0  # total number of samples observed
 
     def push(self, *args: torch.Tensor | int) -> None:
@@ -57,15 +61,27 @@ class ReplayBuffer:
             hole = torch.zeros(self.card_feature_dim)
             community = torch.zeros(self.card_feature_dim)
         elif len(args) >= 5:
-            hole, community, history, regrets = args[:4]  # type: ignore[misc]
+            hole, community, history, regrets = cast(Any, args[:4])
             iteration = args[-1]
         else:  # pragma: no cover - defensive
-            raise TypeError("push expects at least 3 arguments")
+            raise ValueError("push expects at least 3 arguments")
+
+        # `iteration` may arrive as a Tensor, an int, or a float depending
+        # on the caller. Cast to Any so the downstream `isinstance` branch
+        # narrows it cleanly.
+        iteration = cast(Any, iteration)
 
         if isinstance(iteration, torch.Tensor):
             if iteration.numel() != 1:  # pragma: no cover - defensive
                 raise ValueError("iteration tensor must contain a single value")
-            iteration = float(iteration.item())
+            iteration = float(iteration.item())  # type: ignore[assignment]
+
+        # In the legacy 3-arg path, `history` and `regrets` come straight
+        # from the caller's args tuple and may be typed as Tensor|int by
+        # mypy. They are Tensors at runtime; cast keeps the detach() calls
+        # type-clean without changing behavior.
+        history = cast(Any, history)
+        regrets = cast(Any, regrets)
 
         exp = (
             hole.detach().cpu(),
@@ -379,6 +395,11 @@ class DeepCFRTrainer:
                 hole_summary = hole_summary.unsqueeze(0)
             if community_summary is not None and community_summary.ndim == 1:
                 community_summary = community_summary.unsqueeze(0)
+            if community_summary is None:
+                batch = history_tensor.size(0)
+                community_summary = torch.zeros(
+                    batch, self.card_feature_dim, device=self.device
+                )
 
         target_device = self._xla_device or self.device
         out = self.advantage_net(
@@ -534,14 +555,16 @@ class DeepCFRTrainer:
         if not batch:
             return 0.0
 
-        holes, communities, histories, targets, iterations = zip(*batch)
+        holes, communities, histories, targets, iterations = (
+            cast(Any, zip(*batch))
+        )
 
         target_device = self._xla_device or self.device
         holes = torch.stack(list(holes)).to(target_device)
         communities = torch.stack(list(communities)).to(target_device)
         histories = torch.stack(list(histories)).to(target_device)
         targets = torch.stack(list(targets)).to(target_device)
-        iterations = torch.as_tensor(iterations, dtype=torch.float32, device=target_device).view(-1, 1)
+        iterations = torch.as_tensor(list(iterations), dtype=torch.float32, device=target_device).view(-1, 1)
 
         pred = network(holes, communities, histories)
 
