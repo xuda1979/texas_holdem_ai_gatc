@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 class MetricsLogger:
@@ -21,7 +21,7 @@ class MetricsLogger:
         self._csv_path = os.path.join(self.log_dir, "metrics.csv")
         self._csv_enabled = write_csv
         self._csv_headers_written = False
-        self._csv_state: Dict[str, float] = {}
+        self._csv_state: Dict[str, Any] = {}
         self._lock = threading.Lock()
         self._t0 = time.time()
 

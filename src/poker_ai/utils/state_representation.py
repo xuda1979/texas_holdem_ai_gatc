@@ -10,6 +10,7 @@ project specification in :mod:`texas.tex`.
 """
 
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -34,6 +35,12 @@ class MockPlayer:
 
 
 class MockGameState:
+    # Optional reference to a rules engine; some call sites fall back to
+    # `game_state.rules` when the flat attributes are absent. Kept as
+    # `Any` so the fallback chain type-checks without importing the real
+    # engine here.
+    rules: Any = None
+
     def __init__(
         self,
         players: list[MockPlayer],
@@ -293,28 +300,28 @@ def prepare_transformer_input(  # noqa: C901
     if community_cards is None:
         community_cards = getattr(game_state.rules, "community_cards", [])
 
-    pot = getattr(game_state, "pot", None)
+    pot: Any = getattr(game_state, "pot", None)
     if pot is None:
         pot = getattr(game_state.rules, "pot", 0)
 
-    current_bet = getattr(game_state, "current_bet", None)
+    current_bet: Any = getattr(game_state, "current_bet", None)
     if current_bet is None:
         current_bet = getattr(game_state.rules, "current_bet", 0)
 
-    betting_round = getattr(game_state, "betting_round", None)
+    betting_round: Any = getattr(game_state, "betting_round", None)
     if betting_round is None or callable(betting_round):
         betting_round = getattr(game_state.rules, "betting_round", "pre-flop")
 
-    betting_history = getattr(game_state, "betting_history", None)
+    betting_history: Any = getattr(game_state, "betting_history", None)
     if betting_history is None:
         betting_history = getattr(game_state.rules, "betting_history", [])
 
-    player_order = getattr(game_state, "player_order", None)
+    player_order: Any = getattr(game_state, "player_order", None)
     if player_order is None:
         if hasattr(game_state, "players_map"):
             player_order = list(game_state.players_map.keys())
         else:
-            num_players = getattr(game_state, "num_players", None)
+            num_players: Any = getattr(game_state, "num_players", None)
             if num_players is None:
                 num_players = getattr(getattr(game_state, "rules", None), "num_players", 0)
             player_order = list(range(int(num_players)))

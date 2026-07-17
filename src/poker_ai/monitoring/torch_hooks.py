@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+torch: Any
 try:
     import torch
     _HAS_TORCH = True
