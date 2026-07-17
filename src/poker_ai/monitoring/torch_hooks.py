@@ -7,8 +7,8 @@ except Exception:
     torch = None
     _HAS_TORCH = False
 
-from .logger import MetricsLogger
 from .health import has_nan_or_inf
+from .logger import MetricsLogger
 
 
 def attach_gradient_health_hooks(model: Any, logger: Optional[MetricsLogger] = None) -> None:

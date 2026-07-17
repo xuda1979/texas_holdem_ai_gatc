@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 
 from poker_ai.engine.components import (
+    RANKS,
+    SUITS,
     BettingRoundTracker,
     DeckManager,
     PlayerManager,
-    RANKS,
-    SUITS,
 )
 
 

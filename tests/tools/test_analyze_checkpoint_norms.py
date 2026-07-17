@@ -94,7 +94,6 @@ def test_main_produces_sorted_summary(tmp_path: object) -> None:
             pol_scale=pol,
         )
     out = os.path.join(tmp, "out.json")
-    rc = acn.main.__wrapped__ if hasattr(acn.main, "__wrapped__") else None
     # Invoke main via the module's argparse by setting sys.argv.
     import sys
 

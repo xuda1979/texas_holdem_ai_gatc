@@ -12,11 +12,9 @@ Works fully offline: MLflow file store is used by default
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)

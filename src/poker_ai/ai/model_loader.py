@@ -1,8 +1,8 @@
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import torch
-from collections.abc import Mapping
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.gui.playStrategy import ModelAIStrategy, PlayerStrategy, RandomAIStrategy

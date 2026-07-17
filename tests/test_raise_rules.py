@@ -1,9 +1,8 @@
-import pytest
 from poker_ai.rules.betting import (
-    to_call,
+    compute_min_raise_to,
     legal_raise_bounds,
     normalize_raise_to,
-    compute_min_raise_to,
+    to_call,
 )
 
 

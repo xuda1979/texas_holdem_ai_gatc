@@ -30,16 +30,16 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help="Path to saved AdvantageNetwork weights (.pth) to control AI players",
     )
- 
+
     parser.add_argument(
         "--num-hands",
         type=int,
         default=1,
         help="Number of hands to play before exiting (0 for infinite play)",
     )
- 
+
     parser.add_argument("--config", default=None, help="Path to configuration YAML file")
- 
+
     return parser.parse_args()
 
 

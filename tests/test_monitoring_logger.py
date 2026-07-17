@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 
-from poker_ai.monitoring import MetricsLogger, has_nan_or_inf, check_probability_vector
+from poker_ai.monitoring import MetricsLogger, check_probability_vector, has_nan_or_inf
 
 
 def test_metrics_logger_writes_files():

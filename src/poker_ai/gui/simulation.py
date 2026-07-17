@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 
 from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer
+from poker_ai.gui import PokerGameGUI
 from poker_ai.rules.texas_holdem import TexasHoldemRules
 
 MODEL_DIR = "models"

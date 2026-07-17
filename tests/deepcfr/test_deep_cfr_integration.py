@@ -1,11 +1,12 @@
 
-import pytest
-import torch
-import shutil
 import os
+import shutil
+
+import torch
+
 from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer
 from poker_ai.selfplay.self_play import SelfPlay
-from poker_ai.engine.texas_holdem import TexasHoldem
+
 
 class TestDeepCFRIntegration:
     def setup_method(self):

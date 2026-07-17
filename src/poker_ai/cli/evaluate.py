@@ -53,8 +53,6 @@ from poker_ai.evaluation.comprehensive import (  # noqa: E402
     load_model_from_checkpoint,
 )
 from poker_ai.evaluation.head_to_head import (  # noqa: E402
-    AlwaysFoldStrategy,
-    CallingStationStrategy,
     MatchResult,
     play_match,
 )

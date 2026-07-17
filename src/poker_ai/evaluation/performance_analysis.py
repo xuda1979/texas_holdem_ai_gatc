@@ -5,13 +5,12 @@ import logging
 import os
 from datetime import datetime
 
-from poker_ai.model_storage import prepare_model_write_path, resolve_model_write_path
-
 import torch
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.engine.texas_holdem import TexasHoldem
 from poker_ai.gui.playStrategy import PlayerStrategy
+from poker_ai.model_storage import prepare_model_write_path, resolve_model_write_path
 from poker_ai.rules.cfr import calculate_strategy
 from poker_ai.utils.action_mapping import (
     action_to_tuple,

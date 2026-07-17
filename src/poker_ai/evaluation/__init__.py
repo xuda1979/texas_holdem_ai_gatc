@@ -1,4 +1,5 @@
 from .exploitability import calculate_exploitability, compute_best_response
+
 # ``performance_analysis`` pulls in a large portion of the training stack which
 # is optional for many lightweight environments.  Import it lazily so basic
 # helpers like ``calculate_exploitability`` remain usable even when the full

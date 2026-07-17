@@ -1,6 +1,6 @@
 import torch
 
-from poker_ai.rules.cfr import update_strategy, compute_average_strategy
+from poker_ai.rules.cfr import compute_average_strategy, update_strategy
 
 
 def test_weighted_accumulation_vs_hand_counts():

@@ -1,9 +1,10 @@
 import logging
 import random
+
 import torch
 
-from poker_ai.selfplay.self_play import SelfPlay
 from poker_ai.engine.texas_holdem import TexasHoldem
+from poker_ai.selfplay.self_play import SelfPlay
 
 
 class DummyModel:

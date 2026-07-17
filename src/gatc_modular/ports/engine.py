@@ -1,13 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sys
+from dataclasses import dataclass
 
 if sys.version_info >= (3, 11):
     from typing import Any, Dict, List, Mapping, Optional, Protocol, Self, runtime_checkable
 else:
-    from typing import Any, Dict, List, Mapping, Optional, Protocol, runtime_checkable
-    from typing import TypeVar as _TypeVar
+    from typing import (
+        Any,
+        Dict,
+        List,
+        Mapping,
+        Optional,
+        Protocol,
+        TypeVar as _TypeVar,
+        runtime_checkable,
+    )
 
     Self = _TypeVar("Self", bound="Engine")  # type: ignore[misc,assignment]
 

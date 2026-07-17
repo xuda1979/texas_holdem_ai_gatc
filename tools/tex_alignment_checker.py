@@ -4,11 +4,11 @@ Paper-to-code alignment checker.
 Parses `paper.tex` for algorithm keywords and scans the repo for likely implementations.
 Writes `paper_alignment_report.json` at the repo root.
 """
+import glob
 import io
 import json
 import os
 import re
-import glob
 from typing import Dict, List
 
 KEYWORDS = {

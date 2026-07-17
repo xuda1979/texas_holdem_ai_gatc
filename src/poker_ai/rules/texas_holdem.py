@@ -13,12 +13,12 @@ and avoids importing heavy engine dependencies when they are not required.
 import logging
 
 from poker_ai.engine.components import (
+    RANKS,
+    SUITS,
     BettingRoundTracker,
     CardDeck,
     DeckManager,
     PlayerManager,
-    RANKS,
-    SUITS,
 )
 
 

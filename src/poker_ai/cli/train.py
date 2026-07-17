@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import importlib
 import inspect
 import json
 import logging
@@ -12,10 +13,9 @@ import os
 import threading
 import time
 import unittest.mock as mock
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, cast
-import importlib
 
 import torch
 
@@ -28,7 +28,6 @@ except Exception as exc:  # pragma: no cover - optional dependency on non-NPU ho
     _TORCH_NPU_IMPORT_ERROR = exc
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
-
 from poker_ai.config import load_config
 from poker_ai.logging_utils import (
     log_configuration_snapshot,

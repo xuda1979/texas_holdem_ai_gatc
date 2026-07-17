@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Iterable, List, Sequence, Tuple
+
+from typing import List, Sequence, Tuple
 
 """
 Robust side-pot construction for multi-way all-ins.
@@ -24,7 +25,6 @@ def compute_side_pots(contribs: Sequence[int]) -> List[Tuple[int, List[int]]]:
       Each pot's eligible set are players with contribution >= that level.
     """
     _validate(contribs)
-    N = len(contribs)
     # Exclude zero-contribution players (folded preflop or sat out this street)
     positive = [(i, int(a)) for i, a in enumerate(contribs) if a > 0]
     if not positive:

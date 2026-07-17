@@ -262,7 +262,7 @@ class AIStrategy(PlayerStrategy):
             else:
                 action_str, amount = result, None
         else:
- 
+
             normalization_scale = self._normalization_scale(game)
 
             prepare_fn = prepare_transformer_input

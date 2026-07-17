@@ -1,4 +1,5 @@
 import random
+
 import torch
 
 from poker_ai.ai.trainers.deep_cfr_trainer import DeepCFRTrainer, ReplayBuffer

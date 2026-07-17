@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 
+
 def test_hand_eval_throughput_smoke() -> None:
     """A simple numerical routine stands in for hand evaluation."""
 

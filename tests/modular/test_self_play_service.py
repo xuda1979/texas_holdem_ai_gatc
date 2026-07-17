@@ -1,5 +1,5 @@
-from gatc_modular.testing.fakes import CountingGameEngine, FirstLegalPolicy
 from gatc_modular.services.self_play import SelfPlayService
+from gatc_modular.testing.fakes import CountingGameEngine, FirstLegalPolicy
 
 
 def test_self_play_stats_aggregate() -> None:

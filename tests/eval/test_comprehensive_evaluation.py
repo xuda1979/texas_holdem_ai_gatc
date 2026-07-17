@@ -15,9 +15,7 @@ so they don't depend on a trained model being present.  They cover:
 from __future__ import annotations
 
 import json
-import math
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -27,6 +25,7 @@ import torch
 os.environ.setdefault("POKER_AI_ALLOW_LOCAL_MODEL_WRITES", "1")
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from poker_ai.ai.models.transformer import AdvantageNetwork
@@ -34,7 +33,6 @@ from poker_ai.evaluation.comprehensive import (
     ComprehensiveEvaluator,
     EvaluationReport,
     H2HResult,
-    KuhnExploitability,
     RandomAllInStrategy,
     RegressionTracker,
     TrainingEvalHook,
@@ -44,7 +42,6 @@ from poker_ai.evaluation.comprehensive import (
     sweep_checkpoints_cli,
 )
 from poker_ai.evaluation.head_to_head import MatchResult
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

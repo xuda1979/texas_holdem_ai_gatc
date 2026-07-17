@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from poker_ai.ai.trainers.ai_cfr_trainer import AICFRTrainer, AICFRReplayBuffer
+from poker_ai.ai.trainers.ai_cfr_trainer import AICFRReplayBuffer, AICFRTrainer
 
 
 class _ConstantLogitModel(torch.nn.Module):

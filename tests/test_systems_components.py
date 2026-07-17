@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import inspect
+from collections import Counter
 
 import pytest
 import torch

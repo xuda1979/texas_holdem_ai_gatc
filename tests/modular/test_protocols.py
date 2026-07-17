@@ -1,5 +1,5 @@
-from gatc_modular.testing.fakes import CountingGameEngine
 from gatc_modular.ports.engine import Engine
+from gatc_modular.testing.fakes import CountingGameEngine
 
 
 def test_engine_protocol_is_satisfied() -> None:

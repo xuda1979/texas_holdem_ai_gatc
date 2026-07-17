@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import NamedTuple
 
 
 def to_call(current_bet: int, contributed_this_round: int) -> int:

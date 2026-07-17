@@ -4,9 +4,9 @@ from __future__ import annotations
 
 # ruff: noqa: N999,ANN001,ANN201,ANN204
 import random
+from typing import TYPE_CHECKING
 
 import torch
-from typing import TYPE_CHECKING
 
 from poker_ai.utils.action_mapping import (
     action_to_tuple,

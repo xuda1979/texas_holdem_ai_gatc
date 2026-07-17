@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import tomllib
 import unittest
 from pathlib import Path
+
+import tomllib
 
 
 class PyProjectDependencyTests(unittest.TestCase):

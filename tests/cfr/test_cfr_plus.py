@@ -1,5 +1,5 @@
-import torch
 import pytest
+import torch
 
 from poker_ai.rules.cfr import cfr_plus_iteration, discounted_cfr_plus_iteration
 

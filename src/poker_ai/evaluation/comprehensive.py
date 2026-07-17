@@ -48,7 +48,7 @@ import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 import torch
 
@@ -60,8 +60,6 @@ from poker_ai.evaluation.head_to_head import (
     play_match,
 )
 from poker_ai.evaluation.health import (
-    HealthReport,
-    check_metadata_consistency,
     run_health_check,
 )
 
@@ -616,7 +614,7 @@ class ComprehensiveEvaluator:
                     seed=self.seed + idx + 1,
                 )
                 results.append(H2HResult.from_match(name, match))
-            except Exception as exc:
+            except Exception:
                 logger.exception("H2H match failed for baseline %s", name)
                 # Record a sentinel so the report shows the failure.
                 results.append(

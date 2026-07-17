@@ -60,7 +60,6 @@ if str(SRC_PATH) not in sys.path:
 
 import torch  # noqa: E402
 
-
 SAMPLE_RE = re.compile(r"(\d+)\.pth$")
 
 

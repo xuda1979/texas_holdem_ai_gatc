@@ -1,5 +1,5 @@
-from gatc_modular.testing.fakes import CountingGameEngine, FirstLegalPolicy
 from gatc_modular.services.game_loop import GameLoop
+from gatc_modular.testing.fakes import CountingGameEngine, FirstLegalPolicy
 
 
 def test_episode_runs_and_finishes() -> None:

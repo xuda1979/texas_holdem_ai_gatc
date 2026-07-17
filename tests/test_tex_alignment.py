@@ -2,10 +2,9 @@
 Checks that: if the paper mentions CFR, at least one CFR implementation file exists.
 This is a smoke alignment test; see tools/tex_alignment_checker.py for the full report.
 """
+import glob
 import io
 import os
-import re
-import glob
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 PAPER = os.path.join(ROOT, "paper.tex")

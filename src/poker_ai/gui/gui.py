@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog
 from pathlib import Path
+from tkinter import messagebox, simpledialog
 
 # Pillow is optional: the GUI falls back to text-based cards when it is not
 # installed.  Import lazily so tests can run in minimal environments.
@@ -23,7 +23,6 @@ from game_engine.texas_holdem import TexasHoldem
 from poker_ai.ai import model_loader
 from poker_ai.ai.model_loader import DEFAULT_MODEL_PATH
 from poker_ai.gui.playStrategy import HumanStrategy, RandomAIStrategy
-
 
 THEME = {
     "background": "#08141d",

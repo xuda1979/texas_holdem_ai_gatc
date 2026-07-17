@@ -1,9 +1,10 @@
 import numpy as np
+
 from poker_ai.ai.trainers.cfr_core import (
+    average_strategy,
     regret_matching_plus,
     update_regret,
     update_strategy_sum,
-    average_strategy,
 )
 
 

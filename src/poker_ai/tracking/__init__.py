@@ -14,12 +14,12 @@ Usage in training::
         ctx.log_model(checkpoint_path, model_name="deep_cfr_advantage")
         ctx.log_eval_report(eval_report_dict)
 """
-from poker_ai.tracking.context import TrackingContext, ActiveRun
+from poker_ai.tracking.context import ActiveRun, TrackingContext
 from poker_ai.tracking.lineage import (
-    capture_lineage,
     LineageRecord,
-    write_lineage_manifest,
+    capture_lineage,
     read_lineage_manifest,
+    write_lineage_manifest,
 )
 
 __all__ = [

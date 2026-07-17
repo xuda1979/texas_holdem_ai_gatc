@@ -1,8 +1,6 @@
 import os
 import sys
 
-import pytest
-
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 src_path = os.path.join(project_root, "src")
 for p in (src_path, project_root):

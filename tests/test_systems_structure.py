@@ -36,7 +36,7 @@ def test_subsystem_construction_and_registry():
     assert transformer.component.num_actions == cfr.component.num_actions
     transformer.freeze()
 
-    logging_system = LoggingSubsystem.create()
+    LoggingSubsystem.create()
     evaluation = EvaluationSubsystem.create()
 
     self_play = SelfPlaySubsystem.create(

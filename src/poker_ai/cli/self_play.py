@@ -25,11 +25,11 @@ from poker_ai.utils.action_mapping import (
     get_action_from_index,
     get_legal_actions_mask,
 )
+from poker_ai.utils.model_paths import find_latest_model_checkpoint
 from poker_ai.utils.state_representation import (
     infer_normalization_scale,
     prepare_transformer_input,
 )
-from poker_ai.utils.model_paths import find_latest_model_checkpoint
 
 
 class TransformerStrategy:

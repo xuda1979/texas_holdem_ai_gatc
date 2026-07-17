@@ -8,7 +8,6 @@ yaml = pytest.importorskip("yaml")
 
 from poker_ai.config import load_config
 
-
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "src" / "poker_ai" / "config" / "config.yaml"
 
 

@@ -3,7 +3,6 @@ import sys
 from dataclasses import dataclass
 
 import pytest
-import torch
 
 # add src to path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
