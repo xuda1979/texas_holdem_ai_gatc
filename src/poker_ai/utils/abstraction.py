@@ -1,6 +1,18 @@
 """Simple action and hand abstraction utilities."""
 
-HAND_BUCKETS = [
+from __future__ import annotations
+
+from typing import TypedDict
+
+
+class HandBucket(TypedDict):
+    """Mapping from a set of rank labels to a bucket index."""
+
+    ranks: list[str]
+    bucket: int
+
+
+HAND_BUCKETS: list[HandBucket] = [
     {"ranks": ["A", "K"], "bucket": 0},
     {"ranks": ["Q", "J"], "bucket": 1},
 ]

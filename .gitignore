@@ -14,4 +14,14 @@ poker_ai.log
 .openclaw/
 browser-automation/
 skills/
+build/
+dist/
+*.whl
+*.tar.gz
+transcript.json
+coverage.xml
+.coverage
+htmlcov/
+perf-summary.json
+perf-summary.txt
 
