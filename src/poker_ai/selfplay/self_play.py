@@ -43,14 +43,18 @@ class SelfPlay:
 
     def __init__(
         self,
-        cfr_trainer: object,
+        cfr_trainer: Any,
         game_engine_config: dict[str, Any],
         training_config: dict[str, Any] | None = None,
         *,
         train_during_generation: bool | None = None,
     ) -> None:
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.cfr_trainer = cfr_trainer
+        # ``cfr_trainer`` is duck-typed: production passes an
+        # ``AICFRTrainer`` / ``DeepCFRTrainer`` / ``SingleNetworkCFRTrainer``,
+        # tests pass lightweight fakes.  Treat as ``Any`` so attribute
+        # access mirrors the runtime contract.
+        self.cfr_trainer: Any = cfr_trainer
         self.starting_stack = game_engine_config.get("starting_stack", 1000)
         self.big_blind = game_engine_config.get("big_blind", 10)
         self.small_blind = game_engine_config.get("small_blind", 5)
@@ -90,7 +94,7 @@ class SelfPlay:
         # put this under ``self_play.epsilon`` (matching the YAML schema) or
         # inline in the training section.  Default to 0.0 (pure regret
         # matching) to preserve prior behaviour when the key is absent.
-        epsilon_raw = 0.0
+        epsilon_raw: Any = 0.0
         if isinstance(cfg, dict):
             epsilon_raw = cfg.get("epsilon", cfg.get("self_play_epsilon", 0.0))
         try:
@@ -113,8 +117,8 @@ class SelfPlay:
         # robustly beats the baseline rather than only transiently peaking
         # against it.  See SESSION_20260713_TRAJECTORY.md for the regression
         # analysis that motivated this.
-        opp_mix_raw = 0.0
-        opp_strategy_name = "calling_station"
+        opp_mix_raw: Any = 0.0
+        opp_strategy_name: Any = "calling_station"
         if isinstance(cfg, dict):
             opp_cfg = cfg.get("opponent_mix", None)
             if isinstance(opp_cfg, dict):
@@ -158,13 +162,13 @@ class SelfPlay:
     def _determine_model_reload_interval(self, cfg: dict[str, Any]) -> int:
         """Return the frequency (in hands) for refreshing model weights."""
 
-        interval_raw = (
+        interval_raw: Any = (
             cfg.get("reload_model_every_hands")
             or cfg.get("check_for_new_model_every_hands")
             or cfg.get("save_model_every_n_hands")
         )
         try:
-            interval = int(interval_raw)
+            interval = int(interval_raw)  # type: ignore[arg-type]
         except (TypeError, ValueError):  # pragma: no cover - defensive
             self.logger.warning(
                 "Invalid reload interval %r; defaulting to refreshing every hand.",
@@ -184,19 +188,19 @@ class SelfPlay:
         candidates: list[Path] = []
         direct_paths: list[str] = []
         training_cfg = self.training_config if isinstance(self.training_config, dict) else {}
-        direct_paths.extend(
-            [
-                training_cfg.get("latest_model_path"),
-                training_cfg.get("save_model_path"),
-            ]
-        )
+        for _key in ("latest_model_path", "save_model_path"):
+            _val = training_cfg.get(_key)
+            if isinstance(_val, str):
+                direct_paths.append(_val)
 
         trainer_cfg = getattr(self.cfr_trainer, "config", {})
         model_cfg: dict[str, Any] = {}
         if isinstance(trainer_cfg, dict):
             training_section = trainer_cfg.get("training")
             if isinstance(training_section, dict):
-                direct_paths.append(training_section.get("save_model_path"))
+                _save_path = training_section.get("save_model_path")
+                if isinstance(_save_path, str):
+                    direct_paths.append(_save_path)
             maybe_model_cfg = trainer_cfg.get("model")
             if isinstance(maybe_model_cfg, dict):
                 model_cfg = maybe_model_cfg
@@ -554,7 +558,11 @@ class SelfPlay:
 
         # 3. After the traversals, run a training step on the collected data
 
-        buffer_length = len(self.cfr_trainer.replay_buffer)
+        buffer_length = (
+            len(self.cfr_trainer.replay_buffer)
+            if getattr(self.cfr_trainer, "replay_buffer", None) is not None
+            else 0
+        )
         if self.train_during_generation:
             if buffer_length >= self.min_buffer_before_train:
                 loss = self.cfr_trainer.train(batch_size=self.min_buffer_before_train)
@@ -569,7 +577,9 @@ class SelfPlay:
                 strategy_buffer = getattr(self.cfr_trainer, "strategy_buffer", None)
                 train_policy = getattr(self.cfr_trainer, "train_policy", None)
                 strategy_buffer_length = (
-                    len(strategy_buffer) if hasattr(strategy_buffer, "__len__") else 0
+                    len(strategy_buffer)
+                    if strategy_buffer is not None and hasattr(strategy_buffer, "__len__")
+                    else 0
                 )
                 if (
                     callable(train_policy)
@@ -626,13 +636,15 @@ class SelfPlay:
         if normalization_scale is None:
             normalization_scale = self._normalization_scale_for_game(game)
 
-        hole, community, history_tensor = prepare_transformer_input(
+        transformer_output = prepare_transformer_input(
             game,
             player_id,
             max_seq_len,
             d_raw_feature,
             normalization_scale=normalization_scale,
         )
+        # Without ``return_mask=True`` the function returns a 3-tuple.
+        hole, community, history_tensor = transformer_output[:3]
 
         try:
             advantages = self.cfr_trainer.get_advantages(hole, community, history_tensor)
@@ -841,13 +853,14 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            hole_s, community_s, state_tensor = prepare_transformer_input(
+            transformer_output = prepare_transformer_input(
                 game,
                 traverser_id,
                 max_seq_len,
                 d_raw_feature,
                 normalization_scale=normalization_scale,
             )
+            hole_s, community_s, state_tensor = transformer_output[:3]
             if hasattr(self.cfr_trainer, "add_experience"):
                 self.cfr_trainer.add_experience(
                     hole_s,
@@ -911,13 +924,14 @@ class SelfPlay:
             model_config = self.cfr_trainer.config.get("model", {})
             max_seq_len = model_config.get("max_seq_len", 256)
             d_raw_feature = model_config.get("d_raw_feature", 18)
-            hole_s, community_s, state_tensor = prepare_transformer_input(
+            transformer_output = prepare_transformer_input(
                 game,
                 current_player,
                 max_seq_len,
                 d_raw_feature,
                 normalization_scale=normalization_scale,
             )
+            hole_s, community_s, state_tensor = transformer_output[:3]
             self.cfr_trainer.add_strategy_experience(
                 hole_s,
                 community_s,
@@ -946,7 +960,7 @@ class SelfPlay:
             # If the fixed strategy had no legal mapping (rare edge case),
             # fall through to the model-policy sampling below.
 
-        action_idx = torch.multinomial(policy, 1).item()
+        action_idx = int(torch.multinomial(policy, 1).item())
         undo_stack.append(self._snapshot_state(game))
         self._apply_action_in_place(game, current_player, action_idx)
         new_reach = reach_probs.copy()
