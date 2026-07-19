@@ -505,7 +505,25 @@ def initialize_trainer(
         hidden = int(model_cfg.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM))
         num_actions = int(model_cfg.get("num_actions", 10))
         lr = float(model_cfg.get("learning_rate", 1e-3))
-        trainer = SingleNetworkCFRTrainer(d_raw, hidden, num_actions, lr, device=device)
+        # Optional iteration-weight exponent (Deep CFR paper recommends
+        # t^β with β ∈ [0, 1]).  Default 1.0 preserves historical
+        # linear weighting; lower to reduce forgetting of early samples.
+        beta = _coerce_int(model_cfg.get("iteration_weight_exponent", 1), 1)
+        # ``_coerce_int`` returns int, but the trainer accepts float; cast
+        # explicitly to allow fractional values like 0.5 from the config.
+        beta_float = float(model_cfg.get("iteration_weight_exponent", 1.0)) if model_cfg.get("iteration_weight_exponent") is not None else float(beta)
+        buffer_capacity = _coerce_int(
+            model_cfg.get("buffer_capacity", 1_000_000), 1_000_000
+        )
+        trainer = SingleNetworkCFRTrainer(
+            d_raw,
+            hidden,
+            num_actions,
+            lr,
+            device=device,
+            buffer_capacity=buffer_capacity,
+            iteration_weight_exponent=beta_float,
+        )
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
 

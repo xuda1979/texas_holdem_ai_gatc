@@ -48,6 +48,13 @@ model:
   # which reinforces the current (possibly degenerate) strategy. 5x larger
   # so older diverse samples survive longer.
   buffer_capacity: 5000000
+  # Exponent ``β`` applied to the iteration count when weighting replay
+  # samples during training (Deep CFR paper recommends t^β with β ∈ [0, 1]).
+  # Default 1.0 weights recent samples linearly (historical behaviour).
+  # Lower to 0.5 if the model regresses late in training -- this flattens
+  # the weighting and reduces forgetting of early-game patterns.  Set to
+  # 0.0 for uniform weighting.  Only effective for the SingleNetworkCFRTrainer.
+  iteration_weight_exponent: 1.0
 
 self_play:
   model_reload_interval: 0
