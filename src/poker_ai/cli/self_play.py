@@ -56,7 +56,7 @@ class TransformerStrategy:
         max_seq_len = self.config.get("max_seq_len", 256)
         d_raw_feature = self.config.get("d_raw_feature", self.config.get("input_feature_dim", 18))
         normalization_scale = infer_normalization_scale(game, self._scale_hint)
-        hole, community, history, mask = prepare_transformer_input(
+        transformer_output = prepare_transformer_input(
             cast(Any, game),
             player_index,
             max_seq_len,
@@ -64,6 +64,11 @@ class TransformerStrategy:
             normalization_scale=normalization_scale,
             return_mask=True,
         )
+        # ``return_mask=True`` guarantees a 4-tuple; narrow for mypy.
+        assert len(transformer_output) == 4, (
+            "prepare_transformer_input must return 4 values when return_mask=True"
+        )
+        hole, community, history, mask = transformer_output  # type: ignore[misc]
         mask = mask.to(torch.bool)
         hole_batch = hole.unsqueeze(0).to(self.device)
         community_batch = community.unsqueeze(0).to(self.device)
@@ -103,7 +108,7 @@ class TransformerStrategy:
         else:  # pragma: no cover - defensive fallback
             policy = torch.full_like(advantages, 1.0 / len(advantages))
 
-        action_idx = torch.multinomial(policy, 1).item()
+        action_idx = int(torch.multinomial(policy, 1).item())
         action = get_action_from_index(action_idx, game, player_index)
         return action_to_tuple(action)
 

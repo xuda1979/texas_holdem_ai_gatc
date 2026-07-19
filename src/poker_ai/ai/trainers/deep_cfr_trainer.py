@@ -98,7 +98,7 @@ class ReplayBuffer:
             if j < self.capacity:
                 self.buffer[j] = exp
 
-    def sample(self, batch_size: int) -> list[Tuple[torch.Tensor, ...]]:
+    def sample(self, batch_size: int) -> list[tuple[Any, ...]]:
         if not self.buffer:
             return []
         k = min(batch_size, len(self.buffer))

@@ -71,7 +71,7 @@ def _import_yaml() -> ModuleType | None:
     global _YAML_IMPORT_ATTEMPTED, _YAML
     if not _YAML_IMPORT_ATTEMPTED:
         try:
-            import yaml
+            import yaml  # type: ignore[import-untyped]
         except ImportError:  # pragma: no cover - handled in loader
             print(
                 "Warning: PyYAML is not installed. Configuration loading may be limited."

@@ -57,6 +57,7 @@ from poker_ai.evaluation.head_to_head import (
     AlwaysFoldStrategy,
     CallingStationStrategy,
     MatchResult,
+    Strategy,
     play_match,
 )
 from poker_ai.evaluation.health import (
@@ -296,7 +297,7 @@ def load_model_from_checkpoint(
 
     # Stash the policy net (if present) on the model for callers that want it.
     if policy_state_dict is not None:
-        model._policy_net_state_dict = policy_state_dict  # type: ignore[attr-defined]
+        model._policy_net_state_dict = policy_state_dict  # type: ignore[attr-defined,assignment]
 
     return model, metadata, device
 
@@ -352,7 +353,7 @@ class RandomAllInStrategy:
         return action, amount
 
 
-def _baseline_strategies(seed: int = 0) -> list[tuple[str, object]]:
+def _baseline_strategies(seed: int = 0) -> list[tuple[str, Strategy]]:
     """Return the standard panel of evaluation baselines."""
 
     return [
@@ -399,7 +400,7 @@ class ComprehensiveEvaluator:
         health_num_states: int = 32,
         seed: int = 7,
         device: torch.device | str | None = None,
-        baselines: Sequence[tuple[str, object]] | None = None,
+        baselines: Sequence[tuple[str, Strategy]] | None = None,
         run_kuhn: bool = False,
         kuhn_iterations: int = 2000,
         starting_stack: int = 1000,

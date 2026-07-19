@@ -181,12 +181,14 @@ class SingleNetworkCFRTrainer:
         if not batch:
             return 0.0
 
-        holes, communities, histories, regrets, iterations = zip(*batch)
-        holes = torch.stack(list(holes)).to(self.device)
-        communities = torch.stack(list(communities)).to(self.device)
-        histories = torch.stack(list(histories)).to(self.device)
-        regrets = torch.stack(list(regrets)).to(self.device)
-        iterations = torch.as_tensor(iterations, dtype=torch.float32, device=self.device).view(-1, 1)
+        holes_t, communities_t, histories_t, regrets_t, iterations_t = zip(*batch)
+        holes: torch.Tensor = torch.stack(list(holes_t)).to(self.device)
+        communities: torch.Tensor = torch.stack(list(communities_t)).to(self.device)
+        histories: torch.Tensor = torch.stack(list(histories_t)).to(self.device)
+        regrets: torch.Tensor = torch.stack(list(regrets_t)).to(self.device)
+        iterations: torch.Tensor = torch.as_tensor(
+            iterations_t, dtype=torch.float32, device=self.device
+        ).view(-1, 1)
 
         preds = self.model(holes, communities, histories)
         loss_vals = (preds - regrets) ** 2

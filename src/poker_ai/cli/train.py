@@ -27,6 +27,23 @@ except Exception as exc:  # pragma: no cover - optional dependency on non-NPU ho
     _TORCH_NPU_IMPORTED = False
     _TORCH_NPU_IMPORT_ERROR = exc
 
+
+def _coerce_int(value: Any, default: int) -> int:
+    """Coerce ``value`` to ``int`` with a safe fallback for ``None``."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 from poker_ai.ai.models.transformer import AdvantageNetwork
 from poker_ai.config import load_config
 from poker_ai.logging_utils import (
@@ -910,23 +927,25 @@ def main() -> None:  # noqa: C901
         if num_hands_override is not None
         else training_params.get("num_training_hands", 10000)
     )
-    save_model_every_n_hands = int(
+    save_model_every_n_hands = _coerce_int(
         getattr(args, "save_model_every", None)
         if getattr(args, "save_model_every", None) is not None
-        else training_params.get("save_model_every_n_hands", 0)
+        else training_params.get("save_model_every_n_hands", 0),
+        0,
     )
     save_minutes_override = getattr(args, "save_minutes", None)
     if save_minutes_override is not None:
-        save_model_every_minutes = int(save_minutes_override)
+        save_model_every_minutes = _coerce_int(save_minutes_override, 10)
     else:
-        save_model_every_minutes = int(
-            training_params.get("save_model_every_minutes", 10)
+        save_model_every_minutes = _coerce_int(
+            training_params.get("save_model_every_minutes", 10), 10
         )
 
-    save_model_every_samples = int(
+    save_model_every_samples = _coerce_int(
         getattr(args, "save_samples", None)
         if getattr(args, "save_samples", None) is not None
-        else training_params.get("save_model_every_samples", 100000)
+        else training_params.get("save_model_every_samples", 100000),
+        100000,
     )
 
     min_buffer_override = getattr(args, "min_buffer_before_train", None)
@@ -1188,7 +1207,11 @@ def main() -> None:  # noqa: C901
                         last_save_time = current_time
 
             replay_buffer = getattr(cfr_trainer, "replay_buffer", None)
-            buffer_length = len(replay_buffer) if hasattr(replay_buffer, "__len__") else 0
+            buffer_length = (
+                len(replay_buffer)  # type: ignore[arg-type]
+                if replay_buffer is not None and hasattr(replay_buffer, "__len__")
+                else 0
+            )
             steps = train_steps_per_cycle
             if steps is None:
                 if buffer_length and train_batch_size > 0:

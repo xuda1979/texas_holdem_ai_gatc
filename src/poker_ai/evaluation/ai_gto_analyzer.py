@@ -145,16 +145,22 @@ def load_cfr_model_and_config(
     )
     current_model_path = _resolve_model_path(model_path, _full_config)
 
-    if _loaded_cfr_trainer is not None and _loaded_cfr_trainer.model_path == current_model_path:
+    if (
+        _loaded_cfr_trainer is not None
+        and getattr(_loaded_cfr_trainer, "model_path", None) == current_model_path
+    ):
         return _loaded_cfr_trainer, _trainer_config
 
     try:
-        trainer = CFRTrainer(config=_trainer_config)
+        trainer = CFRTrainer(config=_trainer_config)  # type: ignore[call-arg]
         if os.path.exists(current_model_path):
             if trainer.load_model(current_model_path):
                 trainer.model.eval()  # Set to evaluation mode
                 _loaded_cfr_trainer = trainer
-                _loaded_cfr_trainer.model_path = current_model_path  # Store path for caching check
+                # NOTE: ``model_path`` is not part of the ``AICFRTrainer``
+                # public API; this attribute is stashed dynamically for the
+                # caching check below.  TODO: refactor to a wrapper dict.
+                _loaded_cfr_trainer.model_path = current_model_path  # type: ignore[attr-defined]
                 print(f"Successfully loaded AI model from: {current_model_path}")
                 return _loaded_cfr_trainer, _trainer_config
             else:
@@ -199,11 +205,14 @@ def display_ai_gto_stats(  # noqa: C901
         # ``game.rules`` if that's where ``get_initial_state`` resides.
         # ``CFRTrainer.encode_state`` expects an object with this method, and
         # the ``TexasHoldem`` class provides it.
-        state_representation = trainer.encode_state(game)  # Pass the main game object
+        # TODO: ``encode_state``/``get_strategy`` are not part of the
+        # current ``AICFRTrainer`` API; this code path is stale and needs
+        # to be refactored to call the modern strategy pipeline.
+        state_representation = trainer.encode_state(game)  # type: ignore[attr-defined]  # Pass the main game object
 
         # Get strategy from the AI model
         # This returns a list of probabilities for num_actions
-        ai_strategy_probabilities = trainer.get_strategy(state_representation)
+        ai_strategy_probabilities = trainer.get_strategy(state_representation)  # type: ignore[attr-defined]
 
         if len(ai_strategy_probabilities) != trainer_config["num_actions"]:
             print(

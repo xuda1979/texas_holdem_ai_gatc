@@ -9,7 +9,8 @@ from tkinter import messagebox, simpledialog
 try:  # pragma: no cover - used only when Pillow is available
     from PIL import Image, ImageTk  # type: ignore
 except Exception:  # pragma: no cover - Pillow missing
-    Image = ImageTk = None
+    Image = None  # type: ignore[assignment]
+    ImageTk = None  # type: ignore[assignment]
 import os
 import sys
 
@@ -22,7 +23,7 @@ from game_engine.texas_holdem import TexasHoldem
 
 from poker_ai.ai import model_loader
 from poker_ai.ai.model_loader import DEFAULT_MODEL_PATH
-from poker_ai.gui.playStrategy import HumanStrategy, RandomAIStrategy
+from poker_ai.gui.playStrategy import HumanStrategy, PlayerStrategy, RandomAIStrategy
 
 THEME = {
     "background": "#08141d",
@@ -241,7 +242,7 @@ class PokerGameGUI:
         model_path = str(raw_value).strip()
         return model_path or DEFAULT_MODEL_PATH
 
-    def _build_ai_strategies(self, num_ai: int) -> list[RandomAIStrategy]:
+    def _build_ai_strategies(self, num_ai: int) -> list[PlayerStrategy]:
         """Create AI opponents using either random play or a checkpoint model."""
         if num_ai <= 0:
             self.ai_summary_text = "Solo configuration"
@@ -614,7 +615,7 @@ class PokerGameGUI:
     def start_game_with_players(self, ai_count: int, starting_stack: int):
         """Legacy helper used by tests to start a game with a given number of AIs."""
         total_players = ai_count + 1
-        player_strategies = [GUIHumanStrategy(self)]
+        player_strategies: list[PlayerStrategy] = [GUIHumanStrategy(self)]
         for _ in range(ai_count):
             player_strategies.append(RandomAIStrategy())
         self.game = TexasHoldem(total_players, starting_stack, player_strategies)

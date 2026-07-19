@@ -7,6 +7,7 @@ import random
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 import torch
 import torch.optim as optim
@@ -74,7 +75,7 @@ def _publish_config_module(config_dict: dict) -> types.ModuleType:
     if not isinstance(config_module, types.ModuleType):
         config_module = types.ModuleType(module_name)
         sys.modules[module_name] = config_module
-    config_module.config = config_dict
+    setattr(config_module, "config", config_dict)
     for key, value in config_dict.items():
         setattr(config_module, key, value)
     return config_module
@@ -324,7 +325,7 @@ class AICFRTrainer:
 
         losses: list[float] = []
         for entry in batch:
-            opponent_reach = 1.0
+            opponent_reach: float | torch.Tensor = 1.0
             if len(entry) == 7:
                 hole, community, history, payoffs, legal_mask, opponent_reach, _iteration = entry
             elif len(entry) == 6:
@@ -474,7 +475,10 @@ class AICFRReplayBuffer:
 
     def __init__(self, capacity: int = 100_000):
         self.capacity = capacity
-        self.buffer: list[tuple[torch.Tensor, ...]] = []
+        # Buffer entries hold (hole, community, history, payoffs, mask,
+        # opponent_reach, iteration) tuples; the final two slots are
+        # ``float`` and ``int`` so we type loosely via ``Any``.
+        self.buffer: list[tuple[Any, ...]] = []
 
     def push(
         self,
