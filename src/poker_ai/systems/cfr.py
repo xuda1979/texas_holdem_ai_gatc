@@ -19,6 +19,7 @@ class CFRSubsystem(Subsystem[AICFRTrainer]):
     @classmethod
     def create(cls, *, variant: str = "ai", **trainer_kwargs: Any) -> "CFRSubsystem":
         variant = variant.lower()
+        trainer: Any
         if variant == "ai":
             trainer = AICFRTrainer(**trainer_kwargs)
         elif variant == "deep":

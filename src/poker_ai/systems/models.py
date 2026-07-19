@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch.nn as nn
 
@@ -52,5 +53,5 @@ class TransformerSubsystem(Subsystem[AdvantageNetwork]):
         self.component.eval()
 
     @property
-    def parameters(self) -> nn.ParameterList:  # pragma: no cover - trivial proxy
+    def parameters(self) -> Any:  # pragma: no cover - trivial proxy
         return self.component.parameters()

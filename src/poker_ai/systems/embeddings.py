@@ -29,7 +29,7 @@ class EmbeddingPipeline:
         device: str | torch.device | None = None,
         return_mask: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        hole, community, history, mask = prepare_transformer_input(
+        transformer_output = prepare_transformer_input(
             game,
             player_index,
             self.max_seq_len,
@@ -37,6 +37,11 @@ class EmbeddingPipeline:
             normalization_scale=normalization_scale,
             return_mask=True,
         )
+        # ``return_mask=True`` guarantees a 4-tuple; narrow for mypy.
+        assert len(transformer_output) == 4, (
+            "prepare_transformer_input must return 4 values when return_mask=True"
+        )
+        hole, community, history, mask = transformer_output  # type: ignore[misc]
         if device is not None:
             hole = hole.to(device)
             community = community.to(device)

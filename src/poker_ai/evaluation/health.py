@@ -257,7 +257,7 @@ def _sample_random_states(
         except Exception:
             normalization_scale = float(big_blind)
         try:
-            hole, community, history, mask = prepare_transformer_input(
+            transformer_output = prepare_transformer_input(
                 game,
                 player,
                 max_seq_len,
@@ -265,6 +265,10 @@ def _sample_random_states(
                 normalization_scale=normalization_scale,
                 return_mask=True,
             )
+            assert len(transformer_output) == 4, (
+                "prepare_transformer_input must return 4 values when return_mask=True"
+            )
+            hole, community, history, mask = transformer_output  # type: ignore[misc]
         except Exception:
             continue
         samples.append((game, player, hole, community, history, mask))

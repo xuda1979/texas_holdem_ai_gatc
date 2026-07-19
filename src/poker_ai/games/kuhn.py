@@ -150,7 +150,10 @@ def best_response_value(strategy: Dict[str, List[float]], player: int) -> float:
         """Return ``deal -> value`` for ``player`` given opponent reach weights."""
         first = _br_terminal(list(deals[0]), history, player)
         if first is not None:
-            return {d: _br_terminal(list(d), history, player) for d in deals}
+            return {
+                d: (v if (v := _br_terminal(list(d), history, player)) is not None else 0.0)
+                for d in deals
+            }
         current = len(history) % 2
         if current == player:
             subtree = [rec(history + a, reach) for a in ACTIONS]

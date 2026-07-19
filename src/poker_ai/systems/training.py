@@ -57,6 +57,9 @@ class TrainingController:
 
             completed_iterations = iteration - start_iteration + 1
             if self._should_run_evaluation(completed_iterations):
+                assert self.evaluation is not None, (
+                    "_should_run_evaluation should be false when evaluation is None"
+                )
                 evaluation_kwargs: Mapping[str, Any] = {}
                 if self.evaluation_factory is not None:
                     evaluation_kwargs = self.evaluation_factory(iteration)

@@ -29,7 +29,7 @@ class TexasHoldemRules:
         self.num_players = num_players
         self.starting_stack = starting_stack
         self.deck_manager = DeckManager()
-        self.hands = [[] for _ in range(num_players)]
+        self.hands: list[list[str]] = [[] for _ in range(num_players)]
         self.community_cards: list[str] = []
         self.pot = 0
         self._bets = [0] * num_players
