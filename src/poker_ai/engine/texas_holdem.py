@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from gatc_holdem.engine import CashTable
 from gatc_holdem.engine.rules import build_side_pots, min_raise_to
@@ -91,9 +91,9 @@ class TexasHoldem:
         self.winner = None
         self.last_winner = None
         self.hand_count = 0
-        self.historical_actions = []
+        self.historical_actions: list[dict[str, Any]] = []
         self.history_limit = 500  # Save history every 500 hands
-        self.current_hand_initial_actions = []
+        self.current_hand_initial_actions: list[Any] = []
         self.logger = logging.getLogger(__name__)
         self.verbose = verbose
         self._pending_showdown_winnings: Optional[dict[int, int]] = None
@@ -762,8 +762,10 @@ class TexasHoldem:
 
         winnings: dict[int, int] = {i: 0 for i in range(self.num_players)}
         for pot in pots:
-            amount = int(pot["amount"])
-            elig = set(pot["eligible"])
+            amount_raw = pot["amount"]
+            elig_raw = pot["eligible"]
+            amount = int(amount_raw) if isinstance(amount_raw, (int, float)) else 0
+            elig = set(elig_raw) if isinstance(elig_raw, (set, list, tuple)) else set()
             if not elig or amount <= 0:
                 continue
             best_score = min(scores[i][0] for i in elig)
