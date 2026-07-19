@@ -17,7 +17,7 @@ import torch
 try:  # pragma: no cover - engine available in most environments
     from gatc_holdem.core.actions import Action, ActionType
 except Exception:  # pragma: no cover - fallback for lightweight test envs
-    class ActionType(str, Enum):  # type: ignore[override]
+    class ActionType(str, Enum):  # type: ignore[override, no-redef]
         FOLD = "FOLD"
         CHECK = "CHECK"
         CALL = "CALL"
@@ -26,7 +26,7 @@ except Exception:  # pragma: no cover - fallback for lightweight test envs
         ALL_IN = "ALL_IN"
 
     @dataclass(frozen=True)
-    class Action:  # type: ignore[override]
+    class Action:  # type: ignore[override, no-redef]
         type: ActionType
         amount_to: int | None = None
 
@@ -36,7 +36,7 @@ except Exception:  # pragma: no cover - fallback for lightweight test envs
 
 def _call_amount(game, player_id: int) -> int:
     rules = getattr(game, "rules", None)
-    if hasattr(rules, "call_amount"):
+    if rules is not None and hasattr(rules, "call_amount"):
         return int(rules.call_amount(player_id))
     if hasattr(game, "get_call_amount"):
         return int(game.get_call_amount(player_id))
@@ -113,7 +113,10 @@ def _raise_bounds(game, player_id: int) -> Tuple[int, int]:
                 candidate = int(player_id)
             except Exception:
                 candidate = int(min_to)
-            if 0 <= candidate < int(max_players):
+            max_players_int = (
+                int(max_players) if isinstance(max_players, (int, float)) else 0
+            )
+            if 0 <= candidate < max_players_int:
                 stack = int(min_to)
             else:
                 stack = candidate
