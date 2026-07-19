@@ -30,6 +30,27 @@ from poker_ai.utils.state_representation import (
 )
 
 
+def _cfg_int(config: Mapping[str, object], key: str, default: int) -> int:
+    """Coerce a configuration value to ``int`` with a safe fallback.
+
+    Handles ``int``, ``float``, numeric ``str`` and rejects other types
+    (including ``bool`` as a subclass of ``int`` is preserved explicitly).
+    """
+    raw = config.get(key)
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return int(raw)
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    return default
+
+
 class AIStrategy(PlayerStrategy):
     """A strategy that uses a trained AdvantageNetwork to make decisions."""
 
@@ -169,7 +190,10 @@ class AIStrategy(PlayerStrategy):
     ):
         self.device = device
         self.num_actions = num_actions
-        self.model = None
+        # ``self.model`` is assigned a real ``AdvantageNetwork`` (or a
+        # ``DataParallel`` wrapper) below; declare the union so mypy can
+        # follow the later narrowing.
+        self.model: AdvantageNetwork | torch.nn.DataParallel | None = None
         self.config: dict[str, object] = {}
         self._fallback_strategy: PlayerStrategy | None = None
         self.max_seq_len = 256
@@ -193,7 +217,13 @@ class AIStrategy(PlayerStrategy):
         )
 
         if isinstance(loaded_strategy, ModelAIStrategy):
-            model = loaded_strategy.model.to(target_device)
+            if loaded_strategy.model is None:
+                raise RuntimeError(
+                    "ModelAIStrategy loaded without a model; cannot wrap for play."
+                )
+            model: AdvantageNetwork | torch.nn.DataParallel = (
+                loaded_strategy.model.to(target_device)
+            )
 
             if wrap_for_npu:
                 model = torch.nn.DataParallel(model)
@@ -202,36 +232,44 @@ class AIStrategy(PlayerStrategy):
             self.model.eval()
 
             self.config = dict(loaded_strategy.config)
-            self.max_seq_len = int(self.config.get("max_seq_len", self.max_seq_len))
-            feature_dim = self.config.get(
+            self.max_seq_len = _cfg_int(self.config, "max_seq_len", self.max_seq_len)
+            feature_dim_raw = self.config.get(
                 "d_raw_feature",
                 self.config.get(
                     "input_feature_dim",
                     self.config.get("history_feature_dim", 18),
                 ),
             )
-            self.feature_dim = int(feature_dim)
-            configured_num_actions = int(
-                self.config.get(
-                    "num_actions",
-                    getattr(getattr(self.model, "module", self.model), "num_actions", num_actions),
-                )
+            self.feature_dim = (
+                int(feature_dim_raw)
+                if isinstance(feature_dim_raw, (int, float)) and not isinstance(feature_dim_raw, bool)
+                else self.feature_dim
             )
-            self.num_actions = configured_num_actions
+            configured_num_actions_raw = self.config.get(
+                "num_actions",
+                getattr(getattr(self.model, "module", self.model), "num_actions", num_actions),
+            )
+            self.num_actions = (
+                int(configured_num_actions_raw)
+                if isinstance(configured_num_actions_raw, (int, float))
+                and not isinstance(configured_num_actions_raw, bool)
+                else num_actions
+            )
+            configured_num_actions = self.num_actions
             self.config["num_actions"] = self.num_actions
         else:
             recovered = self._recover_model_from_path(model_path, loader_device)
             if recovered is not None:
                 model, metadata = recovered
-                model = model.to(target_device)
+                model2: AdvantageNetwork | torch.nn.DataParallel = model.to(target_device)
                 if wrap_for_npu:
-                    model = torch.nn.DataParallel(model)
-                self.model = model
+                    model2 = torch.nn.DataParallel(model2)
+                self.model = model2
                 self.model.eval()
                 self.config = dict(metadata)
-                self.max_seq_len = int(self.config.get("max_seq_len", self.max_seq_len))
-                self.feature_dim = int(self.config.get("d_raw_feature", self.feature_dim))
-                self.num_actions = int(self.config.get("num_actions", self.num_actions))
+                self.max_seq_len = _cfg_int(self.config, "max_seq_len", self.max_seq_len)
+                self.feature_dim = _cfg_int(self.config, "d_raw_feature", self.feature_dim)
+                self.num_actions = _cfg_int(self.config, "num_actions", self.num_actions)
                 self.config["num_actions"] = self.num_actions
                 self._fallback_strategy = None
             else:
@@ -262,6 +300,12 @@ class AIStrategy(PlayerStrategy):
             else:
                 action_str, amount = result, None
         else:
+            # We only reach this branch when a model is available (the
+            # ``if`` branch above handles the no-model fallback).  Assert
+            # for mypy and as a defensive runtime check.
+            assert self.model is not None, (
+                "choose_action model branch reached without a loaded model"
+            )
 
             normalization_scale = self._normalization_scale(game)
 
@@ -277,7 +321,9 @@ class AIStrategy(PlayerStrategy):
                 supports_normalization = "normalization_scale" in params
                 supports_mask = "return_mask" in params
 
-            kwargs: dict[str, object] = {}
+            # Build kwargs with a precise type so ``**kwargs`` type-checks
+            # against ``prepare_transformer_input``'s optional parameters.
+            kwargs: dict[str, Any] = {}
             if supports_normalization:
                 kwargs["normalization_scale"] = normalization_scale
             if supports_mask:
@@ -320,10 +366,12 @@ class AIStrategy(PlayerStrategy):
             policy = calculate_strategy(advantages, self.num_actions)
 
             if policy.sum() > 0:
-                action_idx = torch.multinomial(policy, 1).item()
+                action_idx = int(torch.multinomial(policy, 1).item())
             else:
                 valid_indices = torch.where(legal_mask)[0]
-                action_idx = valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
+                action_idx = int(
+                    valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
+                )
 
             action = get_action_from_index(action_idx, game, player_id=player_index)
             action_str, amount = action_to_tuple(action)
