@@ -38,21 +38,37 @@ class EvalStrategy(PlayerStrategy):
             state_dict = payload
 
         self.config: dict[str, object] = dict(metadata)
-        self.history_feature_dim = int(metadata.get("history_feature_dim", 18))  # type: ignore[arg-type]
-        self.card_feature_dim = int(metadata.get("card_feature_dim", self.history_feature_dim))  # type: ignore[arg-type]
-        hidden_dim = int(
-            metadata.get("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
-        )  # type: ignore[arg-type]
+
+        def _meta_int(key: str, default: int) -> int:
+            """Coerce a metadata value to ``int`` or fall back to default."""
+            raw = metadata.get(key)
+            if raw is None:
+                return default
+            if isinstance(raw, bool):
+                # ``bool`` is a subclass of ``int``; preserve explicitly.
+                return int(raw)
+            if isinstance(raw, (int, float)):
+                return int(raw)
+            if isinstance(raw, str):
+                try:
+                    return int(raw)
+                except ValueError:
+                    return default
+            return default
+
+        self.history_feature_dim = _meta_int("history_feature_dim", 18)
+        self.card_feature_dim = _meta_int(
+            "card_feature_dim", self.history_feature_dim
+        )
+        hidden_dim = _meta_int("hidden_dim", AdvantageNetwork.DEFAULT_HIDDEN_DIM)
         num_heads_raw = metadata.get("num_heads")
         if num_heads_raw is None:
             num_heads = AdvantageNetwork.recommended_num_heads(hidden_dim)
         else:
-            num_heads = int(num_heads_raw)
-        num_layers = int(
-            metadata.get("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
-        )  # type: ignore[arg-type]
-        self.num_actions = int(metadata.get("num_actions", 10))  # type: ignore[arg-type]
-        self.max_seq_len = int(metadata.get("max_seq_len", 256))  # type: ignore[arg-type]
+            num_heads = _meta_int("num_heads", AdvantageNetwork.recommended_num_heads(hidden_dim))
+        num_layers = _meta_int("num_layers", AdvantageNetwork.DEFAULT_NUM_LAYERS)
+        self.num_actions = _meta_int("num_actions", 10)
+        self.max_seq_len = _meta_int("max_seq_len", 256)
 
         self.model = AdvantageNetwork(
             history_feature_dim=self.history_feature_dim,
@@ -80,7 +96,7 @@ class EvalStrategy(PlayerStrategy):
                 break
 
         normalization_scale = infer_normalization_scale(game, preferred_scale)
-        hole, community, history, mask = prepare_transformer_input(
+        transformer_output = prepare_transformer_input(
             game,
             player_index,
             self.max_seq_len,
@@ -88,6 +104,11 @@ class EvalStrategy(PlayerStrategy):
             normalization_scale=normalization_scale,
             return_mask=True,
         )
+        # ``return_mask=True`` guarantees a 4-tuple; narrow for mypy.
+        assert len(transformer_output) == 4, (
+            "prepare_transformer_input must return 4 values when return_mask=True"
+        )
+        hole, community, history, mask = transformer_output  # type: ignore[misc]
         mask = mask.to(torch.bool)
         hole_batch = hole.unsqueeze(0).to(self.device)
         community_batch = community.unsqueeze(0).to(self.device)
@@ -107,10 +128,12 @@ class EvalStrategy(PlayerStrategy):
         advantages[~legal_mask] = -1e9
         policy = calculate_strategy(advantages, self.num_actions)
         if policy.sum() > 0:
-            action_idx = torch.multinomial(policy, 1).item()
+            action_idx = int(torch.multinomial(policy, 1).item())
         else:  # pragma: no cover - fallback
             valid_indices = torch.where(legal_mask)[0]
-            action_idx = valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
+            action_idx = int(
+                valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
+            )
         action = get_action_from_index(action_idx, game, player_id=player_index)
         return action_to_tuple(action)
 

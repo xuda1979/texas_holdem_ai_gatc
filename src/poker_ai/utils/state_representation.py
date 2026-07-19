@@ -10,7 +10,7 @@ project specification in :mod:`texas.tex`.
 """
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 import torch
 import torch.nn as nn
@@ -71,8 +71,22 @@ class MockGameState:
 
 # --- End Mock classes ---
 
+
+class GameState(Protocol):
+    """Structural type for objects passed to state-representation helpers.
+
+    Both :class:`MockGameState` (used in unit tests) and the real
+    :class:`poker_ai.engine.texas_holdem.TexasHoldem` engine satisfy this
+    protocol.  Attributes are accessed defensively via ``getattr`` in the
+    functions below, so missing attributes are tolerated at runtime; the
+    protocol only documents the *expected* surface area.
+    """
+
+    # May be ``None`` for mocks that populate flat attributes directly.
+    rules: Any
+
+
 # Use actual classes when available
-GameState = MockGameState
 Player = MockPlayer
 
 
