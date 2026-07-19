@@ -23,7 +23,24 @@ class SingleNetworkCFRTrainer:
         lr: float = 1e-3,
         device: str | None = None,
         buffer_capacity: int = 1_000_000,
+        iteration_weight_exponent: float = 1.0,
     ) -> None:
+        """Initialise the trainer.
+
+        Parameters
+        ----------
+        iteration_weight_exponent:
+            Exponent ``β`` applied to the iteration count when weighting
+            replay samples during training.  The Deep CFR paper
+            (Brown et al., ICML 2019) recommends ``t^β`` with
+            ``β ∈ [0, 1]``.  ``β = 1`` (the historical default here)
+            weights recent samples linearly, which can cause forgetting
+            of early-game patterns; ``β = 0`` weights all samples
+            uniformly.  Values in between trade off stability and
+            tracking.  Lower this to e.g. ``0.5`` if the model regresses
+            late in training.
+        """
+        self.iteration_weight_exponent = float(iteration_weight_exponent)
         self.device = device if device is not None else (
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -193,7 +210,16 @@ class SingleNetworkCFRTrainer:
         preds = self.model(holes, communities, histories)
         loss_vals = (preds - regrets) ** 2
 
-        weights = iterations.clamp_min(0.0)
+        # Deep CFR weights samples by ``t^β`` where ``β`` is the
+        # ``iteration_weight_exponent`` (default 1.0 for backwards
+        # compatibility).  Lower values reduce forgetting of early
+        # samples at the cost of slower tracking of the equilibrium
+        # shift.
+        iterations_clamped = iterations.clamp_min(0.0)
+        if self.iteration_weight_exponent != 1.0:
+            weights = iterations_clamped.pow(self.iteration_weight_exponent)
+        else:
+            weights = iterations_clamped
         weight_sum = weights.sum()
         if weight_sum.item() <= torch.finfo(loss_vals.dtype).eps:
             weighted_loss = loss_vals.mean()
