@@ -202,6 +202,9 @@ class SingleNetworkCFRTrainer:
 
         self.optimizer.zero_grad()
         weighted_loss.backward()
+        # Gradient clipping stabilises training; matches the max_norm
+        # used in ``deep_cfr_trainer.py`` for cross-trainer consistency.
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
 
         return float(weighted_loss.item())
