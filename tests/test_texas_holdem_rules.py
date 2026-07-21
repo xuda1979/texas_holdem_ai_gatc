@@ -92,6 +92,32 @@ def test_showdown_awards_blinds() -> None:
     assert sum(winnings.values()) == game.rules.pot
 
 
+def test_hand_strength_heuristic_fallback_for_short_hands() -> None:
+    """When fewer than 5 cards are available (e.g. pre-flop showdown),
+    ``_hand_strength`` must still return a deterministic, order-preserving
+    score rather than raising.  See commit history for the regression that
+    replaced the original heuristic with an ``eval7``-only fallback.
+    """
+    game = TexasHoldem(num_players=2, starting_stack=100, verbose=False)
+    # Two-hole-card, zero-board scenario: treys cannot evaluate this, eval7
+    # may be absent, so the heuristic path must handle it.
+    score_ah, _, rc_ah = game._hand_strength(["Ah", "Kd"], [])
+    score_2c, _, rc_2c = game._hand_strength(["2c", "3d"], [])
+    # Higher cards should produce a lower (better) score under the treys
+    # "lower is better" convention.
+    assert score_ah < score_2c
+    # Rank class should be populated (treys: 9 == high card, 8 == pair).
+    assert rc_ah in (8, 9, 10)
+    assert rc_2c in (8, 9, 10)
+    # Pair detection: two kings should be classified as a pair (rank_class 8).
+    score_pair, _, rc_pair = game._hand_strength(["Kh", "Kd"], [])
+    assert rc_pair == 8
+    # Pairs must beat high-card hands even when the high-card has a higher top rank.
+    score_aa, _, _ = game._hand_strength(["Ah", "Ad"], [])
+    score_ak, _, _ = game._hand_strength(["As", "Kc"], [])
+    assert score_aa < score_ak  # pair of aces beats ace-high
+
+
 def test_bet_and_call() -> None:
     rules = TexasHoldemRules(num_players=2, starting_stack=100)
     rules.small_blind = 5

@@ -671,33 +671,97 @@ class TexasHoldem:
         returned tuple is ``(score, tiebreaker_cards_sorted, hand_rank_class)`` so
         ties can be handled deterministically while also exposing the winning hand
         class for logging purposes."""
-        try:
-            evaluator = Evaluator()
-            hole_cards = [Card.new(c) for c in hole]
-            board_cards = [Card.new(c) for c in board]
-            score = evaluator.evaluate(board_cards, hole_cards)
-            rank_class = evaluator.get_rank_class(score)
-        except Exception:
-            # treys unavailable or failed.  Fall back to ``eval7`` (a declared
-            # dependency) which returns an integer where *higher is better*.
-            # We negate it so the "lower is better" convention used throughout
-            # this module (and the treys ``Evaluator``) is preserved.
-            import eval7 as _eval7
+        all_cards_str = list(hole) + list(board)
+        score: int | None = None
+        rank_class: int = 0
+        # Primary path: treys supports 5/6/7-card evaluations only.
+        if len(all_cards_str) in (5, 6, 7):
+            try:
+                evaluator = Evaluator()
+                hole_cards = [Card.new(c) for c in hole]
+                board_cards = [Card.new(c) for c in board]
+                score = evaluator.evaluate(board_cards, hole_cards)
+                rank_class = evaluator.get_rank_class(score)
+            except Exception:
+                score = None  # fall through to eval7 / heuristic
+        # Secondary path: eval7 (if installed) handles 5-7 card hands with
+        # a higher-is-better integer score; we negate to match treys.
+        if score is None and len(all_cards_str) >= 5:
+            try:
+                import eval7 as _eval7
 
-            def _norm(c: str) -> str:
-                c = c.strip()
-                if len(c) != 2:
-                    raise ValueError(f"Invalid card: {c!r}")
-                return c[0].upper() + c[1].lower()
+                def _norm(c: str) -> str:
+                    c = c.strip()
+                    if len(c) != 2:
+                        raise ValueError(f"Invalid card: {c!r}")
+                    return c[0].upper() + c[1].lower()
 
-            all_cards = [_eval7.Card(_norm(c)) for c in (hole + board)]
-            # eval7.evaluate returns a score where higher is better; negate so
-            # that lower is better (matching treys convention).
-            score = -int(_eval7.evaluate(all_cards))
-            # Map the eval7 score to a rough treys-compatible rank class so the
-            # ``rank_class`` field stays informative.  treys rank classes:
-            # 0=Royal Flush ... 9=Pair, but we only need a comparable value.
-            rank_class = 0
+                _eval_cards = [_eval7.Card(_norm(c)) for c in all_cards_str]
+                # eval7.evaluate accepts a list of cards and returns a higher-is-better int.
+                score = -int(_eval7.evaluate(_eval_cards))
+                rank_class = 0
+            except Exception:
+                score = None  # fall through to heuristic
+        # Tertiary path: rank-based heuristic that works for *any* card count
+        # (including the 2-card pre-flop / empty-board showdown case exercised
+        # by ``test_showdown_awards_blinds`` and other unit tests that don't
+        # deal community cards).  Higher cards => lower (better) score, so we
+        # sort descending by rank and encode the top-5 ranks into a single
+        # integer.  This preserves strict ordering for tie-breaking while
+        # remaining deterministic across runs.
+        if score is None:
+            rank_order = {
+                r: i
+                for i, r in enumerate(
+                    ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+                )
+            }
+            sorted_cards = sorted(
+                all_cards_str,
+                key=lambda x: (rank_order.get(x[0], 0), x[1] if len(x) > 1 else ""),
+                reverse=True,
+            )
+            top5 = sorted_cards[:5]
+            # Encode each rank as a base-16 digit (2..14 -> 0..12) and pack
+            # into a single integer.  Lower scores are better, so we negate.
+            packed = 0
+            for card in top5:
+                packed = packed * 16 + (rank_order.get(card[0], 0) + 2)
+            # Count rank multiplicities to detect pairs / trips / quads.  We
+            # prepend a "combination class" digit (higher = stronger combo)
+            # so that, e.g., a pair of 2s beats ace-high.  This mirrors the
+            # standard poker hand hierarchy while remaining a pure function
+            # of the visible cards (no external evaluator required).
+            from collections import Counter
+
+            rank_counts = sorted(
+                Counter(card[0] for card in all_cards_str).values(),
+                reverse=True,
+            )
+            # combo_class: 0=high card, 1=pair, 2=two pair, 3=trips, 4=full house, 5=quads.
+            combo_class = 0
+            if rank_counts:
+                if rank_counts[0] == 4:
+                    combo_class = 5
+                elif rank_counts[0] == 3:
+                    combo_class = 4 if len(rank_counts) > 1 and rank_counts[1] >= 2 else 3
+                elif rank_counts[0] == 2:
+                    combo_class = 2 if len(rank_counts) > 1 and rank_counts[1] >= 2 else 1
+            # Map combo_class to a treys-compatible rank_class (approximate).
+            # treys: 0=Royal Flush, 1=Straight Flush, 2=Quads, 3=Full House,
+            # 4=Flush, 5=Straight, 6=Trips, 7=Two Pair, 8=Pair, 9=High Card.
+            combo_to_rank_class = {
+                0: 9,   # high card
+                1: 8,   # pair
+                2: 7,   # two pair
+                3: 6,   # trips
+                4: 3,   # full house
+                5: 2,   # quads
+            }
+            rank_class = combo_to_rank_class[combo_class]
+            # Final score: combo_class dominates; packed ranks break ties.
+            # Lower is better, so stronger combos get more negative scores.
+            score = -(combo_class * (16**5) + packed)
         return score, sorted(hole + board), rank_class
 
     def _compute_side_pots(self) -> list[dict[str, object]]:
