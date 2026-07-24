@@ -515,6 +515,11 @@ def initialize_trainer(
         buffer_capacity = _coerce_int(
             model_cfg.get("buffer_capacity", 1_000_000), 1_000_000
         )
+        # Optional Polyak-averaged target network coefficient.  ``1.0``
+        # disables the target network (legacy behaviour); values in
+        # ``[0.9, 0.999]`` stabilise late-training and mitigate the
+        # regression-after-1000-samples pattern.
+        target_ema = float(model_cfg.get("target_ema", 1.0))
         trainer = SingleNetworkCFRTrainer(
             d_raw,
             hidden,
@@ -523,6 +528,7 @@ def initialize_trainer(
             device=device,
             buffer_capacity=buffer_capacity,
             iteration_weight_exponent=beta_float,
+            target_ema=target_ema,
         )
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")

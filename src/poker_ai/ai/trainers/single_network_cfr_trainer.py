@@ -24,6 +24,7 @@ class SingleNetworkCFRTrainer:
         device: str | None = None,
         buffer_capacity: int = 1_000_000,
         iteration_weight_exponent: float = 1.0,
+        target_ema: float = 0.995,
     ) -> None:
         """Initialise the trainer.
 
@@ -39,8 +40,19 @@ class SingleNetworkCFRTrainer:
             uniformly.  Values in between trade off stability and
             tracking.  Lower this to e.g. ``0.5`` if the model regresses
             late in training.
+        target_ema:
+            Polyak averaging coefficient ``τ`` for the target advantage
+            network.  After each ``train_step`` the target network is
+            updated as ``θ_target ← τ·θ_target + (1-τ)·θ_online``.  The
+            target network is used only to stabilise the regret baseline
+            (state-value) computation; the online network still receives
+            the gradient.  ``τ = 1.0`` disables the target network
+            (legacy behaviour).  Values in ``[0.9, 0.999]`` are
+            recommended to mitigate the regression-after-1000-samples
+            pattern documented in ``SESSION_20260713_TRAJECTORY.md``.
         """
         self.iteration_weight_exponent = float(iteration_weight_exponent)
+        self.target_ema = float(target_ema)
         self.device = device if device is not None else (
             "cuda" if torch.cuda.is_available() else "cpu"
         )
@@ -64,6 +76,22 @@ class SingleNetworkCFRTrainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.replay_buffer = ReplayBuffer(buffer_capacity, self.card_feature_dim)
 
+        # Polyak-averaged target network for stable regret baselines.
+        # Initialised as a frozen copy of the online network and updated
+        # via EMA after each ``train_step``.  Disabled when
+        # ``target_ema == 1.0`` (no averaging, target == online).
+        self.target_model = AdvantageNetwork(
+            history_feature_dim=self.history_feature_dim,
+            card_feature_dim=self.card_feature_dim,
+            hidden_dim=hidden_dim,
+            num_heads=self.num_heads,
+            num_layers=self.num_layers,
+            num_actions=num_actions,
+        ).to(self.device)
+        self.target_model.load_state_dict(self.model.state_dict())
+        for p in self.target_model.parameters():
+            p.requires_grad_(False)
+
         self.cumulative_regret = torch.zeros(num_actions, device=self.device)
         self.cumulative_strategy = torch.zeros(num_actions, device=self.device)
 
@@ -77,7 +105,9 @@ class SingleNetworkCFRTrainer:
                 "max_seq_len": self.max_seq_len,
                 "num_heads": self.num_heads,
                 "num_layers": self.num_layers,
-            }
+            },
+            "target_ema": self.target_ema,
+            "iteration_weight_exponent": self.iteration_weight_exponent,
         }
 
     @torch.no_grad()
@@ -262,6 +292,11 @@ class SingleNetworkCFRTrainer:
         self.model.load_state_dict(state_dict)
         self.model.to(self.device)
         self.model.eval()
+        # Keep the target network in sync with the freshly loaded online
+        # network so training resumes from a stable baseline.
+        self.target_model.load_state_dict(self.model.state_dict())
+        self.target_model.to(self.device)
+        self.target_model.eval()
 
     def train_step(self, state: torch.Tensor, counterfactual_payoffs: torch.Tensor) -> float:
         state = state.to(self.device)
@@ -273,9 +308,24 @@ class SingleNetworkCFRTrainer:
 
         # Regrets are measured against sigma_t, the regret-matched policy from
         # the cumulative regrets prior to this update (standard CFR), rather
-        # than the network's softmax approximation.
+        # than the network's softmax approximation.  When a target network is
+        # enabled (target_ema < 1.0) we blend in its (more stable) policy
+        # prediction to dampen the moving-target oscillations that drive the
+        # regression-after-1000-samples pattern.
         sigma_t = calculate_strategy(self.cumulative_regret, self.num_actions).detach()
-        state_value = torch.sum(sigma_t * counterfactual_payoffs)
+        if self.target_ema < 1.0:
+            with torch.no_grad():
+                tgt_logits = self.target_model(
+                    zeros, zeros, state.unsqueeze(0)
+                ).squeeze(0)
+                tgt_policy = torch.softmax(tgt_logits, dim=-1)
+            # Convex blend: keep CFR regret-matched policy as the primary
+            # baseline, anchor with the (slower-moving) target network.
+            blend = 1.0 - self.target_ema  # weight on online CFR policy
+            sigma_blend = blend * sigma_t + (1.0 - blend) * tgt_policy
+            state_value = torch.sum(sigma_blend * counterfactual_payoffs)
+        else:
+            state_value = torch.sum(sigma_t * counterfactual_payoffs)
         action_regrets = counterfactual_payoffs - state_value
 
         self.cumulative_regret = update_regret(self.cumulative_regret, action_regrets)
@@ -288,6 +338,17 @@ class SingleNetworkCFRTrainer:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        # Polyak averaging: θ_target ← τ·θ_target + (1-τ)·θ_online.
+        if self.target_ema < 1.0:
+            with torch.no_grad():
+                online = self.model.state_dict()
+                target = self.target_model.state_dict()
+                for k in target:
+                    target[k].mul_(self.target_ema).add_(
+                        online[k] * (1.0 - self.target_ema)
+                    )
+                self.target_model.load_state_dict(target)
 
         return float(loss.item())
 

@@ -55,6 +55,14 @@ model:
   # the weighting and reduces forgetting of early-game patterns.  Set to
   # 0.0 for uniform weighting.  Only effective for the SingleNetworkCFRTrainer.
   iteration_weight_exponent: 1.0
+  # Polyak-averaged target network coefficient ``τ``.  ``1.0`` disables
+  # the target network (legacy behaviour).  Values in ``[0.9, 0.999]``
+  # stabilise late-training: after each train_step the target network is
+  # updated as θ_target ← τ·θ_target + (1-τ)·θ_online and used to anchor
+  # the regret baseline, mitigating the regression-after-1000-samples
+  # pattern documented in SESSION_20260713_TRAJECTORY.md.  Only effective
+  # for the SingleNetworkCFRTrainer.
+  target_ema: 0.995
 
 self_play:
   model_reload_interval: 0

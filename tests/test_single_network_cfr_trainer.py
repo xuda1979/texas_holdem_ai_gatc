@@ -89,3 +89,112 @@ def test_gradient_clipping_present() -> None:
     loss = trainer.train(batch_size=3)
     assert isinstance(loss, float)
     assert torch.isfinite(torch.tensor(loss))
+
+
+def test_target_network_initialised_and_synced():
+    """target_ema < 1.0 creates a target network matching the online one."""
+    torch.manual_seed(0)
+    trainer = SingleNetworkCFRTrainer(
+        input_feature_dim=4,
+        hidden_dim=8,
+        num_actions=3,
+        lr=1e-3,
+        device="cpu",
+        buffer_capacity=64,
+        target_ema=0.99,
+    )
+    # Target network exists and starts as a copy of the online network.
+    assert trainer.target_ema == 0.99
+    online = trainer.model.state_dict()
+    target = trainer.target_model.state_dict()
+    assert set(online.keys()) == set(target.keys())
+    for k in online:
+        assert torch.allclose(online[k], target[k]), f"target mismatch on {k}"
+    # Target parameters must not require gradients.
+    for p in trainer.target_model.parameters():
+        assert not p.requires_grad
+
+
+def test_target_network_ema_updates_after_train_step():
+    """After train_step the target network moves toward the online network."""
+    torch.manual_seed(0)
+    trainer = SingleNetworkCFRTrainer(
+        input_feature_dim=4,
+        hidden_dim=8,
+        num_actions=3,
+        lr=1e-2,
+        device="cpu",
+        buffer_capacity=64,
+        target_ema=0.5,  # strong pull so the change is observable
+    )
+    # Snapshot target weights before training.
+    before = {k: v.clone() for k, v in trainer.target_model.state_dict().items()}
+    # Run a train_step with a synthetic state and payoffs.
+    state = torch.zeros(trainer.max_seq_len, trainer.history_feature_dim)
+    payoffs = torch.tensor([1.0, -1.0, 2.0])
+    trainer.train_step(state, payoffs)
+    after = trainer.target_model.state_dict()
+    # At least one parameter in the target network must have changed.
+    changed = any(
+        not torch.allclose(before[k], after[k]) for k in before
+    )
+    assert changed, "target network did not update after train_step"
+
+
+def test_target_ema_disabled_matches_legacy():
+    """target_ema == 1.0 disables EMA; target stays frozen after train_step."""
+    torch.manual_seed(0)
+    trainer = SingleNetworkCFRTrainer(
+        input_feature_dim=4,
+        hidden_dim=8,
+        num_actions=3,
+        lr=1e-2,
+        device="cpu",
+        buffer_capacity=64,
+        target_ema=1.0,
+    )
+    before = {k: v.clone() for k, v in trainer.target_model.state_dict().items()}
+    state = torch.zeros(trainer.max_seq_len, trainer.history_feature_dim)
+    payoffs = torch.tensor([1.0, -1.0, 2.0])
+    trainer.train_step(state, payoffs)
+    after = trainer.target_model.state_dict()
+    for k in before:
+        assert torch.allclose(before[k], after[k]), f"target changed on {k} with ema=1.0"
+
+
+def test_load_model_syncs_target_network():
+    """load_model must keep the target network in sync with the online one."""
+    import tempfile
+
+    torch.manual_seed(0)
+    trainer = SingleNetworkCFRTrainer(
+        input_feature_dim=4,
+        hidden_dim=8,
+        num_actions=3,
+        lr=1e-3,
+        device="cpu",
+        buffer_capacity=64,
+        target_ema=0.99,
+    )
+    # Mutate the online model so it differs from the (synced) target.
+    with torch.no_grad():
+        for p in trainer.model.parameters():
+            p.add_(0.1)
+    with tempfile.TemporaryDirectory() as d:
+        path = f"{d}/model.pt"
+        trainer.save_model(path)
+        # Load into a fresh trainer; target should match online.
+        trainer2 = SingleNetworkCFRTrainer(
+            input_feature_dim=4,
+            hidden_dim=8,
+            num_actions=3,
+            lr=1e-3,
+            device="cpu",
+            buffer_capacity=64,
+            target_ema=0.99,
+        )
+        trainer2.load_model(path)
+    online = trainer2.model.state_dict()
+    target = trainer2.target_model.state_dict()
+    for k in online:
+        assert torch.allclose(online[k], target[k]), f"load_model did not sync target on {k}"
