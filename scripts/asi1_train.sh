@@ -10,7 +10,7 @@ set -euo pipefail
 #   scripts/asi1_train.sh list
 #
 # Environment overrides:
-#   HUANXIN_ASI1_REMOTE_ROOT  - remote working directory (default: /workspace/cfr)
+#   HUANXIN_ASI1_REMOTE_ROOT  - remote working directory (default: ~/software/cfr)
 #   ASI1_CONFIG               - config file to use (default: poc_asi1_npu.yaml)
 #   ASI1_ALGORITHM            - training algorithm (default: deep_cfr)
 #   ASI1_NUM_NPUS             - number of NPUs to use (default: 1; max 4)
@@ -20,7 +20,7 @@ cd "$ROOT_DIR"
 
 CONFIG_FILE="${ASI1_CONFIG:-poc_asi1_npu.yaml}"
 ALGORITHM="${ASI1_ALGORITHM:-deep_cfr}"
-REMOTE_ROOT="${HUANXIN_ASI1_REMOTE_ROOT:-/workspace/cfr}"
+REMOTE_ROOT="${HUANXIN_ASI1_REMOTE_ROOT:-~/software/cfr}"
 
 usage() {
   cat >&2 <<EOF
