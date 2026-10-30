@@ -4,6 +4,8 @@
 #   - torch 2.7.1+cpu + torch_npu 2.7.1
 #   - 4 NPUs available (we use 1 by default; multi-NPU DataParallel is gated
 #     by POKER_AI_ENABLE_NPU_DATAPARALLEL=1 because it has been unstable).
+#   - POLICY: a single environment never uses more than 8 NPUs
+#     (scripts/npu_limit.sh sets ASCEND_RT_VISIBLE_DEVICES at launch).
 #   - Model size kept moderate so training fits comfortably in NPU memory.
 #
 # All paths are relative; the training CLI resolves them against the

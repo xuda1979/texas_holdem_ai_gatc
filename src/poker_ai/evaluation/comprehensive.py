@@ -633,24 +633,20 @@ class ComprehensiveEvaluator:
         return results
 
     def _compute_kuhn_exploitability(self) -> KuhnExploitability:
-        from poker_ai.evaluation.kuhn_cfr import train_kuhn_cfr
+        from poker_ai.evaluation.kuhn_cfr import kuhn_exploitability, train_kuhn_cfr
 
         try:
             trainer = train_kuhn_cfr(iterations=self.kuhn_iterations, seed=self.seed)
         except TypeError:
             trainer = train_kuhn_cfr(self.kuhn_iterations)
-        # KuhnCFR doesn't expose exploitability directly; we approximate
-        # "converged" by checking that the average strategy is close to the
-        # known Nash equilibrium (alpha = 1/3 for the Jack-bet-otherwise-check
-        # mixed strategy).  For the purpose of this harness, we treat the
-        # trainer's internal node map as the strategy and report a small
-        # synthetic exploitability if convergence looks healthy.
-        # This is intentionally lightweight -- the real signal is the h2h
-        # panel above; Kuhn is a sanity check that CFR is implemented
-        # correctly at all.
-        converged = bool(getattr(trainer, "nodes", None))
+        # Exact best-response exploitability via the evaluator in
+        # poker_ai.games.kuhn (converted from the KuhnCFR strategy table).
+        # eps == 0 exactly at Nash; converged means "close enough" for the
+        # sanity threshold below.
+        eps = kuhn_exploitability(trainer)
+        converged = math.isfinite(eps) and eps <= 0.05
         return KuhnExploitability(
-            exploitability=0.0 if converged else 1.0,
+            exploitability=eps,
             iterations=self.kuhn_iterations,
             converged=converged,
         )

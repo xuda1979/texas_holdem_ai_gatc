@@ -28,6 +28,12 @@ except Exception as exc:  # pragma: no cover - optional dependency on non-NPU ho
     _TORCH_NPU_IMPORT_ERROR = exc
 
 
+# Hard cap on the number of Ascend NPUs a single training environment may
+# use.  The ASI1/ASI2/ASI3 machines are shared: a job must never grab more
+# than this many chips regardless of how many are visible.
+MAX_NPUS_PER_ENV = 8
+
+
 def _coerce_int(value: Any, default: int) -> int:
     """Coerce ``value`` to ``int`` with a safe fallback for ``None``."""
     if value is None:
@@ -425,7 +431,10 @@ def _data_parallel_kwargs_for_device(device: str) -> dict[str, Any]:
             return {}
         if device_count <= 0:
             return {}
-        device_ids = list(range(device_count))
+        # Never fan out across more than MAX_NPUS_PER_ENV NPUs in one
+        # environment: shared ASI1/ASI2/ASI3 machines expose more chips
+        # than any single job is allowed to monopolise.
+        device_ids = list(range(min(device_count, MAX_NPUS_PER_ENV)))
         return {"device_ids": device_ids, "output_device": device_ids[0]}
     return {}
 

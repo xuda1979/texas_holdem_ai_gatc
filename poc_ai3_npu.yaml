@@ -5,6 +5,9 @@
 # sample/cycle cadence is tuned so checkpoints land frequently enough to
 # debug training trajectories without slowing down the main loop.
 #
+# POLICY: a single environment never uses more than 8 NPUs
+# (scripts/npu_limit.sh sets ASCEND_RT_VISIBLE_DEVICES at launch).
+#
 # All paths in this config are *relative*; the training CLI resolves them
 # against the configured Huanxin remote root (see model_storage.py) unless
 # POKER_AI_ALLOW_LOCAL_MODEL_WRITES=1 is set for local smoke tests.

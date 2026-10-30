@@ -235,6 +235,10 @@ class TestComprehensiveEvaluator:
         report = ev.evaluate_checkpoint(str(tmp_checkpoint))
         assert report.kuhn_exploitability is not None
         assert "exploitability" in report.kuhn_exploitability
+        # The value is the real exact best-response exploitability, not a
+        # synthetic 0/1 flag: 100 iterations leave a measurable gap from Nash.
+        eps = report.kuhn_exploitability["exploitability"]
+        assert 0.0 < eps < 1.0, f"expected real exploitability in (0, 1), got {eps}"
 
 
 # ---------------------------------------------------------------------------

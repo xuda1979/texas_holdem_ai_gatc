@@ -29,5 +29,9 @@ scripts/ai3_shell.sh "$PREP_CMD" >/dev/null
 
 echo "[run7] Launching training job: $JOB_NAME"
 echo "[run7] Log: $LOG_PATH"
+# NPU budget policy: cap at 8 NPUs per environment (default 1).
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/npu_limit.sh"
+NPU_DEVICES="$(npu_visible_devices "${ASI3_NUM_NPUS:-1}" 8)" || exit 1
 scripts/ai3_job.sh start "$JOB_NAME" "$LOG_PATH" \
-  "cd /root/work/software/cfr && python3 run_training.py --config poc_ai3_npu.yaml --algorithm deep_cfr --npus"
+  "cd /root/work/software/cfr && export ASCEND_RT_VISIBLE_DEVICES=$NPU_DEVICES && python3 run_training.py --config poc_ai3_npu.yaml --algorithm deep_cfr --npus"

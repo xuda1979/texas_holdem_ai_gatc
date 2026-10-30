@@ -20,9 +20,16 @@ set -euo pipefail
 #   ASI3_CONFIG               - config file to use (default: poc_ai3_npu.yaml)
 #   ASI3_ALGORITHM            - training algorithm (default: deep_cfr)
 #   ASI3_SYNC_FIRST           - if "1", rsync the repo before launching (default: 1)
+#   ASI3_NUM_NPUS             - number of NPUs to use (default: 1; hard cap 8)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+# Shared NPU budget policy: never more than 8 NPUs per environment.
+source scripts/npu_limit.sh
+NPU_CAP=8
+ASI3_NUM_NPUS="${ASI3_NUM_NPUS:-1}"
+NPU_DEVICES="$(npu_visible_devices "$ASI3_NUM_NPUS" "$NPU_CAP")" || exit 1
 
 CONFIG_FILE="${ASI3_CONFIG:-poc_ai3_npu.yaml}"
 ALGORITHM="${ASI3_ALGORITHM:-deep_cfr}"
@@ -67,7 +74,7 @@ case "$ACTION" in
 
     # Compose the remote training command.
     extra_args="$*"
-    remote_cmd="cd $REMOTE_ROOT && export POKER_AI_HUANXIN_REMOTE_ROOT=$REMOTE_ROOT && export PYTHONPATH=\$PWD/src:\$PYTHONPATH && python3 run_training.py --config $CONFIG_FILE --algorithm $ALGORITHM --npus $extra_args"
+    remote_cmd="cd $REMOTE_ROOT && export POKER_AI_HUANXIN_REMOTE_ROOT=$REMOTE_ROOT && export ASCEND_RT_VISIBLE_DEVICES=$NPU_DEVICES && export PYTHONPATH=\$PWD/src:\$PYTHONPATH && python3 run_training.py --config $CONFIG_FILE --algorithm $ALGORITHM --npus $extra_args"
 
     echo "[asi3_train] Launching training job '$job_name' on ASI3..." >&2
     echo "[asi3_train] Remote log: $log_path" >&2

@@ -273,6 +273,29 @@ def test_data_parallel_kwargs_for_npu(monkeypatch):
     assert kwargs == {"device_ids": [0, 1, 2, 3], "output_device": 0}
 
 
+def test_data_parallel_kwargs_for_npu_caps_at_8(monkeypatch):
+    """Never use more than MAX_NPUS_PER_ENV (8) NPUs in one environment."""
+    monkeypatch.setattr(train.torch, "npu", _NPUStub(True, count=16), raising=False)
+
+    kwargs = train._data_parallel_kwargs_for_device("npu")
+
+    assert kwargs == {
+        "device_ids": list(range(8)),
+        "output_device": 0,
+    }
+
+
+def test_data_parallel_kwargs_for_npu_at_cap_boundary(monkeypatch):
+    monkeypatch.setattr(train.torch, "npu", _NPUStub(True, count=8), raising=False)
+
+    kwargs = train._data_parallel_kwargs_for_device("npu")
+
+    assert kwargs == {
+        "device_ids": list(range(8)),
+        "output_device": 0,
+    }
+
+
 def test_data_parallel_kwargs_for_npu_handles_errors(monkeypatch):
     monkeypatch.setattr(train.torch, "npu", _RaisingNPUStub(), raising=False)
 
