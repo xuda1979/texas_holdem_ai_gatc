@@ -1,0 +1,37 @@
+- generic [ref=f1e4]:
+  - generic [ref=f1e5]:
+    - paragraph [ref=f1e6]: 焕新社区
+    - generic [ref=f1e7]:
+      - list [ref=f1e9]:
+        - link "短信登录" [ref=f1e10] [cursor=pointer]:
+          - /url: "#"
+        - link "密码登录" [ref=f1e11] [cursor=pointer]:
+          - /url: "#"
+      - generic [ref=f1e13]:
+        - textbox "手机号" [active] [ref=f1e17]
+        - generic [ref=f1e18]:
+          - generic [ref=f1e19]: 
+          - textbox "图形验证码" [ref=f1e20]
+          - img "图形验证码" [ref=f1e21]
+        - generic [ref=f1e22]:
+          - generic [ref=f1e23]:
+            - generic [ref=f1e24]: 
+            - textbox "短信验证码" [ref=f1e25]
+          - button "获取验证码" [disabled] [ref=f1e27]
+      - generic [ref=f1e31] [cursor=pointer]:
+        - checkbox "下次自动登录" [ref=f1e33]
+        - text: 下次自动登录
+      - generic [ref=f1e36] [cursor=pointer]:
+        - checkbox "我已阅读并同意焕新社区 《服务协议及隐私政策》" [ref=f1e38]
+        - generic [ref=f1e40]:
+          - text: 我已阅读并同意焕新社区
+          - link "《服务协议及隐私政策》" [ref=f1e41]:
+            - /url: https://aihuanxin.cn/portal/common-helpcenter#/document/40?unread-message=%2Fportal%2Fcommon-components%23%2F&platformCode=JTRGZNPTFWXY&error=login_required&state=b2457970-ab75-412b-8596-95caa4011dfc
+      - generic [ref=f1e42]: 登录
+      - generic [ref=f1e44]:
+        - generic [ref=f1e45] [cursor=pointer]: 取消登录
+        - generic [ref=f1e46]:
+          - text: 没有账号？
+          - link "立即注册" [ref=f1e47] [cursor=pointer]:
+            - /url: /auth/realms/TechnicalMiddlePlatform/login-actions/registration?client_id=kunlun-front&tab_id=O2YViiI2VnE&redirect_uri=https%3A%2F%2Faihuanxin.cn%2Fkunlun%2Fkl-web%3FpoolId%3D6%26projectId%3D21b4208dde424e96b159362ef49c9c96%23%2Ftrain-dev
+  - paragraph [ref=f1e48]: ©2025-2026 焕新社区 版权所有京ICP备05002571号-27
